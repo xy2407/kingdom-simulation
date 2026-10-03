@@ -1,0 +1,27 @@
+{
+  "name": "客栈",
+  "type": "COMMERCIAL",
+  "subtype": "restaurant",
+  "tags": ["example", "food"],
+  "level": 1,
+  "jobs": 2,
+  "menu": [
+    {
+      "id": "stew",
+      "name": "炖牛肉",
+      "inputs": [
+        { "item": "minecraft:beef", "count": 2 },
+        { "item": "minecraft:carrot", "count": 1 }
+      ],
+      "outputs": [{ "item": "minecraft:cooked_beef", "count": 1 }],
+      "price": 8
+    },
+    {
+      "id": "bread",
+      "name": "烤面包",
+      "inputs": [{ "item": "minecraft:wheat", "count": 3 }],
+      "outputs": [{ "item": "minecraft:bread", "count": 1 }],
+      "price": 3
+    }
+  ]
+}

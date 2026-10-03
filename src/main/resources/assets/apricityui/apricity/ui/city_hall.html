@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<!-- 纯 DOM 页（无真实槽位）：mode=gui 让尺寸跟着逻辑视口走，intercept 让输入框和按钮能点。
+     有真实槽位的容器页绝不能写 intercept（§11 坑 32），这里没有槽位，必须写。 -->
+<meta name="aui-viewport" content="mode=gui,min-zoom=0.5,max-zoom=3,user-scalable=true">
+<meta name="aui-mouse-events" content="intercept">
+<title>市政厅</title>
+<style>
+@font-face{
+  font-family:'Zpix';
+  src:url('/font/zpix.ttf') format('truetype');
+  font-display:block;
+}
+
+*{
+  box-sizing:border-box;
+  margin:0;
+  padding:0;
+}
+
+/* 空流文档的根元素不写 overflow：AUI 里根元素盒子高为 0，
+   在它上面写 overflow 会生成零尺寸裁剪遮罩，整页节点被静默剔掉。 */
+html,body{
+  background:transparent;
+}
+
+:root{
+  --parchment:#c8ac7c;
+  --parchment-lo:#b89868;
+  --parchment-hi:#d6bb94;
+  --pane:#d6bc94;
+  --border-mid:#6a4a20;
+  --border-dark:#4a3218;
+  --border-deep:#2a1a08;
+  --border-light:#8a6e3c;
+  --border-hi:#d8bc8c;
+  --ink:#1a0e04;
+  --ink-2:#4a3218;
+  --gold:#c9a227;
+  --gold-l:#f5e08a;
+  --grid-line:rgba(58,40,20,.10);
+  --shine-soft:rgba(255,240,200,.38);
+  --sp-1:4px;
+  --sp-2:6px;
+  --sp-3:8px;
+  --sp-4:12px;
+  --sp-5:14px;
+  --sp-6:16px;
+}
+
+body{
+  font-family:'Zpix',monospace;
+  font-size:12px;
+  line-height:16px;
+  color:var(--ink);
+  display:flex;
+  justify-content:center;
+  image-rendering:pixelated;
+}
+
+/* ============================================================
+   外框：panel 底纹 + 8px 四圈硬环（照主题 .panel + .frame--thick）
+   宽度写死 900，宿主 CityHallScreen 会按视口覆盖成实际值
+   ============================================================ */
+.ch-shell{
+  width:900px;
+  display:flex;
+  flex-direction:column;
+  background-color:var(--pane);
+  background-image:url('/tex/pane_gen.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  box-shadow:
+    0 0 0 2px var(--border-deep),
+    0 0 0 4px var(--border-dark),
+    0 0 0 6px var(--border-mid),
+    0 0 0 8px var(--border-deep),
+    8px 8px 0 0 rgba(0,0,0,.45);
+}
+
+/* ---------- 标题条与底栏：羊皮纸状态栏贴图 ---------- */
+.head-row{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:var(--sp-3);
+  padding:6px 10px;
+  background-color:var(--parchment-lo);
+  background-image:url('/tex/parchment_status.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  border-bottom:2px solid var(--border-mid);
+}
+
+.head-title{
+  flex:1 1 auto;
+  min-width:0;
+  font-size:15px;
+  line-height:20px;
+  letter-spacing:.3em;
+  text-indent:.3em;
+}
+
+/* 标题前的小菱形：主题用 ::before，AUI 里伪元素支持不确定，改成真实元素 */
+.ch-mark{
+  flex:0 0 auto;
+  width:6px;
+  height:6px;
+  margin-right:6px;
+  background:var(--border-mid);
+}
+
+.head-meta{
+  flex:0 0 auto;
+  font-size:12px;
+  line-height:18px;
+  letter-spacing:.18em;
+  text-indent:.18em;
+  color:var(--ink-2);
+}
+
+.foot{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:var(--sp-2);
+  padding:7px 8px 8px;
+  background-color:var(--parchment-lo);
+  background-image:url('/tex/parchment_status.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  border-top:2px solid var(--border-mid);
+}
+
+/* ---------- 按钮 ---------- */
+.btn{
+  flex:0 0 auto;
+  padding:4px 10px;
+  border:0;
+  font-family:inherit;
+  font-size:12px;
+  line-height:18px;
+  color:var(--ink);
+  background-color:var(--parchment-hi);
+  box-shadow:
+    0 0 0 2px var(--border-dark),
+    inset 1px 1px 0 0 rgba(255,240,200,.5),
+    inset -1px -1px 0 0 var(--border-mid);
+  cursor:pointer;
+}
+
+.btn:hover{
+  color:var(--ink);
+  box-shadow:
+    0 0 0 2px var(--gold),
+    inset 1px 1px 0 0 var(--gold-l),
+    inset -1px -1px 0 0 var(--border-mid);
+}
+
+.btn-primary{
+  background-color:var(--gold);
+  color:var(--border-deep);
+}
+
+.btn-quiet{
+  background-color:var(--parchment-lo);
+  color:var(--ink-2);
+}
+
+/* ============================================================
+   三栏：左地图 / 中概况 / 右名录
+   ============================================================ */
+.ch-body{
+  display:flex;
+  gap:var(--sp-4);
+  padding:var(--sp-4) var(--sp-5) var(--sp-5);
+}
+
+.ch-side{
+  flex:0 0 200px;
+  display:flex;
+  flex-direction:column;
+}
+
+.ch-cols{
+  flex:1 1 auto;
+  min-width:0;
+  display:flex;
+  gap:var(--sp-4);
+}
+
+.ch-col{
+  flex:1 1 0;
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:var(--sp-2);
+}
+
+/* 内嵌面板：与外壳同一张底纹，边框细一档 */
+.pane{
+  display:flex;
+  flex-direction:column;
+  gap:var(--sp-2);
+  padding:var(--sp-5) var(--sp-6);
+  background-color:var(--parchment-hi);
+  background-image:url('/tex/pane_gen.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  box-shadow:
+    0 0 0 1px var(--border-mid),
+    inset 0 0 0 1px var(--border-light);
+}
+
+.eyebrow{
+  flex:0 0 auto;
+  font-size:13px;
+  line-height:18px;
+  letter-spacing:.4em;
+  text-indent:.4em;
+  color:var(--ink-2);
+}
+
+/* 城市名 */
+.title{
+  flex:0 0 auto;
+  font-size:42px;
+  line-height:1.2;
+  letter-spacing:.24em;
+  text-indent:.24em;
+}
+
+/* ---------- 地图框：照模型渲染框（半透明底 + 16px 网格 + 内凹圈）---------- */
+.model-box{
+  position:relative;
+  flex:1 1 auto;
+  overflow:hidden;
+  background-color:var(--grid-line);
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size:16px 16px;
+  background-position:center center;
+  box-shadow:
+    inset 0 0 0 2px var(--border-light),
+    inset 2px 2px 0 0 var(--border-hi),
+    inset -2px -2px 0 0 var(--border-dark);
+}
+
+.ch-map-viewport{
+  flex:1 1 auto;
+  min-height:220px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+.ch-map-note{
+  color:var(--ink-2);
+  font-size:12px;
+  letter-spacing:.2em;
+}
+
+/* 地图与金币条之间的分隔：2px 实线 + 1px 高光 */
+.ch-treasury{
+  flex:0 0 auto;
+  padding-top:var(--sp-2);
+  border-top:2px solid var(--border-mid);
+  box-shadow:0 -1px 0 var(--shine-soft);
+}
+
+/* ---------- 金币条 ---------- */
+.vital{
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+}
+
+.vital-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:var(--sp-3);
+}
+
+.vital-label{
+  font-size:12px;
+  line-height:16px;
+  color:var(--ink-2);
+}
+
+.vital-num{
+  font-size:12px;
+  line-height:16px;
+}
+
+.bar{
+  position:relative;
+  height:22px;
+  overflow:hidden;
+  background-color:var(--border-deep);
+  background-image:url('/tex/parchment_bar.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  box-shadow:
+    0 0 0 2px var(--border-deep),
+    inset 0 0 0 2px var(--border-mid);
+}
+
+.bar-fill{
+  position:absolute;
+  left:0;
+  top:0;
+  height:100%;
+  background-color:var(--gold);
+  box-shadow:
+    inset 1px 1px 0 0 var(--gold-l),
+    inset -1px -1px 0 0 var(--border-mid);
+}
+
+/* ---------- 属性格 ---------- */
+.stat-row{
+  flex:0 0 auto;
+  display:flex;
+  gap:var(--sp-3);
+}
+
+.stat{
+  flex:1 1 0;
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:2px;
+  height:74px;
+  padding:6px 4px;
+  background-color:var(--parchment);
+  background-image:url('/tex/parchment_card.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  box-shadow:
+    0 0 0 2px var(--border-dark),
+    inset 2px 2px 0 0 var(--border-hi),
+    inset -2px -2px 0 0 var(--border-mid);
+}
+
+.stat-value{
+  font-size:16px;
+  line-height:18px;
+}
+
+.stat-label{
+  font-size:12px;
+  line-height:14px;
+  color:var(--ink-2);
+}
+
+/* ---------- 政令 ---------- */
+.ch-decree{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:var(--sp-3);
+  padding:3px 2px;
+}
+
+.ch-decree-note{
+  font-size:10px;
+  line-height:13px;
+  color:var(--ink-2);
+}
+
+/* 开关：选中态由 Java 加 .on 切换，不依赖 :checked 伪类 */
+.switch{
+  position:relative;
+  flex:0 0 auto;
+  width:28px;
+  height:16px;
+  display:block;
+  background-color:var(--parchment-lo);
+  box-shadow:
+    inset 0 0 0 2px var(--border-dark),
+    inset 1px 1px 0 0 var(--border-deep);
+  cursor:pointer;
+}
+
+.switch-knob{
+  display:block;
+  width:10px;
+  height:10px;
+  margin:3px 0 0 3px;
+  background-color:var(--border-mid);
+  box-shadow:inset 1px 1px 0 0 var(--border-light);
+}
+
+.switch.on .switch-knob{
+  margin-left:15px;
+  background-color:var(--gold);
+  box-shadow:inset 1px 1px 0 0 var(--gold-l);
+}
+
+/* ---------- 输入框 ---------- */
+.field{
+  flex:0 0 auto;
+  display:flex;
+  flex-direction:column;
+  gap:var(--sp-2);
+}
+
+.field-label{
+  font-size:12px;
+  line-height:16px;
+  letter-spacing:.24em;
+  text-indent:.24em;
+  color:var(--ink-2);
+}
+
+.field input{
+  width:100%;
+  padding:4px 6px;
+  font-family:'Zpix',monospace;
+  font-size:16px;
+  line-height:22px;
+  color:var(--ink);
+  background-color:var(--parchment-hi);
+  background-image:url('/tex/parchment_card.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  border:0;
+  outline:0;
+  box-shadow:
+    0 0 0 2px var(--border-deep),
+    inset 1px 1px 0 0 var(--border-mid);
+}
+
+.field input::placeholder{
+  color:var(--border-mid);
+}
+
+/* ---------- 居民条 ---------- */
+.ch-citizens{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+  display:flex;
+  flex-direction:column;
+  gap:var(--sp-1);
+}
+
+/* 独立滚动条：residential.html 在用，可用 */
+.ch-citizens::-webkit-scrollbar{
+  width:8px;
+}
+
+.ch-citizens::-webkit-scrollbar-track{
+  background-color:var(--parchment-lo);
+}
+
+.ch-citizens::-webkit-scrollbar-thumb{
+  background-color:var(--border-mid);
+  box-shadow:inset 1px 1px 0 0 var(--border-light);
+}
+
+.list-row{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:var(--sp-2);
+  padding:3px 4px;
+  background-color:var(--parchment-hi);
+  background-image:url('/tex/parchment_card.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  box-shadow:
+    0 0 0 1px var(--border-mid),
+    inset 1px 1px 0 0 rgba(255,240,200,.5);
+  cursor:pointer;
+}
+
+.list-row:hover{
+  box-shadow:
+    0 0 0 2px var(--gold),
+    inset 1px 1px 0 0 var(--gold-l);
+}
+
+/* 选中态由 Java 切 .on，页面里不预置 */
+.list-row.on{
+  background-color:var(--parchment-lo);
+  box-shadow:
+    0 0 0 2px var(--gold),
+    inset 1px 1px 0 0 var(--gold-l);
+}
+
+.list-row-name{
+  flex:1 1 auto;
+  min-width:0;
+  font-size:15px;
+  line-height:20px;
+  overflow:hidden;
+  white-space:nowrap;
+}
+
+.list-row-sub{
+  flex:0 0 auto;
+  font-size:10px;
+  line-height:16px;
+  color:var(--ink-2);
+}
+
+/* 行内头像位：24×24，将来由 Java 塞实体头像渲染元素 */
+.avatar-sm{
+  flex:0 0 auto;
+  width:24px;
+  height:24px;
+  background-color:var(--parchment-lo);
+  box-shadow:0 0 0 2px var(--border-dark);
+}
+
+.tag{
+  flex:0 0 auto;
+  padding:0 3px;
+  font-size:10px;
+  line-height:14px;
+  color:var(--parchment-hi);
+  background-color:var(--border-deep);
+}
+
+/* ---------- 键值 ---------- */
+.kv{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:var(--sp-2);
+}
+
+.kv-key{
+  font-size:12px;
+  line-height:16px;
+  color:var(--ink-2);
+}
+
+.kv-val{
+  font-size:12px;
+  line-height:16px;
+}
+</style>
+</head>
+<body>
+
+<div class="ch-shell" id="chShell">
+
+  <div class="head-row">
+    <span class="ch-mark"></span>
+    <span class="head-title">市 政 厅</span>
+    <span class="head-meta" id="chMeta">—</span>
+  </div>
+
+  <div class="ch-body">
+
+    <!-- 左：城镇地图 + 金库（同框） -->
+    <div class="ch-side">
+      <div class="pane ch-map" style="flex:1 1 auto;">
+        <div class="model-box ch-map-viewport">
+          <div class="ch-map-note">城 镇 地 图</div>
+        </div>
+        <div class="ch-treasury">
+          <div class="vital">
+            <div class="vital-head">
+              <span class="vital-label">金库</span>
+              <span class="vital-num" id="chTreasuryNum">0 / 0</span>
+            </div>
+            <div class="bar"><div class="bar-fill" id="chTreasuryFill" style="width:0;"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ch-cols">
+
+      <!-- 中：城市名 + 概况 + 政令 -->
+      <div class="pane ch-col">
+        <div class="title" id="chTownName">—</div>
+        <div class="eyebrow">城镇概况</div>
+        <div class="stat-row">
+          <div class="stat"><span class="stat-value" id="chPop">0</span><span class="stat-label">居民</span></div>
+          <div class="stat"><span class="stat-value" id="chBuild">0</span><span class="stat-label">建筑</span></div>
+        </div>
+
+        <div class="eyebrow" style="margin-top:4px;">政令</div>
+
+        <div class="ch-decree">
+          <div>
+            <div>集市日</div>
+            <div class="ch-decree-note">每旬开市，民情上涨、税入下降</div>
+          </div>
+          <span class="switch" id="chDecreeMarket"><span class="switch-knob"></span></span>
+        </div>
+
+        <div class="ch-decree">
+          <div>
+            <div>宵禁</div>
+            <div class="ch-decree-note">夜间禁止外出，治安上升、民情下降</div>
+          </div>
+          <span class="switch" id="chDecreeCurfew"><span class="switch-knob"></span></span>
+        </div>
+
+        <div class="ch-decree">
+          <div>
+            <div>招工布告</div>
+            <div class="ch-decree-note">空闲市民自动前往待招工建筑</div>
+          </div>
+          <span class="switch" id="chDecreeHiring"><span class="switch-knob"></span></span>
+        </div>
+
+        <div class="ch-decree">
+          <div>
+            <div>城门税</div>
+            <div class="ch-decree-note">对往来商队抽成</div>
+          </div>
+          <span class="switch" id="chDecreeToll"><span class="switch-knob"></span></span>
+        </div>
+
+        <div class="field" style="margin-top:2px;">
+          <span class="field-label">税率（%）</span>
+          <input type="text" id="chTaxRate" value="12">
+        </div>
+      </div>
+
+      <!-- 右：居民名录 + 财政 -->
+      <div class="pane ch-col">
+        <div class="eyebrow">居民名录</div>
+        <div class="field">
+          <input type="text" id="chSearch" placeholder="搜索居民…">
+        </div>
+        <div class="ch-citizens" id="chCitizens"></div>
+
+        <div class="eyebrow" style="margin-top:4px;">今日财政</div>
+        <div class="kv"><span class="kv-key">税入</span><span class="kv-val" id="chIncomeTax">+0</span></div>
+        <div class="kv"><span class="kv-key">工钱</span><span class="kv-val" id="chIncomeWage">-0</span></div>
+        <div class="kv"><span class="kv-key">净入</span><span class="kv-val" id="chIncomeNet">+0</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="foot">
+    <button class="btn btn-primary" id="chDecree">颁布政令</button>
+    <button class="btn" id="chSave">保存</button>
+    <button class="btn btn-quiet" id="chClose">关闭</button>
+  </div>
+
+</div>
+
+</body>
+</html>

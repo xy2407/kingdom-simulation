@@ -1,0 +1,8 @@
+{
+  "name": "小麦田",
+  "type": "AGRICULTURE",
+  "tags": ["example", "crop"],
+  "level": 1,
+  "jobs": 2,
+  "farm_slots": 32
+}

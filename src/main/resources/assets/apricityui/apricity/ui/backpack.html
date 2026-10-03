@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="aui-viewport" content="mode=fixed,width=1200,height=1182,scale=0.4864,zoom=1,min-zoom=0.5,max-zoom=2,zoom-step=0.1,user-scalable=true">
+<!-- scale 定标说明：0.4864 = 2 × 18/74，即默认槽位 = 36 GUI px（原版 2 倍），
+     整页 = 原设计 ÷2。Ctrl+滚轮范围：min-zoom 0.5（=旧定标 0.2432，槽位=原版）
+     ～ max-zoom 2（=0.9728，槽位≈72），Ctrl+0 回到默认。
+     想回到"撑满窗口"的等比适配就改回 scale=fit。 -->
+<!-- 本页**故意不写** aui-mouse-events=intercept（§11 坑 32）：
+     intercept 会让命中区域的鼠标事件不再传给下方的 Minecraft 输入，
+     而容器槽位的取放走的是原版菜单（AbstractContainerScreen.mouseClicked），
+     一拦截就整个界面都点不动（悬停高亮/tooltip 照常显示，只是拿不起来）。
+     本页没有任何需要 DOM 点击的元素（槽位是 pointer-events:none），所以裸奔即可；
+     顺带确认过 Ctrl+滚轮缩放不依赖它（findViewportZoomTargetAtMouse 只要求 hitTest 命中）。 -->
+<title>身份卡 · 像素中世纪</title>
+<style>
+@font-face{
+  font-family:'Zpix';
+  src:url('/font/zpix.ttf') format('truetype');
+  font-display:block;
+}
+
+:root{
+  --parchment:#c8ac7c;
+  --ink:#1a0e04;
+  --ink-2:#4a3218;
+}
+
+*{box-sizing:border-box;margin:0;padding:0;
+  -webkit-font-smoothing:none;-moz-osx-font-smoothing:unset;font-smooth:never;
+  text-rendering:geometricPrecision;
+  font-feature-settings:"kern" 0,"liga" 0,"calt" 0;font-variant-ligatures:none;}
+
+html,body{overflow-x:hidden;overflow-y:hidden;}
+
+body{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  gap:14px;
+  padding:32px 20px;
+  /* 原稿的深色底是给浏览器看的；游戏里容器屏自带压暗，透明让世界透出来，
+     否则 scale=fit 下文档矩形整块发黑（"部分黑屏"） */
+  background-color:transparent;
+  font-family:'Zpix',monospace;
+  font-size:15px;
+  color:var(--ink);
+  image-rendering:pixelated;
+  image-rendering:-moz-crisp-edges;
+  image-rendering:crisp-edges;
+}
+
+canvas,img{
+  image-rendering:pixelated;
+  image-rendering:-moz-crisp-edges;
+  image-rendering:crisp-edges;
+}
+
+.id-card{
+  position:relative;
+  width:min(1080px,96vw);
+  /* 原稿 4:3；AUI 不实现 aspect-ratio，写成它在 1080 宽下的精确值 */
+  height:810px;
+  padding:22px;
+  background-color:var(--parchment);
+  background-image:url('/tex/card_gen.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  box-shadow:
+    8px 8px 0 0 rgba(0,0,0,.5),
+    16px 16px 0 0 rgba(0,0,0,.28);
+}
+
+/* 原稿是 grid 1fr 2fr；AUI 的 grid 分栏比例不可靠（§4.2），换 flex + 显式 px：
+   1036 内宽 = 左 340 + 缝 16 + 右 680，正是原稿 1:2 比例的精确值 */
+.id-card-inner{
+  width:100%;
+  height:100%;
+  display:flex;
+  gap:16px;
+}
+
+.card-left{
+  width:340px;
+  flex-shrink:0;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  min-height:0;
+}
+
+.model-box{
+  position:relative;
+  flex:1 1 auto;
+  min-height:0;
+  overflow:hidden;
+  background-color:rgba(58,40,20,.10);
+  background-image:
+    linear-gradient(rgba(58,40,20,.10) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(58,40,20,.10) 1px, transparent 1px);
+  background-size:16px 16px;
+  background-position:center center;
+  box-shadow:
+    0 0 0 2px #2a1a08,
+    0 0 0 4px #4a3218,
+    0 0 0 6px #6a4a20,
+    0 0 0 8px #3a2814,
+    inset 0 0 0 2px #8a6e3c,
+    inset 2px 2px 0 0 #d8bc8c,
+    inset -2px -2px 0 0 #4a3218;
+}
+
+/* 原稿模型盒是空的；游戏里放 NPC 立绘（对应原稿预留的展示位） */
+.model-box kingdom-npc-model{
+  display:block;
+  width:100%;
+  height:100%;
+}
+
+.vitals{
+  flex-shrink:0;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  padding:12px 14px;
+  background-color:#d6bc94;
+  background-image:url('/tex/pane_gen.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  box-shadow:
+    0 0 0 2px #2a1a08,
+    0 0 0 4px #4a3218,
+    0 0 0 6px #6a4a20,
+    0 0 0 8px #3a2814,
+    inset 0 0 0 2px #8a6e3c,
+    inset 2px 2px 0 0 #d8bc8c,
+    inset -2px -2px 0 0 #4a3218;
+}
+
+.vital{display:flex;flex-direction:column;gap:5px;}
+
+.vital-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+}
+
+.vital-label{font-size:13px;letter-spacing:4px;text-indent:4px;color:var(--ink-2);}
+.vital-num{display:flex;align-items:center;}
+.vital-num b{font-size:13px;font-weight:400;color:var(--ink);}
+.vital-num i{font-size:13px;font-style:normal;color:rgba(74,50,24,.65);}
+
+.vital-bar{
+  position:relative;
+  height:22px;
+  background-color:#3a2814;
+  box-shadow:
+    0 0 0 2px #2a1a08,
+    inset 0 0 0 2px #6a4a20,
+    inset 1px 1px 0 0 #4a3218,
+    inset -1px -1px 0 0 #8a6e3c;
+  overflow:hidden;
+}
+
+.vital-canvas{
+  display:block;
+  width:100%;
+  height:22px;
+}
+
+npc-bar{display:block;width:100%;height:22px;}
+
+.card-right{
+  width:680px;
+  display:flex;
+  flex-direction:column;
+  gap:14px;
+  min-height:0;
+}
+
+.pane{
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+  padding:14px 16px;
+  background-color:#d6bc94;
+  background-image:url('/tex/pane_gen.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  box-shadow:
+    0 0 0 2px #2a1a08,
+    0 0 0 4px #4a3218,
+    0 0 0 6px #6a4a20,
+    0 0 0 8px #3a2814,
+    inset 0 0 0 2px #8a6e3c,
+    inset 2px 2px 0 0 #d8bc8c,
+    inset -2px -2px 0 0 #4a3218;
+}
+
+.pane-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding-bottom:8px;
+  margin-bottom:12px;
+  border-bottom:2px solid #6a4a20;
+  box-shadow:0 1px 0 rgba(255,240,200,.45);
+}
+
+.pane-title{
+  display:flex;
+  align-items:center;
+  font-size:15px;
+  font-weight:400;
+  letter-spacing:4px;
+  text-indent:4px;
+  color:var(--ink);
+}
+.pane-title::before{
+  content:"";
+  display:inline-block;
+  width:6px;height:6px;
+  margin-right:9px;
+  background:#6a4a20;
+  box-shadow:0 0 0 1px #3a2814;
+  transform:translateY(-1px) rotate(45deg);
+  flex-shrink:0;
+}
+.pane-meta{font-size:11px;letter-spacing:2px;color:rgba(74,50,24,.7);white-space:nowrap;}
+
+.pane-bag{flex-shrink:0;}
+
+/* 原稿 8 列 grid + aspect-ratio:1/1；AUI 两者都不可靠（§4.2/§2），
+   换显式行：槽位 74px = (右栏内容宽 648 − 7×8 缝) ÷ 8，正是原稿网格算出的值。
+   间距用 margin 不用 flex gap（AUI flex 的 gap 行为不一致，实测槽位横排不生效）；
+   flex:0 0 auto 锁死尺寸，防止被拉伸粘连 */
+.bag-grid{display:block;}
+.slot-row{display:flex;}
+
+.slot{
+  position:relative;
+  flex:0 0 auto;
+  width:74px;
+  height:74px;
+  /* AUI 的 UA 样式表给所有 slot 默认 --aui-slot-size:18（原版槽位尺寸），
+     而它是热区判定的第一优先级，会把点击热区压成 18px（渲染格子的 37.5%）——
+     必须在这里覆盖成真实尺寸（§11 坑 28） */
+  --aui-slot-size:74;
+  /* 图标缩放：slot_gen.png 是 32×32、四边各 3px 边框，拉到 74px 后内框约 60px；
+     16×3.5 = 56px 正好落在内框里（§11 坑 31） */
+  --aui-slot-icon-scale:3.5;
+  margin-right:8px;
+  margin-bottom:8px;
+  background-color:#d8c090;
+  background-image:url('/tex/slot_gen.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  image-rendering:-moz-crisp-edges;
+  image-rendering:crisp-edges;
+  cursor:pointer;
+}
+
+.pane-bio{flex:1 1 auto;min-height:0;overflow:hidden;}
+
+/* 行囊（玩家背包）面板：原稿没有这块，为物品存取补上；视觉语言与大卡一致
+   （pane 贴图 + 同款边框环）。槽位 48px、固定 9 列：
+   面板宽 = 9×48 + 8×8（列间距）+ 2×16（面板内边距）= 528——
+   正好包住槽位、左右留白对称；居中由 body 的 align-items:center 负责。
+   不要跟着卡片写 1080：那样槽位挤在左半截、右侧空一大片（§11 坑 29）。 */
+.pane-player{
+  width:528px;
+  flex-shrink:0;
+}
+
+/* 玩家容器用固定 9 列 grid——AUI 自带 preset:player 用的就是这套机制
+   （grid-template-columns 写整数=列数，扩展器自己也会注入同样的值）。
+   槽位必须是 #player 的直接子元素，靠这个 grid 自动排成 4 行×9 列。 */
+#player{
+  display:grid;
+  grid-template-columns:9;
+  gap:8px;
+  width:496px;
+}
+
+/* 槽位间距交给 grid 的 gap：行内 margin 必须清零，否则会被算进列宽/行高 */
+.pane-player .slot{
+  width:48px;
+  height:48px;
+  --aui-slot-size:48;
+  /* 48px 槽位的内框约 39px：16×2.25 = 36px（§11 坑 31） */
+  --aui-slot-icon-scale:2.25;
+  margin-right:0;
+  margin-bottom:0;
+}
+
+/* 槽位里的 <item> 必须自己铺满槽位盒子。
+   AUI 的物品居中用的是 <item> 元素自身的矩形（RenderNode.ItemNode.centeredBodyX
+   取 Rect.of(item) 再按固定的 16px 居中），而 UA 样式表把 item 定死 16×16、
+   定位在 slot 的 left/top:1px——不铺满，放大后的图标就会以"格子左上角"为中心
+   撑出去。铺满之后图标中心 = 槽位中心，配合 --aui-slot-icon-scale 才是正着放大的
+   （§11 坑 31）。position:absolute 显式写，不依赖 UA 的 slot > item 标签选择器。 */
+.slot-icon{
+  position:absolute;
+  left:0;
+  top:0;
+  width:74px;
+  height:74px;
+}
+
+.pane-player .slot-icon{
+  width:48px;
+  height:48px;
+}
+
+/* 原稿 2 列 grid + 列距 22px；AUI grid 不可靠 → 4 个显式行，
+   项宽 313px = (右栏内容宽 648 − 22) ÷ 2，正是原稿网格算出的值 */
+.bio-grid{
+  display:flex;
+  flex-direction:column;
+}
+
+.bio-row{
+  display:flex;
+  gap:22px;
+}
+
+.bio-item{
+  width:313px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:8px 0;
+  border-bottom:1px dotted rgba(74,50,24,.35);
+}
+.bio-k{flex-shrink:0;font-size:12px;letter-spacing:3px;text-indent:3px;color:rgba(74,50,24,.7);}
+.bio-v{font-size:13px;color:var(--ink);white-space:nowrap;overflow:hidden;min-width:0;}
+.bio-v--gold{color:#8a6d17;}
+
+.bio-desc{
+  flex:1 1 auto;
+  min-height:0;
+  overflow:auto;
+  margin-top:12px;
+  padding:12px 14px;
+  font-size:12px;
+  line-height:23px;
+  color:var(--ink-2);
+  background-color:rgba(58,40,20,.10);
+  box-shadow:
+    inset 0 0 0 2px rgba(74,50,24,.35),
+    inset 2px 2px 0 0 rgba(0,0,0,.08);
+}
+.bio-desc .line{display:block;line-height:23px;}
+
+.pt{
+  font-family:'Zpix',monospace;
+  font-size:15px;
+  font-weight:400;
+  letter-spacing:0;
+  color:var(--ink);
+  line-height:20px;
+  white-space:nowrap;
+  display:inline-block;
+  vertical-align:top;
+}
+.pt img{display:block;margin:0 auto;max-width:100%;}
+
+@media (max-width:900px){
+  .id-card{aspect-ratio:auto;padding:18px;}
+  .id-card-inner{grid-template-columns:1fr;gap:12px;}
+  .model-box{min-height:200px;}
+  .bag-grid{grid-template-columns:repeat(6,minmax(0,1fr));}
+}
+@media (max-width:560px){
+  body{padding:20px 12px;}
+  .id-card{padding:14px;}
+  .bag-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;}
+  .bio-grid{grid-template-columns:1fr;}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important;}
+}
+</style>
+</head>
+<body>
+
+<div class="id-card" id="idCard">
+  <div class="id-card-inner">
+
+    <div class="card-left">
+      <div class="model-box">
+        <kingdom-npc-model id="npcModel"></kingdom-npc-model>
+      </div>
+
+      <div class="vitals">
+        <div class="vital">
+          <div class="vital-head">
+            <span class="vital-label pt">生命</span>
+            <span class="vital-num"><b class="pt" id="hpNow">86</b><i class="pt" id="hpMax">/100</i></span>
+          </div>
+          <div class="vital-bar">
+            <npc-bar class="vital-canvas" id="hpBar" type="hp" value="86" max="100"></npc-bar>
+          </div>
+        </div>
+        <div class="vital">
+          <div class="vital-head">
+            <span class="vital-label pt">饥饿</span>
+            <span class="vital-num"><b class="pt" id="hungerNow">62</b><i class="pt" id="hungerMax">/100</i></span>
+          </div>
+          <div class="vital-bar">
+            <npc-bar class="vital-canvas" id="hungerBar" type="hunger" value="62" max="100"></npc-bar>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card-right">
+
+      <section class="pane pane-bag">
+        <header class="pane-head">
+          <h2 class="pane-title pt">背包</h2>
+          <span class="pane-meta pt" id="bagMeta">24 格</span>
+        </header>
+        <!-- 原稿由 JS 往 #bagGrid 塞 24 个 .slot div；AUI 需要真实 <slot> 元素。
+             原稿靠 8 列 grid 自动换行；AUI grid 不可靠 → 3 个显式行，每行 8 个 -->
+        <container id="entity" class="bag-grid" bind="entity" size="24" primary="true">
+          <div class="slot-row">
+            <slot id="slot0" class="slot" slot-index="0" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot1" class="slot" slot-index="1" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot2" class="slot" slot-index="2" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot3" class="slot" slot-index="3" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot4" class="slot" slot-index="4" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot5" class="slot" slot-index="5" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot6" class="slot" slot-index="6" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot7" class="slot" slot-index="7" slot-size="74"><item class="slot-icon"></item></slot>
+          </div>
+          <div class="slot-row">
+            <slot id="slot8" class="slot" slot-index="8" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot9" class="slot" slot-index="9" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot10" class="slot" slot-index="10" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot11" class="slot" slot-index="11" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot12" class="slot" slot-index="12" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot13" class="slot" slot-index="13" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot14" class="slot" slot-index="14" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot15" class="slot" slot-index="15" slot-size="74"><item class="slot-icon"></item></slot>
+          </div>
+          <div class="slot-row">
+            <slot id="slot16" class="slot" slot-index="16" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot17" class="slot" slot-index="17" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot18" class="slot" slot-index="18" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot19" class="slot" slot-index="19" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot20" class="slot" slot-index="20" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot21" class="slot" slot-index="21" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot22" class="slot" slot-index="22" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot23" class="slot" slot-index="23" slot-size="74"><item class="slot-icon"></item></slot>
+          </div>
+        </container>
+      </section>
+
+      <section class="pane pane-bio">
+        <header class="pane-head">
+          <h2 class="pane-title pt">身份档案</h2>
+          <span class="pane-meta pt" id="bioNo">NO. 0073</span>
+        </header>
+
+        <!-- 标签从演示字段换成模组实际数据字段，结构/样式逐字未动；值由 Java 填 -->
+        <div class="bio-grid">
+          <div class="bio-row">
+            <div class="bio-item"><span class="bio-k pt">姓名</span><span class="bio-v bio-v--gold pt" id="bioName">艾德里克·铁誓</span></div>
+            <div class="bio-item"><span class="bio-k pt">职业</span><span class="bio-v pt" id="bioJob">锈锤堡守夜人</span></div>
+          </div>
+          <div class="bio-row">
+            <div class="bio-item"><span class="bio-k pt">性别</span><span class="bio-v pt" id="bioGender">瓦拉里安·北境</span></div>
+            <div class="bio-item"><span class="bio-k pt">年龄</span><span class="bio-v pt" id="bioAge">骑士 · 守卫</span></div>
+          </div>
+          <div class="bio-row">
+            <div class="bio-item"><span class="bio-k pt">性格</span><span class="bio-v pt" id="bioPersonality">Lv. 12</span></div>
+            <div class="bio-item"><span class="bio-k pt">状态</span><span class="bio-v pt" id="bioLifecycle">中立 · 可交谈</span></div>
+          </div>
+          <div class="bio-row">
+            <div class="bio-item"><span class="bio-k pt">国度</span><span class="bio-v pt" id="bioNation">北境 · 锈锤堡</span></div>
+            <div class="bio-item"><span class="bio-k pt">家财</span><span class="bio-v pt" id="bioWealth">亚瑟·潘德拉贡</span></div>
+          </div>
+        </div>
+
+        <div class="bio-desc" id="bioDesc">
+          <span class="line"><span class="pt">三十年如一日守在城墙之上，话不多，酒量极好。</span></span>
+          <span class="line"><span class="pt">对陌生人始终保持着三分警惕，</span></span>
+          <span class="line"><span class="pt">却绝不会对落难者视而不见。</span></span>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<!-- 行囊（玩家背包）面板：原稿没有这块；为了能把物品放进市民行装，
+     按原稿的视觉语言补一个 36 格面板，绑到菜单的 player 容器。
+     槽位必须是 <container> 的直接子元素（AUI 文档明写：手写 slot 也必须是直接子元素），
+     所以不再包 .slot-row——36 个 slot 由 #player 的 9 列 grid 自动排成 4 行。
+     DOM 顺序 = 显示顺序，按原版习惯排：背包 9..35 三行在上、快捷栏 0..8 一行在底
+     （AUI 的 PlayerInventorySlotOrder 也是把 0..8 当玩家池的最后 9 个）。
+     注意 slot-index 始终是该槽在玩家背包里的逻辑索引，与排版顺序无关。 -->
+<section class="pane pane-player">
+  <header class="pane-head">
+    <h2 class="pane-title pt">行囊</h2>
+    <span class="pane-meta pt">36 格</span>
+  </header>
+  <container id="player" bind="player" size="36">
+    <slot id="pslot9" class="slot" slot-index="9" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot10" class="slot" slot-index="10" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot11" class="slot" slot-index="11" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot12" class="slot" slot-index="12" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot13" class="slot" slot-index="13" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot14" class="slot" slot-index="14" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot15" class="slot" slot-index="15" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot16" class="slot" slot-index="16" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot17" class="slot" slot-index="17" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot18" class="slot" slot-index="18" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot19" class="slot" slot-index="19" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot20" class="slot" slot-index="20" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot21" class="slot" slot-index="21" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot22" class="slot" slot-index="22" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot23" class="slot" slot-index="23" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot24" class="slot" slot-index="24" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot25" class="slot" slot-index="25" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot26" class="slot" slot-index="26" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot27" class="slot" slot-index="27" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot28" class="slot" slot-index="28" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot29" class="slot" slot-index="29" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot30" class="slot" slot-index="30" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot31" class="slot" slot-index="31" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot32" class="slot" slot-index="32" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot33" class="slot" slot-index="33" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot34" class="slot" slot-index="34" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot35" class="slot" slot-index="35" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot0" class="slot" slot-index="0" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot1" class="slot" slot-index="1" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot2" class="slot" slot-index="2" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot3" class="slot" slot-index="3" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot4" class="slot" slot-index="4" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot5" class="slot" slot-index="5" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot6" class="slot" slot-index="6" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot7" class="slot" slot-index="7" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot8" class="slot" slot-index="8" slot-size="48"><item class="slot-icon"></item></slot>
+  </container>
+</section>
+
+<!-- 原稿底部的脚本块已移除：AUI 不执行 JS。三项职责的等价实现：
+     ① applyTextures 程序化贴图 → tex/card_gen.png、pane_gen.png、slot_gen.png（按原稿同算法移植生成）；
+     ② canvas 血条 → npc-bar 自定义元素（Java 逐像素画）；
+     ③ pixelizeAll 文字像素化 → Zpix 像素字体直排。 -->
+
+</body>
+</html>

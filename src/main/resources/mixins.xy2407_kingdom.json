@@ -1,0 +1,24 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.xy2407.kingdom.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "client": [
+    "MaskStencilSuppressMixin",
+    "AuiFabulousStencilMixin",
+    "AuiMeasureCacheGateMixin",
+    "AuiSlotSyncMeasureCacheMixin",
+    "AuiDocumentCenterMixin",
+    "AuiContainerDocCenterMixin",
+    "AuiScissorOffsetMixin",
+    "AuiSlotMenuOffsetMixin",
+    "AuiFloatingItemScaleMixin",
+    "RtsCameraMixin",
+    "RtsProjectionMixin",
+    "RtsKeyboardInputMixin",
+    "RtsMouseHandlerMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

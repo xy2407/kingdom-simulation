@@ -1,0 +1,44 @@
+package com.xy2407.kingdom.client.building;
+
+import com.xy2407.kingdom.client.farm.FarmPanelScreen;
+import com.xy2407.kingdom.common.network.building.BuildingPanelRequestPacket;
+import com.xy2407.kingdom.common.network.building.BuildingPanelStatePacket;
+
+import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.Component;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.api.distmarker.OnlyIn;
+import net.neoforged.neoforge.network.PacketDistributor;
+
+/**
+ * 建筑操作界面的客户端入口：按 Tab 请服务端判定所处建筑并分发对应面板
+ */
+@OnlyIn(Dist.CLIENT)
+public final class BuildingPanelClient {
+
+    private BuildingPanelClient() {
+    }
+
+    public static void requestAtPlayer() {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player == null || minecraft.getConnection() == null) {
+            return;
+        }
+        PacketDistributor.sendToServer(new BuildingPanelRequestPacket());
+    }
+
+    public static void accept(BuildingPanelStatePacket packet) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player == null) {
+            return;
+        }
+        if (packet.farmable()) {
+            minecraft.setScreen(new FarmPanelScreen());
+            return;
+        }
+        String message = packet.inside()
+                ? String.format("%s  Lv.%d · 建筑操作界面尚未完成", packet.name(), packet.level())
+                : "这里没有已完工的建筑";
+        minecraft.player.displayClientMessage(Component.literal(message), true);
+    }
+}

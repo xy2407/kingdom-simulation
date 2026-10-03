@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="aui-viewport" content="mode=fixed,width=420,height=704,scale=1,zoom=1,min-zoom=1,max-zoom=1,user-scalable=false">
+<title>NPC 身份信息面板</title>
+<style>
+@font-face{
+  font-family:'Zpix';
+  src:url('/font/zpix.ttf') format('truetype');
+  font-display:block;
+}
+
+*{
+  box-sizing:border-box;
+  margin:0;
+  padding:0;
+}
+
+html,body{height:100%;}
+
+body{
+  min-height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:20px;
+  background-color:transparent;
+  font-family:'Zpix',monospace;
+  font-size:12px;
+  color:#1a0e04;
+}
+
+.npc-panel{
+  width:380px;
+  height:660px;
+  position:relative;
+  display:flex;
+  flex-direction:column;
+
+  background-image:url('/tex/parchment_panel.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  background-color:#c8ac7c;
+
+  padding:32px 28px;
+
+  /* 原来这里是 box-shadow:6px 6px 0 0 rgba(0,0,0,.55)：那层半透明投影是给浏览器里"浮在页面上"
+     的观感用的，世界窗口里它就是贴在羊皮纸右下方的一块灰黑色矩形，侧着看尤其穿帮。
+     世界内要的是"一张纸立在那儿"，不要投影。元素内部的 inset 阴影是像素描边的立体感，
+     不是投影，保留。 */
+  overflow:hidden;
+}
+
+.npc-inner{
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  height:100%;
+  gap:12px;
+}
+
+.np-head{
+  display:flex;
+  gap:12px;
+  flex-shrink:0;
+}
+
+.np-visual{
+  display:flex;
+  gap:8px;
+  flex-shrink:0;
+}
+
+.np-avatar-frame kingdom-entity-avatar{
+  display:block;
+  width:70px;
+  height:70px;
+}
+
+.np-avatar-frame{
+  width:74px;
+  height:74px;
+  position:relative;
+  flex-shrink:0;
+  background-image:url('/tex/parchment_avatar.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  background-color:#b89868;
+  border:2px solid #4a3218;
+  box-shadow:
+    0 0 0 1px #6a4a20,
+    inset 0 0 0 1px #8a6e3c,
+    inset 2px 2px 0 0 #7a5a34,
+    inset -2px -2px 0 0 #d8bc8c;
+}
+
+.np-flag{
+  position:relative;
+  width:32px;
+  height:74px;
+  flex-shrink:0;
+}
+.flag-pole{
+  position:absolute;
+  left:0;top:0;
+  width:3px;
+  height:100%;
+  background:#6a4a20;
+  border:1px solid #3a2814;
+}
+.flag-cloth{
+  position:absolute;
+  left:3px;
+  top:3px;
+  width:29px;
+  height:28px;
+  background:linear-gradient(90deg,var(--f1,#7a1414) 0 50%,var(--f2,#c8ac7c) 50% 100%);
+  border:2px solid #3a2814;
+  box-shadow:
+    inset 1px 1px 0 rgba(255,240,200,.22),
+    inset -1px -1px 0 rgba(0,0,0,.32),
+    2px 2px 0 0 rgba(42,26,8,.7);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:15px;
+  line-height:1;
+  color:var(--fec,#fff);
+  text-stroke:1px #000;
+}
+
+.np-info{
+  flex:1;
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+
+.pt{
+  font-family:'Zpix',monospace;
+  font-size:12px;
+  font-weight:400;
+  letter-spacing:0;
+  color:#1a0e04;
+  line-height:16px;
+  white-space:nowrap;
+  display:inline-block;
+  vertical-align:top;
+}
+
+.np-name{
+  display:block;
+  padding-bottom:5px;
+  border-bottom:2px solid #6a4a20;
+  box-shadow:0 1px 0 rgba(255,240,200,.4);
+}
+
+.np-line{
+  display:flex;
+  align-items:baseline;
+  gap:6px;
+  line-height:16px;
+}
+.np-k{
+  flex-shrink:0;
+  width:36px;
+  color:#4a3218;
+}
+.np-v{
+  flex:1;
+  min-width:0;
+  color:#1a0e04;
+  overflow:hidden;
+}
+
+.np-sep{
+  height:4px;
+  flex-shrink:0;
+  position:relative;
+  background:repeating-linear-gradient(90deg,
+    #6a4a20 0 3px,
+    transparent 3px 6px);
+  box-shadow:
+    inset 0 1px 0 rgba(255,240,200,.3),
+    inset 0 -1px 0 rgba(74,50,24,.45);
+}
+.np-sep::before{
+  content:"";
+  position:absolute;
+  left:50%;
+  top:-3px;
+  width:6px;
+  height:6px;
+  transform:translateX(-50%) rotate(45deg);
+  background:#6a4a20;
+  box-shadow:
+    0 0 0 2px #3a2814,
+    0 0 0 3px #c8ac7c;
+}
+
+.np-attrs{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:8px;
+  flex-shrink:0;
+}
+
+.np-attr{
+  position:relative;
+  height:74px;
+  padding:6px 4px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:space-between;
+  text-align:center;
+  background-image:url('/tex/parchment_card.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  background-color:#c8ac7c;
+
+  border:2px solid #4a3218;
+  box-shadow:
+    0 0 0 1px #6a4a20,
+    inset 0 0 0 1px #8a6e3c,
+    inset 2px 2px 0 0 #d8bc8c,
+    inset -2px -2px 0 0 #6a4a20;
+}
+.np-attr-label{
+  display:block;
+  color:#4a3218;
+  font-size:12px;
+  line-height:14px;
+}
+.np-attr-value{
+  display:block;
+  font-size:16px;
+  line-height:18px;
+  padding:2px 0;
+}
+.np-attr-max{
+  display:block;
+  font-size:10px;
+  line-height:12px;
+  color:rgba(74,50,24,.75);
+}
+
+.np-attr.power .np-attr-value{color:#7a3a10;}
+.np-attr.wisdom .np-attr-value{color:#1f4a6a;}
+.np-attr.agility .np-attr-value{color:#2f5a1c;}
+
+.np-triangle{
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 0;
+  overflow: hidden;
+}
+
+.np-triangle npc-triangle{
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 220px;
+  max-width: 220px;
+  min-height: 220px;
+  max-height: 220px;
+}
+
+.np-foot{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  flex-shrink:0;
+}
+
+.np-status{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:10px 12px;
+  background-image:url('/tex/parchment_status.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  background-color:#c8ac7c;
+
+  border:2px solid #4a3218;
+  box-shadow:
+    0 0 0 1px #6a4a20,
+    inset 0 0 0 1px #8a6e3c,
+    inset 2px 2px 0 0 #d8bc8c,
+    inset -2px -2px 0 0 #6a4a20;
+}
+.np-status .np-k{
+  width:36px;
+  color:#4a3218;
+}
+.np-status-val{
+  display:flex;
+  align-items:center;
+  gap:5px;
+  color:#1a0e04;
+}
+.status-dot{
+  width:9px;
+  height:9px;
+  background:#4a7a1c;
+  box-shadow:
+    0 0 0 1px #3a2814,
+    inset 0 -2px 0 rgba(0,0,0,.4),
+    inset 0 2px 0 rgba(255,255,255,.35);
+  flex-shrink:0;
+  animation:pulseDot 1.6s steps(2) infinite;
+}
+.status-dot.unknown{
+  background:#6a4a20;
+  animation:none;
+}
+@keyframes pulseDot{
+  0%,100%{opacity:1;}
+  50%{opacity:.35;}
+}
+
+.np-bar-row{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.np-bar-row .np-k{
+  width:36px;
+  color:#4a3218;
+}
+
+.np-bar{
+  flex:1;
+  height:22px;
+  position:relative;
+  background-color:#3a2814;
+
+  border:2px solid #4a3218;
+  box-shadow:
+    0 0 0 1px #6a4a20,
+    inset 0 0 0 1px #6a4a20;
+  overflow:hidden;
+}
+
+.np-bar npc-bar{
+  position:absolute;
+  left:0;
+  top:0;
+  width:100%;
+  height:100%;
+  display:block;
+}
+
+.np-bar-num{
+  flex-shrink:0;
+  width:56px;
+  text-align:right;
+  color:#1a0e04;
+  white-space:nowrap;
+}
+.np-bar-num b,
+.np-bar-num i{
+  font-weight:400;
+  font-style:normal;
+}
+.np-bar-num i{
+  color:rgba(74,50,24,.65);
+}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{
+    animation-duration:.01ms!important;
+    transition-duration:.01ms!important;
+  }
+}
+</style>
+</head>
+<body>
+
+<div class="npc-panel">
+  <div class="npc-inner">
+
+    <header class="np-head">
+      <div class="np-visual">
+        <div class="np-avatar-frame">
+          <kingdom-entity-avatar id="npc-avatar"></kingdom-entity-avatar>
+        </div>
+        <div class="np-flag" aria-hidden="true">
+          <div class="flag-pole"></div>
+          <div class="flag-cloth" style="--f1:#7a1414;--f2:#c8ac7c;--fec:#fff;">★</div>
+        </div>
+      </div>
+
+      <div class="np-info">
+        <div class="np-name pt" id="npc-name">无</div>
+        <div class="np-line">
+          <span class="np-k pt">国家</span>
+          <span class="np-v pt" id="npc-nation">无</span>
+        </div>
+        <div class="np-line">
+          <span class="np-k pt">年龄</span>
+          <span class="np-v pt" id="npc-age">无</span>
+        </div>
+        <div class="np-line">
+          <span class="np-k pt">领主</span>
+          <span class="np-v pt" id="npc-liege">无</span>
+        </div>
+      </div>
+    </header>
+
+    <div class="np-sep"></div>
+
+    <div class="np-attrs">
+      <div class="np-attr power">
+        <span class="np-attr-label pt">力量</span>
+        <span class="np-attr-value pt" id="npc-power">无</span>
+        <span class="np-attr-max pt" id="npc-power-max">MAX 无</span>
+      </div>
+      <div class="np-attr wisdom">
+        <span class="np-attr-label pt">智慧</span>
+        <span class="np-attr-value pt" id="npc-wisdom">无</span>
+        <span class="np-attr-max pt" id="npc-wisdom-max">MAX 无</span>
+      </div>
+      <div class="np-attr agility">
+        <span class="np-attr-label pt">敏捷</span>
+        <span class="np-attr-value pt" id="npc-agility">无</span>
+        <span class="np-attr-max pt" id="npc-agility-max">MAX 无</span>
+      </div>
+    </div>
+
+    <div class="np-triangle">
+      <npc-triangle id="npc-triangle"></npc-triangle>
+    </div>
+
+    <div class="np-sep"></div>
+
+    <footer class="np-foot">
+      <div class="np-status">
+        <span class="np-k pt">状态</span>
+        <span class="np-status-val">
+          <span class="status-dot unknown" id="npc-status-dot"></span>
+          <span class="pt" id="npc-status">无</span>
+        </span>
+      </div>
+
+      <div class="np-bar-row">
+        <span class="np-k pt">生命</span>
+        <div class="np-bar">
+          <npc-bar id="npc-health-bar" type="hp"></npc-bar>
+        </div>
+        <span class="np-bar-num pt"><b id="npc-health">无</b><i id="npc-health-max">/无</i></span>
+      </div>
+
+      <div class="np-bar-row">
+        <span class="np-k pt">饥饿</span>
+        <div class="np-bar">
+          <npc-bar id="npc-hunger-bar" type="hunger"></npc-bar>
+        </div>
+        <span class="np-bar-num pt"><b id="npc-hunger">无</b><i id="npc-hunger-max">/无</i></span>
+      </div>
+    </footer>
+
+  </div>
+</div>
+
+</body>
+</html>

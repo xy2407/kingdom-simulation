@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="aui-viewport" content="mode=gui">
+    <meta name="aui-mouse-events" content="intercept">
+    <link rel="stylesheet" href="/apricityui/theme/ore/ore.css">
+    <style>
+        @font-face {
+            font-family: 'Zpix';
+            src: url('/font/zpix.ttf') format('truetype');
+            font-display: block;
+        }
+
+        /* 配色与身份卡(identify.html)、信封页同一套：羊皮纸 + 木框 + 金 */
+        :root {
+            --parchment: #c8ac7c;
+            --parchment-lo: #b89868;
+            --parchment-hi: #d6bb8c;
+            --border-mid: #6a4a20;
+            --border-dark: #4a3218;
+            --border-deep: #3a2814;
+            --border-light: #8a6e3c;
+            --border-hi: #d8bc8c;
+            --ink: #1a0e04;
+            --ink-2: #4a3218;
+            --gold: #c9a227;
+            --gold-l: #f5e08a;
+            /* 3D 预览的"窗口"暗底：方块要在暗背景上才有轮廓 */
+            --hole-hi: #302213;
+            --hole-lo: #221808;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        /* 不要给 html/body 加 overflow。AUI 里根元素盒子高度是 0，根元素上的 overflow 会生成
+           一条零尺寸裁剪遮罩 → currentClip.isValid() 变 false → 整页每个节点都被静默剔掉。
+           需要裁剪就写在自己有确定尺寸的元素上（下面 .viewer-cards / .viewer-card / .card-cap）。 */
+        html, body {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+        }
+
+        body {
+            font-family: 'Zpix', monospace;
+            font-size: 12px;
+            color: var(--ink);
+        }
+
+        /* ============================================================
+           底部 HUD 栏：羊皮纸底 + 木框 + 内斜角
+           ============================================================ */
+        .viewer-bar {
+            position: fixed;
+            left: 6px;
+            right: 6px;
+            bottom: 6px;
+            height: 150px;
+            display: flex;
+            flex-direction: column;
+
+            /* 原版 HUD 的深度测试全程开着，聊天先画先写深度，文档面只在 z≈1；
+               不抬 z 就会被聊天文字盖住。z 只能挂在有确定尺寸的容器上（根盒子高度为 0，挂 body 无效），
+               400 与原版 tooltip 同层，稳压聊天栏又不至于穿到 UI 之外。 */
+            transform: translateZ(400px);
+
+            /* 长条羊皮纸纹理：与 identify.html 用同一套噪声算法 + 同一组 13 级调色烘出来的
+               （1080x150，按当前逻辑视口宽基本 1:1），自带边缘渐暗与水渍斑驳。 */
+            background-image: url('/tex/parchment_bar.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            background-color: var(--parchment);
+
+            border: 3px solid var(--border-dark);
+            box-shadow:
+                0 0 0 1px var(--border-mid),
+                inset 0 0 0 1px var(--border-light),
+                inset 2px 2px 0 0 var(--border-hi),
+                inset -2px -2px 0 0 var(--border-mid),
+                4px 4px 0 0 rgba(0, 0, 0, .45);
+        }
+
+        .viewer-bar-head {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            padding: 5px 10px 6px;
+
+            /* 与身份卡 .np-name 同款：木色下沿线 + 一道浅高光 */
+            border-bottom: 2px solid var(--border-mid);
+            box-shadow: 0 1px 0 rgba(255, 240, 200, .38);
+        }
+
+        .bar-title {
+            font-size: 14px;
+            line-height: 16px;
+            letter-spacing: 1px;
+            color: var(--gold);
+            /* AUI 原生 text-stroke：多层 text-shadow 只会取第一层 */
+            text-stroke: 1px var(--border-deep);
+        }
+
+        .bar-hint {
+            font-size: 12px;
+            line-height: 16px;
+            color: var(--ink-2);
+        }
+
+        .viewer-cards {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
+            gap: 8px;
+            padding: 6px 8px;
+
+            /* 自带裁剪：这是有确定尺寸的元素，写 overflow 安全 */
+            overflow-x: auto;
+            overflow-y: hidden;
+        }
+
+        /* ============================================================
+           卡片：羊皮纸面 + 木框；上半是 3D 预览窗口，下半是名字条
+           ============================================================ */
+        .viewer-card {
+            flex: 0 0 176px;
+            width: 176px;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+
+            /* 与其余页面同款像素化羊皮纸：贴图自带烘焙边框，靠最近邻采样保像素 */
+            background-image: url('/tex/card_gen.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            background-color: #c8ac7c;
+            border: 2px solid var(--border-dark);
+            box-shadow:
+                0 0 0 1px var(--border-mid),
+                inset 1px 1px 0 0 var(--border-hi),
+                inset -1px -1px 0 0 var(--border-mid);
+
+            overflow: hidden;
+        }
+
+        .viewer-card .card-preview {
+            flex: 1 1 auto;
+            min-height: 0;
+            background: linear-gradient(180deg, var(--hole-hi) 0%, var(--hole-lo) 100%);
+            box-shadow:
+                inset 0 0 0 1px #120c04,
+                inset 0 2px 0 0 rgba(0, 0, 0, .45);
+        }
+
+        .viewer-card .card-cap {
+            flex: 0 0 auto;
+            padding: 3px 6px;
+            font-size: 11px;
+            line-height: 14px;
+            text-align: center;
+            color: var(--ink);
+
+            /* 名字条沿用身份卡状态栏那张纹理，材质统一 */
+            background-image: url('/tex/parchment_status.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            background-color: #b89a6a;
+            border-top: 2px solid var(--border-mid);
+            box-shadow: inset 0 1px 0 rgba(255, 240, 200, .35);
+
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            overflow: hidden;
+        }
+
+        /* 过大的结构不做 3D 预览，卡片里只给一行提示 */
+        .viewer-card .card-preview.card-toobig {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            cursor: pointer;
+        }
+
+        .card-toobig .toobig-title {
+            font-size: 12px;
+            line-height: 16px;
+            color: var(--gold-l);
+            text-stroke: 1px var(--border-deep);
+        }
+
+        .card-toobig .toobig-hint {
+            font-size: 11px;
+            line-height: 14px;
+            color: var(--parchment-hi);
+        }
+
+        /* 卡片悬停详情：固定在底栏上方，逐行铺开蓝图元数据 */
+        .building-tip {
+            position: fixed;
+            right: 10px;
+            bottom: 162px;
+            display: none;
+            flex-direction: column;
+            gap: 2px;
+            padding: 6px 8px;
+            font-family: 'Zpix', monospace;
+            font-size: 12px;
+            line-height: 14px;
+            color: var(--ink);
+            background: var(--parchment);
+            border: 2px solid var(--border-dark);
+            box-shadow:
+                0 0 0 1px var(--border-mid),
+                2px 2px 0 0 rgba(0, 0, 0, .45);
+
+            /* 与底栏同一层：聊天文字也会飘进这个高度 */
+            transform: translateZ(400px);
+        }
+
+        .building-tip.tip-show {
+            display: flex;
+        }
+
+        .building-tip .tip-row {
+            white-space: nowrap;
+        }
+
+        .building-tip .tip-key {
+            display: inline-block;
+            min-width: 34px;
+            margin-right: 6px;
+            color: var(--border-mid);
+        }
+
+        /* 卡片名前的类型徽章：住宅 / 农业 / 养殖 / 工业 / 商业 / 军事 */
+        .viewer-card .card-type {
+            display: inline-block;
+            margin-right: 4px;
+            padding: 0 3px;
+            font-size: 10px;
+            line-height: 12px;
+            color: var(--parchment-hi);
+            background: var(--border-mid);
+        }
+
+        /* [加载]：把这张卡片的建筑投影放进世界，随后跟随鼠标选点 */
+        .viewer-card .card-load {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 18px;
+            font-size: 11px;
+            line-height: 14px;
+            color: var(--ink);
+
+            background-image: url('/tex/parchment_status.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            background-color: #b89a6a;
+            border-top: 2px solid var(--border-mid);
+            box-shadow: inset 0 1px 0 rgba(255, 240, 200, .35);
+            cursor: pointer;
+        }
+
+        .viewer-card .card-load:hover {
+            color: var(--gold-l);
+            text-stroke: 1px var(--border-deep);
+        }
+
+        structure-preview {
+            display: block;
+            width: 100%;
+            height: 100%;
+            /* 暗底由 .card-preview 提供，元素自身不再铺一层 */
+            background: transparent;
+            overflow: hidden;
+        }
+
+        /* 横向滚动条：木色，不做圆角 */
+        ::-webkit-scrollbar {
+            height: 7px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(58, 40, 20, .30);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-mid);
+            border: 1px solid var(--border-deep);
+        }
+    </style>
+</head>
+<body>
+
+<div class="viewer-bar" id="viewer-bar">
+    <div class="viewer-bar-head">
+        <span class="bar-title">KINGDOM</span>
+        <span class="bar-hint">结构预览 · 左键拖动旋转 / 右键平移 / 滚轮缩放</span>
+    </div>
+
+    <!-- 卡片由 Java 按 structures/*.nbt 扫描结果注入，默认约 5 张，超出靠横向滚动查看 -->
+    <div class="viewer-cards" id="viewer-cards">
+    </div>
+</div>
+
+<!-- 卡片悬停详情：内容由 Java 从蓝图元数据填充；放在底栏之外，避免被 .viewer-cards 的裁剪切掉 -->
+<div class="building-tip" id="building-tip"></div>
+
+</body>
+</html>

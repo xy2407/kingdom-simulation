@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<!-- mode=gui：跟着逻辑视口走，宽度 25% 才是"屏幕的四分之一"。
+     允许 Ctrl + 滚轮缩放，元素整体等比缩放（贴图靠最近邻采样保像素）。 -->
+<meta name="aui-viewport" content="mode=gui,min-zoom=0.5,max-zoom=3,user-scalable=true">
+<!-- 纯 DOM 页面，输入框与按钮都要能点，必须声明 intercept -->
+<meta name="aui-mouse-events" content="intercept">
+<title>住宅操作界面</title>
+<style>
+@font-face{
+  font-family:'Zpix';
+  src:url('/font/zpix.ttf') format('truetype');
+  font-display:block;
+}
+
+*{
+  box-sizing:border-box;
+  margin:0;
+  padding:0;
+}
+
+/* 空流文档的根元素不要写 overflow：AUI 里根元素盒子高度为 0，
+   在它上面写 overflow 会生成一条零尺寸裁剪遮罩，整页节点被静默剔掉。
+   需要裁剪的只有下面那几个有确定尺寸的列表。 */
+html,body{
+  background:transparent;
+}
+
+:root{
+  --parchment:#c8ac7c;
+  --parchment-lo:#b89868;
+  --parchment-hi:#d6bb94;
+  --pane:#d6bc94;
+  --border-mid:#6a4a20;
+  --border-dark:#4a3218;
+  --border-deep:#2a1a08;
+  --border-light:#8a6e3c;
+  --border-hi:#d8bc8c;
+  --ink:#1a0e04;
+  --ink-2:#4a3218;
+  --gold:#c9a227;
+  --gold-l:#f5e08a;
+}
+
+body{
+  font-family:'Zpix',monospace;
+  font-size:12px;
+  color:var(--ink);
+}
+
+/* ============================================================
+   侧边栏：贴左边，宽度固定为屏幕 1/4，上下各留 10% 边距
+   ------------------------------------------------------------
+   边框不靠贴图：pane_gen.png 是"无边框"的面板底纹，边框由外层
+   四色环 box-shadow 一圈圈叠出来（原稿同款），四边才连得起来。
+   ============================================================ */
+.bp-bar{
+  position:fixed;
+  left:0;
+  top:10%;
+  height:80%;
+  width:25%;
+  display:flex;
+  flex-direction:column;
+
+  background-color:var(--pane);
+  background-image:url('/tex/pane_gen.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  /* 关键：没有这三行，浏览器会把羊皮纸噪声纹理插值糊掉，像素质感全失 */
+  image-rendering:pixelated;
+  image-rendering:-moz-crisp-edges;
+  image-rendering:crisp-edges;
+
+  box-shadow:
+    0 0 0 2px var(--border-deep),
+    0 0 0 4px var(--border-dark),
+    0 0 0 6px var(--border-mid),
+    0 0 0 8px var(--border-deep),
+    inset 2px 2px 0 0 var(--border-hi),
+    inset -2px -2px 0 0 var(--border-mid),
+    4px 4px 0 0 rgba(0,0,0,.45);
+}
+
+/* ---------- 标题条：沿用身份卡那张状态栏纹理 ---------- */
+.bp-head{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:6px 10px;
+  background-color:var(--parchment-lo);
+  background-image:url('/tex/parchment_status.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  border-bottom:2px solid var(--border-mid);
+  box-shadow:0 1px 0 rgba(255,240,200,.38);
+}
+
+.bp-type{
+  flex:0 0 auto;
+  padding:0 3px;
+  font-size:10px;
+  line-height:15px;
+  color:var(--parchment-hi);
+  background:var(--border-deep);
+  box-shadow:inset 1px 1px 0 0 var(--border-mid);
+}
+
+.bp-title{
+  flex:1 1 auto;
+  min-width:0;
+  font-size:14px;
+  line-height:16px;
+  letter-spacing:1px;
+  /* 羊皮纸底上金色只有 1.34:1 对比度，等于看不见；正文一律用深墨色（约 10:1） */
+  color:var(--ink);
+  overflow:hidden;
+  white-space:nowrap;
+}
+
+.bp-lv{
+  flex:0 0 auto;
+  font-size:11px;
+  line-height:16px;
+  color:var(--ink-2);
+}
+
+/* ============================================================
+   主体：三段固定区 + 两个弹性区（每个弹性区各自滚动）
+   ============================================================ */
+.bp-body{
+  flex:1 1 auto;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  padding:7px 8px 8px;
+}
+
+/* ---------- 建筑信息：完整字段，只读 ---------- */
+.bp-info{
+  flex:0 0 auto;
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  padding:5px 6px;
+  background-color:var(--parchment-hi);
+  background-image:url('/tex/pane_gen.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  box-shadow:
+    0 0 0 2px var(--border-deep),
+    inset 1px 1px 0 0 var(--border-hi),
+    inset -1px -1px 0 0 var(--border-mid);
+}
+
+.bp-info-row{
+  display:flex;
+  align-items:baseline;
+  gap:6px;
+  line-height:15px;
+}
+
+.bp-k{
+  flex:0 0 30px;
+  color:var(--ink-2);
+  font-size:11px;
+}
+
+.bp-v{
+  flex:1 1 auto;
+  min-width:0;
+  color:var(--ink);
+  overflow:hidden;
+  white-space:nowrap;
+}
+
+/* ---------- 床位：一格一床的像素方块 ---------- */
+.bp-beds{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:4px;
+  padding:0 2px;
+}
+
+.bp-bed{
+  width:11px;
+  height:11px;
+  background-color:var(--border-mid);
+  box-shadow:
+    inset 1px 1px 0 0 var(--border-light),
+    inset -1px -1px 0 0 var(--border-deep);
+}
+
+/* 有人的床位点亮成金色 */
+.bp-bed.on{
+  background-color:var(--gold);
+  box-shadow:
+    inset 1px 1px 0 0 var(--gold-l),
+    inset -1px -1px 0 0 var(--border-light);
+}
+
+.bp-beds-note{
+  margin-left:2px;
+  color:var(--ink-2);
+  font-size:11px;
+  line-height:15px;
+}
+
+/* ---------- 搜索框 ---------- */
+.bp-search{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:4px;
+  padding:3px 5px;
+  background-color:var(--parchment-hi);
+  box-shadow:
+    0 0 0 2px var(--border-deep),
+    inset 1px 1px 0 0 var(--border-mid),
+    inset -1px -1px 0 0 var(--parchment-hi);
+}
+
+.bp-search-icon{
+  flex:0 0 auto;
+  color:var(--border-mid);
+  line-height:16px;
+}
+
+.bp-search input{
+  flex:1 1 auto;
+  min-width:0;
+  height:16px;
+  padding:0;
+  border:none;
+  outline:none;
+  background:transparent;
+  font-family:'Zpix',monospace;
+  font-size:12px;
+  line-height:16px;
+  color:var(--ink);
+}
+
+.bp-search input::placeholder{
+  color:var(--border-mid);
+}
+
+/* 清除按钮：只在有内容时有意义，样式常驻但不抢眼 */
+.bp-search-clear{
+  flex:0 0 auto;
+  width:14px;
+  line-height:14px;
+  text-align:center;
+  color:var(--border-mid);
+  cursor:pointer;
+}
+
+.bp-search-clear:hover{
+  color:var(--ink-2);
+}
+
+/* ============================================================
+   两个弹性区块：各占剩余高度的一半，各自独立滚动
+   ============================================================ */
+.bp-block{
+  flex:1 1 0;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+
+/* 区块之间一条淡分割线：只提示"这里换了一类内容"，不用太重。
+   用 border-top 而不是伪元素，AUI 对 ::before/::after 支持不确定。 */
+.bp-block + .bp-block{
+  margin-top:6px;
+  padding-top:6px;
+  border-top:1px solid rgba(74,50,24,.28);
+}
+
+.bp-sec{
+  flex:0 0 auto;
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:6px;
+  padding:0 2px 2px;
+  border-bottom:2px solid var(--border-mid);
+  box-shadow:0 1px 0 rgba(255,240,200,.28);
+}
+
+.bp-sec-title{
+  color:var(--border-deep);
+  letter-spacing:1px;
+}
+
+.bp-sec-actions{
+  display:flex;
+  align-items:baseline;
+  gap:6px;
+}
+
+.bp-sec-note{
+  color:var(--ink-2);
+  font-size:10px;
+}
+
+/* 分节上的文字按钮：不占整行，靠 hover 提示可点 */
+.bp-sec-btn{
+  font-size:10px;
+  color:var(--border-mid);
+  cursor:pointer;
+}
+
+.bp-sec-btn:hover{
+  color:var(--ink);
+}
+
+/* 滚动区：唯一允许滚动的地方，靠 flex 拿到确定高度 */
+.bp-list{
+  flex:1 1 auto;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  overflow-y:auto;
+  padding-right:2px;
+}
+
+/* 竖向滚动条：木色，不做圆角，和像素风格一致 */
+.bp-list::-webkit-scrollbar{
+  width:7px;
+}
+
+.bp-list::-webkit-scrollbar-track{
+  background:rgba(58,40,20,.30);
+}
+
+.bp-list::-webkit-scrollbar-thumb{
+  background:var(--border-mid);
+  border:1px solid var(--border-deep);
+}
+
+/* ---------- 居民行 ---------- */
+.bp-item{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:3px 4px;
+  background-color:var(--parchment-hi);
+  box-shadow:
+    0 0 0 1px var(--border-mid),
+    inset 1px 1px 0 0 rgba(255,240,200,.5),
+    inset -1px -1px 0 0 rgba(74,50,24,.3);
+  cursor:pointer;
+}
+
+/* 悬停：整行提亮并描金边，一眼能看出点到的是哪一行 */
+.bp-item:hover{
+  background-color:var(--parchment);
+  box-shadow:
+    0 0 0 2px var(--gold),
+    inset 1px 1px 0 0 var(--gold-l),
+    inset -1px -1px 0 0 var(--border-mid);
+}
+
+.bp-face{
+  display:block;
+  flex:0 0 auto;
+  width:24px;
+  height:24px;
+  background-color:var(--parchment-lo);
+  box-shadow:0 0 0 2px var(--border-dark);
+}
+
+.bp-name{
+  flex:1 1 auto;
+  min-width:0;
+  line-height:15px;
+  overflow:hidden;
+  white-space:nowrap;
+}
+
+/* 行内小字（年龄、距离这类次要信息） */
+.bp-sub{
+  flex:0 0 auto;
+  color:var(--ink-2);
+  font-size:10px;
+  line-height:15px;
+}
+
+.bp-tag{
+  flex:0 0 auto;
+  padding:0 3px;
+  font-size:10px;
+  line-height:14px;
+  color:var(--parchment-hi);
+  background:var(--border-mid);
+}
+
+/* ---------- 空状态 ---------- */
+.bp-empty{
+  flex:1 1 auto;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:8px 4px;
+  text-align:center;
+  color:var(--ink-2);
+  font-size:11px;
+  line-height:15px;
+  border:1px dashed var(--border-light);
+}
+
+/* ---------- 行内按钮 ---------- */
+.bp-btn{
+  flex:0 0 auto;
+  padding:0 5px;
+  font-size:11px;
+  line-height:18px;
+  text-align:center;
+  color:var(--ink);
+  background-color:var(--parchment-hi);
+  box-shadow:
+    0 0 0 2px var(--border-dark),
+    inset 1px 1px 0 0 var(--border-hi),
+    inset -1px -1px 0 0 var(--border-mid);
+  cursor:pointer;
+}
+
+.bp-btn:hover{
+  box-shadow:
+    0 0 0 2px var(--gold),
+    inset 1px 1px 0 0 var(--gold-l),
+    inset -1px -1px 0 0 var(--border-mid);
+}
+
+.bp-btn-quiet{
+  font-size:10px;
+  line-height:16px;
+  padding:0 4px;
+  color:var(--ink-2);
+}
+
+.bp-btn-main{
+  flex:1 1 auto;
+  font-size:12px;
+  line-height:22px;
+  color:var(--gold-l);
+  background-color:var(--border-mid);
+  text-stroke:1px var(--border-deep);
+  box-shadow:
+    0 0 0 2px var(--border-deep),
+    inset 1px 1px 0 0 var(--border-light),
+    inset -1px -1px 0 0 var(--border-deep);
+}
+
+.bp-btn-main:hover{
+  background-color:var(--border-mid);
+  box-shadow:
+    0 0 0 2px var(--gold),
+    inset 1px 1px 0 0 var(--gold-l),
+    inset -1px -1px 0 0 var(--border-deep);
+}
+
+/* ============================================================
+   底部：固定不滚动
+   ============================================================ */
+.bp-foot{
+  flex:0 0 auto;
+  display:flex;
+  gap:6px;
+  padding:7px 8px 8px;
+  background-color:var(--parchment-lo);
+  background-image:url('/tex/parchment_status.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  border-top:2px solid var(--border-mid);
+  box-shadow:0 -1px 0 rgba(255,240,200,.32);
+}
+
+.bp-hint{
+  flex:0 0 auto;
+  padding:0 8px 6px;
+  color:var(--ink-2);
+  font-size:10px;
+  line-height:13px;
+  background-color:var(--parchment-lo);
+}
+</style>
+</head>
+<body>
+
+<div class="bp-bar">
+
+  <div class="bp-head">
+    <span class="bp-type">住宅</span>
+    <span class="bp-title">小木屋</span>
+    <span class="bp-lv">Lv.1</span>
+  </div>
+
+  <div class="bp-body">
+
+    <!-- 建筑信息：只读。字段由 Java 在打开界面时按数据库记录填充 -->
+    <div class="bp-info">
+      <div class="bp-info-row"><span class="bp-k">位置</span><span class="bp-v">128, 64, -240</span></div>
+      <div class="bp-info-row"><span class="bp-k">尺寸</span><span class="bp-v">12 × 8 × 10</span></div>
+      <div class="bp-info-row"><span class="bp-k">朝向</span><span class="bp-v">北</span></div>
+      <div class="bp-info-row"><span class="bp-k">蓝图</span><span class="bp-v">residential/house_small</span></div>
+      <div class="bp-info-row"><span class="bp-k">完工</span><span class="bp-v">第 12 天</span></div>
+    </div>
+
+    <!-- 六个床位格：有人住的金色，空的木色 -->
+    <div class="bp-beds">
+      <span class="bp-bed on"></span>
+      <span class="bp-bed on"></span>
+      <span class="bp-bed on"></span>
+      <span class="bp-bed on"></span>
+      <span class="bp-bed"></span>
+      <span class="bp-bed"></span>
+      <span class="bp-beds-note">空 2 个床位</span>
+    </div>
+
+    <!-- 入住居民：独立搜索 + 独立滚动 -->
+    <div class="bp-block">
+      <div class="bp-sec">
+        <span class="bp-sec-title">入住居民</span>
+        <span class="bp-sec-actions">
+          <span class="bp-sec-note">4 人</span>
+          <span class="bp-sec-btn">全部移出</span>
+        </span>
+      </div>
+      <div class="bp-search">
+        <span class="bp-search-icon">⌕</span>
+        <input type="text" id="bp-search-resident" maxlength="16" placeholder="搜索住户…">
+        <span class="bp-search-clear">✕</span>
+      </div>
+      <div class="bp-list">
+        <!-- skin 属性写住户皮肤名；打开界面时由 Java 按数据库里的住户名单填充 -->
+        <div class="bp-item">
+          <kingdom-entity-avatar class="bp-face" skin="female12"></kingdom-entity-avatar>
+          <span class="bp-name">林小满</span>
+          <span class="bp-sub">女 24</span>
+          <span class="bp-btn bp-btn-quiet">移出</span>
+        </div>
+        <div class="bp-item">
+          <kingdom-entity-avatar class="bp-face" skin="male1"></kingdom-entity-avatar>
+          <span class="bp-name">周大石</span>
+          <span class="bp-sub">男 38</span>
+          <span class="bp-btn bp-btn-quiet">移出</span>
+        </div>
+        <div class="bp-item">
+          <kingdom-entity-avatar class="bp-face" skin="female3"></kingdom-entity-avatar>
+          <span class="bp-name">苏青禾</span>
+          <span class="bp-sub">女 31</span>
+          <span class="bp-btn bp-btn-quiet">移出</span>
+        </div>
+        <div class="bp-item">
+          <kingdom-entity-avatar class="bp-face" skin="female27"></kingdom-entity-avatar>
+          <span class="bp-name">陈砚</span>
+          <span class="bp-sub">女 27</span>
+          <span class="bp-btn bp-btn-quiet">移出</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 可入住：独立搜索 + 独立滚动 -->
+    <div class="bp-block">
+      <div class="bp-sec">
+        <span class="bp-sec-title">可入住</span>
+        <span class="bp-sec-actions">
+          <span class="bp-sec-note">附近 12 人</span>
+          <span class="bp-sec-btn">填满空床</span>
+        </span>
+      </div>
+      <div class="bp-search">
+        <span class="bp-search-icon">⌕</span>
+        <input type="text" id="bp-search-candidate" maxlength="16" placeholder="搜索附近居民…">
+        <span class="bp-search-clear">✕</span>
+      </div>
+      <div class="bp-list">
+        <div class="bp-item">
+          <kingdom-entity-avatar class="bp-face" skin="female45"></kingdom-entity-avatar>
+          <span class="bp-name">阿杏</span>
+          <span class="bp-sub">女 19</span>
+          <span class="bp-btn bp-btn-quiet">安排</span>
+        </div>
+        <div class="bp-item">
+          <kingdom-entity-avatar class="bp-face" skin="male1"></kingdom-entity-avatar>
+          <span class="bp-name">老栓</span>
+          <span class="bp-sub">男 52</span>
+          <span class="bp-btn bp-btn-quiet">安排</span>
+        </div>
+        <div class="bp-item">
+          <kingdom-entity-avatar class="bp-face" skin="female8"></kingdom-entity-avatar>
+          <span class="bp-name">石头</span>
+          <span class="bp-sub">男 21</span>
+          <span class="bp-btn bp-btn-quiet">安排</span>
+        </div>
+        <div class="bp-item">
+          <kingdom-entity-avatar class="bp-face" skin="female15"></kingdom-entity-avatar>
+          <span class="bp-name">柳娘</span>
+          <span class="bp-sub">女 44</span>
+          <span class="bp-btn bp-btn-quiet">安排</span>
+        </div>
+        <div class="bp-item">
+          <kingdom-entity-avatar class="bp-face" skin="female22"></kingdom-entity-avatar>
+          <span class="bp-name">阿禾</span>
+          <span class="bp-sub">女 16</span>
+          <span class="bp-btn bp-btn-quiet">安排</span>
+        </div>
+        <div class="bp-item">
+          <kingdom-entity-avatar class="bp-face" skin="male1"></kingdom-entity-avatar>
+          <span class="bp-name">铁蛋</span>
+          <span class="bp-sub">男 29</span>
+          <span class="bp-btn bp-btn-quiet">安排</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="bp-foot">
+    <div class="bp-btn bp-btn-main">关闭</div>
+  </div>
+
+  <div class="bp-hint">Tab / Esc 关闭　·　Ctrl + 滚轮缩放</div>
+
+</div>
+
+</body>
+</html>
