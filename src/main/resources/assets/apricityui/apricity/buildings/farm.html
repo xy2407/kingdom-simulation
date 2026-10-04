@@ -400,11 +400,20 @@ body{
 
 /* 悬停：整行提亮并描金边，一眼能看出点到的是哪一行 */
 .bp-item:hover{
-  background-color:var(--parchment);
-  box-shadow:
-    0 0 0 2px var(--gold),
-    inset 1px 1px 0 0 var(--gold-l),
-    inset -1px -1px 0 0 var(--border-mid);
+    background-color:var(--parchment);
+    box-shadow:
+        0 0 0 2px var(--gold),
+        inset 1px 1px 0 0 var(--gold-l),
+        inset -1px -1px 0 0 var(--border-mid);
+}
+
+/* 待定农田：框完地还没落库，用金框和已建农田区分开 */
+.bp-item-draft{
+    background-color:var(--parchment);
+    box-shadow:
+        0 0 0 2px var(--gold),
+        inset 1px 1px 0 0 var(--gold-l),
+        inset -1px -1px 0 0 var(--border-mid);
 }
 
 /* 农田行里的作物格子：尺寸取 .bp-face 的 24×24。
@@ -767,9 +776,10 @@ body{
   </div>
 
   <div class="bp-foot bp-foot-off" id="fd-foot">
-    <div class="bp-btn bp-btn-quiet" id="fd-delete">删除</div>
-    <div class="bp-btn bp-btn-main" id="fd-draw">框选范围</div>
-    <div class="bp-btn" id="fd-save">完成</div>
+      <div class="bp-btn bp-btn-quiet" id="fd-cancel" style="display:none">取消</div>
+      <div class="bp-btn bp-btn-quiet" id="fd-delete">删除</div>
+      <div class="bp-btn bp-btn-main" id="fd-draw">框选范围</div>
+      <div class="bp-btn" id="fd-save">完成</div>
   </div>
 
   <div class="bp-hint">Tab / Esc 关闭　·　Ctrl + 滚轮缩放</div>

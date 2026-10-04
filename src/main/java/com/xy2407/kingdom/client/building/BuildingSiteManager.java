@@ -29,8 +29,8 @@ import net.neoforged.api.distmarker.OnlyIn;
 @OnlyIn(Dist.CLIENT)
 public final class BuildingSiteManager {
 
-    /** 80% 透明：只留下淡淡的轮廓，不挡已经建好的实体方块。 */
-    public static final float SITE_ALPHA = 0.2F;
+    /** 已开工的投影：四成不透明，比放置时更淡，不挡正在长出来的实体方块。 */
+    public static final float SITE_ALPHA = 0.4F;
 
     /** 一个施工中的建筑：位置、旋转与烘好的完整模型网格。 */
     public record Site(UUID taskId, String blueprintName, BlockPos origin, int rotation,

@@ -21,5 +21,7 @@ public final class CityHallPayloadRegistration {
         PayloadRegistrar registrar = event.registrar("1");
         registrar.playToClient(CityHallOpenPacket.TYPE,
                 CityHallOpenPacket.STREAM_CODEC, CityHallOpenPacket::handle);
+        registrar.playToClient(CityHallDataPacket.TYPE,
+                CityHallDataPacket.STREAM_CODEC, CityHallDataPacket::handle);
     }
 }

@@ -4,7 +4,13 @@ import com.xy2407.kingdom.common.npc.NpcManager;
 import com.xy2407.kingdom.common.path.SnapshotRepository;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
+import com.xy2407.kingdom.server.faction.FactionService;
+import com.xy2407.kingdom.server.faction.NationRegistry;
+import com.xy2407.kingdom.server.faction.PlayerProfileStore;
+import com.xy2407.kingdom.server.faction.TerritoryRegistry;
 import com.xy2407.kingdom.server.farm.FarmPlotManager;
+import com.xy2407.kingdom.server.ranch.RanchPenManager;
+import com.xy2407.kingdom.server.ranch.RanchWorkService;
 
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
@@ -23,6 +29,12 @@ public final class ServerLifecycle {
         NpcManager.INSTANCE.reset();
         BuildingRegistry.INSTANCE.reset();
         FarmPlotManager.INSTANCE.reset();
+        RanchPenManager.INSTANCE.reset();
+        RanchWorkService.reset();
+        /* 阵营与领地：跟着世界一起清，避免换存档时读到上一个世界的国家 */
+        NationRegistry.INSTANCE.reset();
+        TerritoryRegistry.INSTANCE.reset();
+        PlayerProfileStore.INSTANCE.reset();
         SnapshotRepository snapshotRepository = SnapshotRepository.get(event.getServer());
         if (snapshotRepository != null) {
             snapshotRepository.onServerStarting();
@@ -39,6 +51,12 @@ public final class ServerLifecycle {
         if (instance != null) {
             instance.onServerTick();
         }
+        /* 三张表各自懒加载：数据库就绪后读一次，之后这些调用只是一次布尔判断 */
+        NationRegistry.INSTANCE.tick();
+        TerritoryRegistry.INSTANCE.tick();
+        PlayerProfileStore.INSTANCE.tick();
+        /* 档案读完后再驱动首登：未 onboarded 的玩家会收到一次择旗状态包 */
+        FactionService.tick(event.getServer());
     }
 
     @SubscribeEvent

@@ -50,7 +50,7 @@ public record BuildingPlaceConfirmPacket(String blueprintName, BlockPos origin, 
                 || !(player.level() instanceof ServerLevel level)) {
             return;
         }
-        context.enqueueWork(() -> BuildingConstructionService.INSTANCE.start(level, packet.blueprintName(),
-                packet.origin(), packet.rotation()));
+        context.enqueueWork(() -> BuildingConstructionService.INSTANCE.startWithFeedback(level, player,
+                packet.blueprintName(), packet.origin(), packet.rotation()));
     }
 }

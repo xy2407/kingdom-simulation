@@ -5,7 +5,7 @@ import java.util.List;
 import com.xy2407.kingdom.common.network.farm.FarmPanelStatePacket.CropOption;
 
 /**
- * 可种作物清单：写死的物品 id 列表，同时给界面槽位提供渲染图标用的物品
+ * 默认作物清单：农业建筑 json 没写 crops 时用它，物品 id 同时用于界面图标与种植判定
  */
 public final class CropCatalog {
 
@@ -16,8 +16,11 @@ public final class CropCatalog {
             new CropOption("minecraft:beetroot", "甜菜根"),
             new CropOption("minecraft:pumpkin", "南瓜"),
             new CropOption("minecraft:melon", "西瓜"),
+            new CropOption("minecraft:torchflower_seeds", "火把花"),
+            new CropOption("minecraft:pitcher_pod", "瓶子草"),
             new CropOption("minecraft:sugar_cane", "甘蔗"),
-            new CropOption("minecraft:nether_wart", "下界疣"));
+            new CropOption("minecraft:sweet_berries", "甜浆果"),
+            new CropOption("minecraft:bamboo", "竹子"));
 
     private CropCatalog() {
     }

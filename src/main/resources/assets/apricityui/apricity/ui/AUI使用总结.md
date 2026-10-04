@@ -848,6 +848,7 @@ javap -p -classpath <merged-mc.jar> net.minecraft.client.renderer.entity.EntityR
 | 33 | 浮动物品变小/上偏、数量飞走 | D16 | `AuiFloatingItemScaleMixin` |
 | 34 | 空流页面根元素写 `overflow` ⇒ 整页静默不画 | D23 | 空流文档根元素不写 `overflow`（§4.4） |
 | 35 | 世界空间"按角度被剔除" / 只在固定角度可见 | D24 + D25 | 世界窗口 `setFacing(true)`；剔除补偿见 §16.6 |
+| 36 | 覆盖层 HUD 被原版聊天栏压住，抬 `Base.pushDocumentZOffset` **无效** | `drawFlatDocumentAtZInContext` 用 `resolveFlatDocumentBaseZ(document)` 覆盖传入值（`Base:159-175`）⇒ 扁平文档面恒为 `GLOBAL_DOCUMENT_Z_OFFSET(1.0)+层序号`；只有元素级 z 才真的抬高 | 给页面里有确定尺寸的容器加 `transform:translateZ(400px)`（§4.4；`structures/viewer.html` 已用） |
 
 ### 字体与元素
 
@@ -1198,6 +1199,9 @@ body{ font-family:'Zpix',monospace; font-size:13px; color:var(--ink); }
 ### 15.7 数据落位与交互
 
 - 页面只留**结构标签 + 空值**，文案 / 数值全由 Java 填（§9.1）。
+- **面板数据是异步到的**：屏幕 `init()` 会先画一次"还没有数据"的状态，服务端状态随后才到。用
+  "是否渲染过"当一次性开关（`xxxBuilt`）会把这一轮空表**锁死**——重建依据必须按**内容是否变化**判定。
+  作物 / 清单这类列表最容易踩：`空 → 有` 之后再也不会重建，页面看着像"根本没适配"。
 - 只在服务端的属性（饥饿、称号…）走 `SynchedEntityData`，不要为它新开网络包（§9.4）。
 - 容器页：`PendingMenu(...).bind(...)`，绑定顺序定 primary；实体物品能力要注册（§7.3、§7.4）。
 - **容器页不写 `aui-mouse-events=intercept`**：它会吃掉原生点击（§11 坑 32）。

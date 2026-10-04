@@ -4,10 +4,12 @@ import com.mojang.blaze3d.platform.InputConstants;
 import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.client.cityhall.CityHallScreen;
 import com.xy2407.kingdom.client.farm.FarmPanelScreen;
+import com.xy2407.kingdom.client.map.WorldMapClientData;
 import com.xy2407.kingdom.common.network.building.BuildingPanelHooks;
 import com.xy2407.kingdom.common.network.building.BuildingSiteHooks;
 import com.xy2407.kingdom.common.network.cityhall.CityHallHooks;
 import com.xy2407.kingdom.common.network.farm.FarmPanelHooks;
+import com.xy2407.kingdom.common.network.map.WorldMapHooks;
 
 import net.minecraft.client.KeyMapping;
 import net.neoforged.api.distmarker.Dist;
@@ -45,11 +47,15 @@ public final class BuildingClientSetup {
         BuildingPanelHooks.stateSink = BuildingPanelClient::accept;
         FarmPanelHooks.stateSink = FarmPanelScreen::accept;
         CityHallHooks.openSink = CityHallScreen::open;
+        CityHallHooks.dataSink = CityHallScreen::accept;
+        WorldMapHooks.dataSink = WorldMapClientData::accept;
     }
 
     @SubscribeEvent
     public static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         BuildingSiteManager.clear();
+        /* 地图数据是服务端下发的，换存档就没意义了，清掉免得画上一局的地表 */
+        WorldMapClientData.clear();
     }
 
     @SubscribeEvent

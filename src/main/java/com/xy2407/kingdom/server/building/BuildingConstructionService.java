@@ -6,12 +6,14 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.common.building.BuildPlan;
 import com.xy2407.kingdom.common.building.BuildingBlueprints;
 import com.xy2407.kingdom.common.building.BuildingTask;
 import com.xy2407.kingdom.common.building.ScaffoldPlanner;
 import com.xy2407.kingdom.common.date.DateSystem;
 import com.xy2407.kingdom.common.entity.NpcEntity;
+import com.xy2407.kingdom.common.npc.NpcBrain;
 import com.xy2407.kingdom.common.npc.NpcData;
 import com.xy2407.kingdom.common.npc.NpcManager;
 import com.xy2407.kingdom.common.npc.NpcSubState;
@@ -21,6 +23,7 @@ import com.xy2407.kingdom.common.structure.StructureModel;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Vec3i;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -51,10 +54,12 @@ public final class BuildingConstructionService {
     public BuildingTask start(ServerLevel level, String blueprintName, BlockPos origin, int rotationDegrees) {
         BuildPlan plan = BuildingBlueprints.load(blueprintName, rotationDegrees);
         if (plan == null || origin == null) {
+            ModMain.LOGGER.warn("建筑开工失败：蓝图读不到 {} @ {}", blueprintName, origin);
             return null;
         }
-        NpcData architect = pickArchitect(origin);
+        NpcData architect = pickArchitect(level, origin);
         if (architect == null) {
+            ModMain.LOGGER.warn("建筑开工失败：没有可用市民 {} @ {}", blueprintName, origin);
             return null;
         }
         BuildingTask task = new BuildingTask(UUID.randomUUID(), blueprintName, level.dimension(),
@@ -65,6 +70,44 @@ public final class BuildingConstructionService {
         tasks.put(task.id(), task);
         broadcastSite(level, task, false);
         return task;
+    }
+
+    /**
+     * 开工入口（带玩家反馈）：失败时把原因直接发给玩家，别再静默什么都不发生。
+     */
+    public void startWithFeedback(ServerLevel level, ServerPlayer player, String blueprintName,
+                                  BlockPos origin, int rotationDegrees) {
+        if (start(level, blueprintName, origin, rotationDegrees) != null) {
+            return;
+        }
+        String reason = failureReason(level, blueprintName, origin);
+        String message = "建筑未开工：" + (reason == null ? "未知原因，看日志" : reason);
+        player.displayClientMessage(Component.literal(message), false);
+        ModMain.LOGGER.warn("{}（蓝图 {} 落点 {}）", message, blueprintName, origin);
+    }
+
+    /** 开工失败的具体原因，能给玩家一句能照着做的提示。 */
+    public static String failureReason(ServerLevel level, String blueprintName, BlockPos origin) {
+        if (origin == null) {
+            return "落点无效";
+        }
+        if (BuildingBlueprints.load(blueprintName) == null) {
+            return "蓝图读不到 " + blueprintName + "（要放在 游戏目录/kingdom simulation/structures 下的同名 nbt）";
+        }
+        String dimension = level.dimension().location().toString();
+        boolean anyCitizen = false;
+        for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
+            if (npc.isDead() || !dimension.equals(npc.getDimension())) {
+                continue;
+            }
+            anyCitizen = true;
+            NpcBrain brain = npc.getBrain();
+            if (brain.isConstructionControlled() || brain.isStarving()) {
+                continue;
+            }
+            return null;
+        }
+        return anyCitizen ? "市民都饿着或已在施工中" : "这个维度还没有市民（/kingdom npc spawn 3）";
     }
 
     /**
@@ -135,12 +178,14 @@ public final class BuildingConstructionService {
         return walk.get(prev);
     }
 
-    /** 选取离落点最近的空闲市民作为建筑师 */
-    private NpcData pickArchitect(BlockPos origin) {
+    /** 选取离落点最近的空闲市民作为建筑师；必须同维度，否则施工会永远等不到人。 */
+    private NpcData pickArchitect(ServerLevel level, BlockPos origin) {
         NpcData best = null;
         double bestDist = Double.MAX_VALUE;
+        String dimension = level.dimension().location().toString();
         for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
-            if (npc.isDead() || npc.getBrain().isConstructionControlled() || npc.getBrain().isStarving()) {
+            if (npc.isDead() || !dimension.equals(npc.getDimension())
+                    || npc.getBrain().isConstructionControlled() || npc.getBrain().isStarving()) {
                 continue;
             }
             double dx = npc.getX() - origin.getX();

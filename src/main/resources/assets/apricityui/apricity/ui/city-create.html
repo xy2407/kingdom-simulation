@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<!-- 纯 DOM 页（无任何真实槽位），用 mode=gui + 1:1 缩放——与 start.html 同一档。
+     尺寸不写死：文档随视口走，面板固定 420 宽后由 flex 居中。 -->
+<meta name="aui-viewport" content="mode=gui,zoom=1,min-zoom=1,max-zoom=1,user-scalable=false">
+<!-- 纯 DOM 页必须写 intercept，否则输入框与按钮点不动（§0 铁律 4）。 -->
+<meta name="aui-mouse-events" content="intercept">
+<title>建城立邦 · 像素中世纪</title>
+<style>
+/*
+  由 assets/theme/city-create.html 适配而来。原稿是"主题稿"：
+  靠外链 pixel-medieval.css + theme.js（JS 生成面板贴图）撑起来，AUI 两样都跑不了，
+  所以这里把**用到的主题令牌与类内联进来**，贴图换成 /tex/ 下的预生成文件。
+
+  逐条替换（对照《AUI适配指南》）：
+  · 外链 pixel-medieval.css → 内联本文件（AUI 不能引外部 CSS）
+  · <script src="theme.js"> 与那段 Theme.init() → 整块删除（AUI 跑不了 JS）
+  · @font-face 相对路径 → /font/zpix.ttf（AUI 虚拟根）
+  · body{min-height:100vh} → 删除（vh 不可靠）；深木底 → transparent（§0 铁律 5）
+  · .cc-shell{width:min(420px,100%)} → width:420px
+  · .cc-row{gap:var(--sp-3)} 与 .panel{gap} → 子元素 margin（AUI 的 flex gap 不可靠）
+  · .btn:hover/:active 里的 transform → 删除（AUI 未实现 transform），
+    只留 box-shadow 的抬起/下沉，视觉差别很小
+  · .btn:disabled 的 filter:grayscale → 删除（filter 未实现），保留 opacity
+  · .head-title--marked::before 的 rotate(45deg) 菱形 → 真实子元素 .title-mark 的方形装饰
+    （::before 支持不确定、transform 不可靠，两样都不用）
+  · var(--tex-panel) → url('/tex/pane_gen.png')（§5：AUI 侧必须换成真实贴图）
+  · 主题里的 --sp-* 变量已展开成 px，避免依赖未定义的变量
+
+  ⚠ 框内的刀剑盾旗仍是内联 SVG（原稿就这么写）。AUI 对 SVG 的支持没实测过，
+    若不渲染就是一片空白纹样，不影响任何交互——保留它是为了还原度。
+*/
+@font-face{
+  font-family:'Zpix';
+  src:url('/font/zpix.ttf') format('truetype');
+  font-display:block;
+}
+
+:root{
+  --parchment:#c8ac7c;
+  --parchment-lo:#b89868;
+  --parchment-hi:#d6bc94;
+  --parchment-max:#e8d2a8;
+  --border-outer:#2a1a08;
+  --border-deep:#3a2814;
+  --border-dark:#4a3218;
+  --border-mid:#6a4a20;
+  --border-light:#8a6e3c;
+  --border-hi:#d8bc8c;
+  --ink:#1a0e04;
+  --ink-2:#4a3218;
+  --gold:#c9a227;
+  --gold-l:#f5e08a;
+  --gold-dk:#8a6d17;
+  --gold-ink:#1a1208;
+  --gold-grad:linear-gradient(160deg,#f7e08a 0%,#c9a227 52%,#8a6d17 100%);
+  --shadow-hard:rgba(42,26,8,.5);
+  --shadow-harder:rgba(42,26,8,.7);
+  --ring:2px;
+}
+
+*{
+  box-sizing:border-box;
+  margin:0;
+  padding:0;
+  -webkit-font-smoothing:none;
+  -moz-osx-font-smoothing:unset;
+  font-smooth:never;
+  text-rendering:geometricPrecision;
+  font-feature-settings:"kern" 0, "liga" 0, "calt" 0;
+  font-variant-ligatures:none;
+}
+
+/* 这里**不能设裁剪属性**（《AUI使用总结》§0 铁律 6）：
+   空流文档的根元素盒子高为 0，设了它会生成错误尺寸的裁剪遮罩、静默削掉页面节点。 */
+
+body{
+  /* 原稿铺深木底衬托主框；游戏里容器屏自带压暗，transparent 让世界透出来 */
+  background-color:transparent;
+  font-family:'Zpix',monospace;
+  font-size:15px;
+  color:var(--ink);
+  /* 居中基准：AUI 里根元素盒子高为 0，光写 align-items:center 顶不住——面板会贴在顶部。
+     按《AUI适配指南》§0 铁律 3 许可的写法（mode=gui 的纯 DOM 页里 position:fixed + % 宽高可用），
+     把 body 铺满整个视口，flex 居中才有高度作基准。 */
+  position:fixed;
+  left:0;
+  top:0;
+  width:100%;
+  height:100%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+  image-rendering:pixelated;
+  image-rendering:-moz-crisp-edges;
+  image-rendering:crisp-edges;
+}
+
+/* ============================================================
+   主题 §6.2 厚框：8px 四圈硬环 + 四角浮雕，照搬
+   ============================================================ */
+.frame--thick{
+  border:0;
+  box-shadow:
+    0 0 0 2px var(--border-outer),
+    0 0 0 4px var(--border-dark),
+    0 0 0 6px var(--border-mid),
+    0 0 0 8px var(--border-deep),
+    inset 0 0 0 2px var(--border-light),
+    inset 2px 2px 0 0 var(--border-hi),
+    inset -2px -2px 0 0 var(--border-dark);
+}
+
+/* ============================================================
+   主题 §6.9 整块面板：只管底色与贴图，边框交给 .frame--*
+   原稿是 gap:var(--sp-4)；AUI 的 flex gap 不可靠，间距改由子元素 margin 给
+   ============================================================ */
+.panel{
+  display:flex;
+  flex-direction:column;
+  padding:14px 16px;
+  background-color:var(--parchment-hi);
+  background-image:url('/tex/pane_gen.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+}
+
+/* ============================================================
+   主题 §7 标题条：底衬走 parchment_status.png
+   ============================================================ */
+.head-row{
+  display:flex;
+  align-items:center;
+  padding:6px 10px;
+  background-color:var(--parchment-lo);
+  background-image:url('/tex/parchment_status.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  border-bottom:2px solid var(--border-mid);
+  box-shadow:0 1px 0 rgba(255,240,200,.38);
+}
+
+.head-title{
+  font-size:15px;
+  line-height:20px;
+  /* 原稿 .3em；15 × .3 = 4.5 → 4px，并配等值 text-indent 抵消末字空隙 */
+  letter-spacing:4px;
+  text-indent:4px;
+  color:var(--ink);
+  white-space:nowrap;
+}
+
+/* 原稿是 .head-title--marked::before 的 rotate(45deg) 菱形。
+   ::before 在 AUI 里支持不确定、transform 也不可靠，所以改成**真实子元素 + 方形装饰**。 */
+.title-mark{
+  flex-shrink:0;
+  width:6px;
+  height:6px;
+  margin-right:9px;
+  background:var(--border-mid);
+  box-shadow:0 0 0 1px var(--border-dark);
+}
+
+/* ============================================================
+   主题 §8 按钮：.btn 主干 + .btn-primary / .btn-quiet 两级
+   transform 相关全部去掉（AUI 未实现），只保留 box-shadow 的层次变化
+   ============================================================ */
+.btn{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:12px 24px;
+  font-family:'Zpix',monospace;
+  font-size:14px;
+  line-height:20px;
+  /* 原稿 .14em；14 × .14 = 1.96 → 2px */
+  letter-spacing:2px;
+  text-indent:2px;
+  text-align:center;
+  color:var(--ink);
+  background-color:var(--parchment);
+  border:var(--ring) solid var(--border-dark);
+  box-shadow:
+    0 0 0 1px var(--border-mid),
+    inset 0 0 0 1px var(--border-light),
+    inset 2px 2px 0 0 var(--border-hi),
+    inset -2px -2px 0 0 var(--border-mid),
+    2px 2px 0 0 var(--shadow-hard);
+  cursor:pointer;
+  user-select:none;
+}
+
+/* :not() 在 AUI 里未经实测，直接写 :hover / :active 更稳 */
+.btn:hover{
+  border-color:var(--gold);
+  box-shadow:
+    0 0 0 1px var(--gold),
+    inset 0 0 0 1px var(--gold-l),
+    inset 2px 2px 0 0 var(--border-hi),
+    inset -2px -2px 0 0 var(--border-mid),
+    3px 3px 0 0 var(--shadow-hard);
+}
+
+/* 按下：往右下陷一格，与 hover 的抬起互为反相（原稿另有 transform，已去掉） */
+.btn:active{
+  box-shadow:
+    0 0 0 1px var(--border-mid),
+    inset 0 0 0 1px var(--border-light),
+    inset 2px 2px 0 0 var(--border-mid),
+    inset -2px -2px 0 0 var(--border-hi);
+}
+
+/* 原稿用 filter:grayscale 表达禁用，filter 未实现，只留压暗 */
+.btn:disabled,
+.btn.is-disabled{
+  opacity:.4;
+  cursor:not-allowed;
+}
+
+.btn-primary{
+  color:var(--gold-ink);
+  background-color:var(--gold);
+  /* 原稿走 var(--gold-grad)；变量里存渐变在 AUI 里没实测过，直接展开成字面值 */
+  background-image:linear-gradient(160deg,#f7e08a 0%,#c9a227 52%,#8a6d17 100%);
+  background-size:100% 100%;
+  border-color:var(--border-deep);
+  box-shadow:
+    0 0 0 1px var(--border-deep),
+    inset 0 0 0 1px rgba(255,248,220,.5),
+    inset 1px 1px 0 0 rgba(255,248,220,.6),
+    inset -1px -1px 0 0 var(--gold-dk),
+    2px 2px 0 0 var(--shadow-harder);
+}
+
+.btn-primary:hover{
+  border-color:var(--gold-dk);
+  box-shadow:
+    0 0 0 1px #fff8dc,
+    inset 0 0 0 1px rgba(255,248,220,.6),
+    inset 1px 1px 0 0 rgba(255,248,220,.7),
+    inset -1px -1px 0 0 var(--gold-dk),
+    3px 3px 0 0 var(--shadow-harder);
+}
+
+.btn-quiet{
+  padding:0 5px;
+  font-size:10px;
+  line-height:16px;
+  color:var(--ink-2);
+  background-color:var(--parchment-hi);
+  border:0;
+  box-shadow:
+    0 0 0 1px var(--border-dark),
+    inset 1px 1px 0 0 var(--border-hi),
+    inset -1px -1px 0 0 var(--border-mid);
+}
+
+.btn-quiet:hover{
+  color:var(--ink);
+  box-shadow:
+    0 0 0 2px var(--gold),
+    inset 1px 1px 0 0 var(--gold-l),
+    inset -1px -1px 0 0 var(--border-mid);
+}
+
+/* ============================================================
+   建城面板本体
+   ============================================================ */
+.cc-shell{
+  position:relative;      /* .cc-deco 的绝对定位基准（.frame--thick 本身不设 position） */
+  flex:0 0 auto;
+  /* 原稿 min(420px,100%)；AUI 不支持 min()/% 混用，写死设计宽 */
+  width:420px;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+
+/* 框内的中世纪纹样：淡淡一层，只做质感，不接交互 */
+.cc-deco{
+  position:absolute;
+  left:0;
+  top:0;
+  right:0;
+  bottom:0;
+  pointer-events:none;
+}
+
+.cc-deco svg{
+  position:absolute;
+  display:block;
+  opacity:.13;
+  shape-rendering:crispEdges;
+  image-rendering:pixelated;
+}
+
+/* 原稿 padding:var(--sp-5) = 14px */
+.cc-body{
+  padding:14px;
+}
+
+/* 一行：取消在左、名称在中间、确认在右，三者同高。
+   原稿是 flex gap:var(--sp-3)=8px；AUI 的 flex gap 不可靠，
+   由中间这个输入框左右各撑 8px——三者间距与原来一致。 */
+.cc-row{
+  display:flex;
+  align-items:center;
+}
+
+.cc-input{
+  flex:1 1 auto;
+  min-width:0;
+  margin:0 8px;
+  padding:4px 6px;
+  font-family:'Zpix',monospace;
+  font-size:16px;
+  line-height:22px;
+  color:var(--ink);
+  background-color:var(--parchment-hi);
+  border:0;
+  outline:0;
+  box-shadow:
+    0 0 0 2px var(--border-deep),
+    inset 1px 1px 0 0 var(--border-mid);
+}
+
+.cc-input::placeholder{
+  color:var(--border-mid);
+}
+
+.cc-input:focus{
+  background-color:var(--parchment);
+  box-shadow:
+    0 0 0 2px var(--border-deep),
+    0 0 0 4px var(--gold),
+    inset 1px 1px 0 0 var(--border-mid);
+}
+
+/* 两个按钮与输入框等高：4 + 22 + 4 = 30 */
+.cc-btn-eq{
+  flex:0 0 auto;
+  height:30px;
+  padding:0 10px;
+  font-size:16px;
+  line-height:22px;
+}
+</style>
+</head>
+<body>
+
+<div class="cc-shell panel frame--thick" id="ccShell">
+
+  <!-- ── 框内背景纹样：刀剑盾旗，只作质感 ───────────────────── -->
+  <div class="cc-deco">
+
+    <svg style="left:10px; top:34px; width:46px; height:46px;" viewBox="0 0 16 16">
+      <rect x="3" y="2" width="10" height="1" fill="#8a6e3c"/>
+      <rect x="2" y="3" width="12" height="6" fill="#b8281c"/>
+      <rect x="3" y="9" width="10" height="2" fill="#b8281c"/>
+      <rect x="5" y="11" width="6" height="2" fill="#b8281c"/>
+      <rect x="7" y="13" width="2" height="1" fill="#b8281c"/>
+      <rect x="7" y="3" width="2" height="11" fill="#c9a227"/>
+      <rect x="2" y="6" width="12" height="2" fill="#c9a227"/>
+    </svg>
+
+    <svg style="right:12px; top:40px; width:40px; height:40px;" viewBox="0 0 16 16">
+      <rect x="7" y="1" width="2" height="10" fill="#c8ccd0"/>
+      <rect x="7" y="1" width="1" height="10" fill="#eef2f5"/>
+      <rect x="4" y="11" width="8" height="1" fill="#c9a227"/>
+      <rect x="7" y="12" width="2" height="2" fill="#6a4a20"/>
+      <rect x="6" y="14" width="4" height="1" fill="#8a6d17"/>
+    </svg>
+
+    <svg style="left:56px; bottom:8px; width:44px; height:44px;" viewBox="0 0 16 16">
+      <rect x="3" y="3" width="2" height="2" fill="#9a9a96"/>
+      <rect x="7" y="3" width="2" height="2" fill="#9a9a96"/>
+      <rect x="11" y="3" width="2" height="2" fill="#9a9a96"/>
+      <rect x="3" y="5" width="10" height="9" fill="#9a9a96"/>
+      <rect x="3" y="5" width="10" height="1" fill="#c6c6c2"/>
+      <rect x="7" y="7" width="2" height="2" fill="#4a3218"/>
+      <rect x="6" y="10" width="4" height="4" fill="#4a3218"/>
+    </svg>
+
+    <svg style="right:50px; bottom:12px; width:42px; height:42px;" viewBox="0 0 16 16">
+      <rect x="3" y="5" width="1" height="3" fill="#4a3218"/>
+      <rect x="4" y="6" width="8" height="4" fill="#6a4a20"/>
+      <rect x="10" y="3" width="2" height="4" fill="#6a4a20"/>
+      <rect x="11" y="2" width="3" height="2" fill="#6a4a20"/>
+      <rect x="4" y="10" width="1" height="4" fill="#4a3218"/>
+      <rect x="6" y="10" width="1" height="4" fill="#4a3218"/>
+      <rect x="9" y="10" width="1" height="4" fill="#4a3218"/>
+      <rect x="11" y="10" width="1" height="4" fill="#4a3218"/>
+    </svg>
+
+    <svg style="left:170px; top:30px; width:34px; height:34px;" viewBox="0 0 16 16">
+      <rect x="3" y="1" width="1" height="14" fill="#6a4a20"/>
+      <rect x="4" y="2" width="10" height="1" fill="#8c2f22"/>
+      <rect x="4" y="3" width="9" height="1" fill="#b8281c"/>
+      <rect x="4" y="4" width="8" height="1" fill="#b8281c"/>
+      <rect x="4" y="5" width="9" height="1" fill="#8c2f22"/>
+      <rect x="6" y="3" width="2" height="3" fill="#c9a227"/>
+    </svg>
+
+    <svg style="left:196px; bottom:6px; width:32px; height:32px;" viewBox="0 0 16 16">
+      <rect x="2" y="6" width="2" height="5" fill="#c9a227"/>
+      <rect x="7" y="5" width="2" height="6" fill="#c9a227"/>
+      <rect x="12" y="6" width="2" height="5" fill="#c9a227"/>
+      <rect x="3" y="9" width="10" height="2" fill="#8a6d17"/>
+      <rect x="2" y="11" width="12" height="2" fill="#c9a227"/>
+      <rect x="3" y="12" width="10" height="1" fill="#f5e08a"/>
+    </svg>
+
+  </div>
+
+  <!-- ── 标题条 ─────────────────────────────────────────────── -->
+  <div class="head-row">
+    <span class="title-mark"></span>
+    <span class="head-title">建 城 立 邦</span>
+  </div>
+
+  <!-- ── 一行控件 ───────────────────────────────────────────── -->
+  <div class="cc-body">
+    <div class="cc-row">
+      <button class="btn btn-quiet cc-btn-eq" id="ccCancel">取消</button>
+      <input type="text" class="cc-input" id="ccName" maxlength="12" placeholder="领地名称">
+      <button class="btn btn-primary cc-btn-eq" id="ccCreate">确认</button>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

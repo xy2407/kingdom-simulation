@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.xy2407.kingdom.ModMain;
+import com.xy2407.kingdom.common.farm.FarmRegion;
 
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
@@ -39,12 +40,13 @@ public record FarmPanelStatePacket(boolean inside, String buildingName, int tota
     }
 
     public record Plot(UUID id, String name, int slots, String cropId,
-                       boolean hasArea, int minX, int minZ, int maxX, int maxZ,
-                       List<UUID> workers) {
+                       boolean hasArea, int minX, int minZ, int maxX, int maxZ, int groundY,
+                       List<UUID> workers, List<FarmRegion> extra) {
         public Plot {
             name = name == null ? "" : name;
             cropId = cropId == null ? "" : cropId;
             workers = workers == null ? List.of() : List.copyOf(workers);
+            extra = extra == null ? List.of() : List.copyOf(extra);
         }
     }
 
@@ -52,6 +54,10 @@ public record FarmPanelStatePacket(boolean inside, String buildingName, int tota
     }
 
     public record WorkerOption(UUID id, String name, String skin) {
+        public WorkerOption {
+            name = name == null ? "" : name;
+            skin = skin == null ? "" : skin;
+        }
     }
 
     private static void encode(RegistryFriendlyByteBuf buf, FarmPanelStatePacket packet) {
@@ -71,9 +77,17 @@ public record FarmPanelStatePacket(boolean inside, String buildingName, int tota
             buf.writeInt(plot.minZ());
             buf.writeInt(plot.maxX());
             buf.writeInt(plot.maxZ());
+            buf.writeInt(plot.groundY());
             buf.writeVarInt(plot.workers().size());
             for (UUID worker : plot.workers()) {
                 writeUuid(buf, worker);
+            }
+            buf.writeVarInt(plot.extra().size());
+            for (FarmRegion region : plot.extra()) {
+                buf.writeInt(region.minX());
+                buf.writeInt(region.minZ());
+                buf.writeInt(region.maxX());
+                buf.writeInt(region.maxZ());
             }
         }
 
@@ -109,12 +123,18 @@ public record FarmPanelStatePacket(boolean inside, String buildingName, int tota
             int minZ = buf.readInt();
             int maxX = buf.readInt();
             int maxZ = buf.readInt();
+            int groundY = buf.readInt();
             int workerCount = buf.readVarInt();
             List<UUID> workers = new ArrayList<>(workerCount);
             for (int worker = 0; worker < workerCount; worker++) {
                 workers.add(readUuid(buf));
             }
-            plots.add(new Plot(id, name, slots, cropId, hasArea, minX, minZ, maxX, maxZ, workers));
+            int regionCount = buf.readVarInt();
+            List<FarmRegion> extra = new ArrayList<>(regionCount);
+            for (int region = 0; region < regionCount; region++) {
+                extra.add(new FarmRegion(buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt()));
+            }
+            plots.add(new Plot(id, name, slots, cropId, hasArea, minX, minZ, maxX, maxZ, groundY, workers, extra));
         }
 
         int cropCount = buf.readVarInt();

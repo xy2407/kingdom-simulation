@@ -2,664 +2,1169 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<!-- 纯 DOM 页（无真实槽位）：mode=gui 让尺寸跟着逻辑视口走，intercept 让输入框和按钮能点。
-     有真实槽位的容器页绝不能写 intercept（§11 坑 32），这里没有槽位，必须写。 -->
-<meta name="aui-viewport" content="mode=gui,min-zoom=0.5,max-zoom=3,user-scalable=true">
+<!-- 定尺寸视口：整页逻辑尺寸 1124×854 = 面板 1080×810 + body 四周 22px。
+     scale=fit 让宿主等比缩放；回浏览器预览时删掉这个 meta 即可。 -->
+<meta name="aui-viewport" content="mode=fixed,width=1124,height=854,scale=fit,zoom=1,min-zoom=0.3,max-zoom=2,zoom-step=0.05,user-scalable=true">
+<!-- 参数照已核实的 backpack.html 配齐（zoom / zoom-step 它都有）。
+     若整页仍偏大或偏小，用 Ctrl+滚轮调，或由 Java 按 getViewportSize() 现算 scale。 -->
+<!-- 纯 DOM 页（没有任何真实槽位），必须写 intercept，否则输入框与按钮点不动。
+     有真实槽位的容器页绝不能写这条（§11 坑 32）。 -->
 <meta name="aui-mouse-events" content="intercept">
-<title>市政厅</title>
+<title>市政厅 · 像素中世纪</title>
 <style>
+/*
+  AUI 版。版式逐条照 assets/原始html/city_hall.html，只做 AUI 跑不了的等价替换，
+  每处替换都在注释里标了原写法与理由：
+
+  【替换 1】贴图不再由页内 JS 生成（AUI 跑不了 JS），改用它生成的预生成 PNG：
+           --panel-bg  buildCardGrid(180,135)  → /tex/card_gen.png
+           --pane-bg   buildPaneGrid(48,102)   → /tex/pane_v.png
+           --card-bg   buildSmall(48,20,.80,21)→ /tex/card_small.png
+           三张都按原稿算法逐像素生成，比例与原稿一致，拉伸不失真。
+  【替换 2】能量条 <canvas> + drawBar → <npc-bar>（格子画法与原稿同源，见 NpcBarElement）
+  【替换 3】头像 <canvas> → <kingdom-entity-avatar skin>
+  【替换 4】地图 <canvas> → <world-map center-x center-z radius>
+  【替换 5】整块 <script> 删除；文字不再栅格化（Zpix 本身是像素字体）；
+           弹窗/列表/日期的内容改由 Java 通过 DOM 填，页面只留结构与 id。
+  【替换 6】aspect-ratio:4/3 → 精确 height:810px（AUI 不实现 aspect-ratio）
+  【替换 7】min(1080px,96vw,125vh) → width:1080px（AUI 的 min()/vw/vh 不可靠）
+  【替换 8】flex 的 gap → 子元素 margin（AUI 的 flex gap 行为不一致）
+  【替换 9】em 字距 → px（AUI 的 em 参与测量循环）
+  【替换 10】grid 等分三栏 → flex:1 1 0（AUI 的 grid 分栏比例不可靠）
+  【替换 11】align-items:baseline → center（AUI 容器页禁用 baseline）
+  【替换 12】min(560px,84%) / 72% → 固定 560×420（AUI 不支持 %）
+*/
+
 @font-face{
   font-family:'Zpix';
   src:url('/font/zpix.ttf') format('truetype');
   font-display:block;
 }
 
-*{
-  box-sizing:border-box;
-  margin:0;
-  padding:0;
-}
-
-/* 空流文档的根元素不写 overflow：AUI 里根元素盒子高为 0，
-   在它上面写 overflow 会生成零尺寸裁剪遮罩，整页节点被静默剔掉。 */
-html,body{
-  background:transparent;
-}
-
 :root{
   --parchment:#c8ac7c;
   --parchment-lo:#b89868;
-  --parchment-hi:#d6bb94;
-  --pane:#d6bc94;
+  --parchment-hi:#d6bc94;
   --border-mid:#6a4a20;
   --border-dark:#4a3218;
-  --border-deep:#2a1a08;
+  --border-deep:#3a2814;
   --border-light:#8a6e3c;
   --border-hi:#d8bc8c;
   --ink:#1a0e04;
   --ink-2:#4a3218;
   --gold:#c9a227;
   --gold-l:#f5e08a;
-  --grid-line:rgba(58,40,20,.10);
-  --shine-soft:rgba(255,240,200,.38);
-  --sp-1:4px;
-  --sp-2:6px;
-  --sp-3:8px;
-  --sp-4:12px;
-  --sp-5:14px;
-  --sp-6:16px;
 }
+
+*{
+  box-sizing:border-box;
+  margin:0;
+  padding:0;
+  -webkit-font-smoothing:none;
+  -moz-osx-font-smoothing:unset;
+  font-smooth:never;
+  text-rendering:geometricPrecision;
+  font-feature-settings:"kern" 0, "liga" 0, "calt" 0;
+  font-variant-ligatures:none;
+}
+
+/* 这里**不能设裁剪属性**（《AUI使用总结》§0 铁律 6）：
+   空流文档的根元素盒子高为 0，一旦设了它就会生成一个错误尺寸的裁剪遮罩，
+   把页面节点静默削掉——左下角边框整块缺一半就是这个遮罩干的。
+   原来的浏览器稿有这一行，搬到 AUI 时必须删。 */
 
 body{
+  /* 原稿是深色径向渐变底，那是给浏览器看的；
+     游戏里容器屏自带压暗，透明让世界透出来，
+     否则 scale=fit 下文档矩形整块发黑（"部分黑屏"）。【替换：原 background 为渐变+#0a0604】 */
+  background-color:transparent;
   font-family:'Zpix',monospace;
-  font-size:12px;
-  line-height:16px;
+  font-size:15px;
   color:var(--ink);
   display:flex;
   justify-content:center;
+  align-items:center;
+  padding:22px;
   image-rendering:pixelated;
+  image-rendering:-moz-crisp-edges;
+  image-rendering:crisp-edges;
+}
+
+npc-bar,kingdom-entity-avatar,world-map,img{
+  image-rendering:pixelated;
+  image-rendering:-moz-crisp-edges;
+  image-rendering:crisp-edges;
 }
 
 /* ============================================================
-   外框：panel 底纹 + 8px 四圈硬环（照主题 .panel + .frame--thick）
-   宽度写死 900，宿主 CityHallScreen 会按视口覆盖成实际值
+   外壳：大面板，整块照背包页的 .id-card——
+   一张 4:3 的贴图铺满，7 圈边框与内部渐变都由它提供。
    ============================================================ */
-.ch-shell{
-  width:900px;
+.ch-hall{
+  position:relative;
+  flex:0 0 auto;
+  /* AUI 不实现 aspect-ratio，写它在 1080 宽下的精确高度（1080 : 810 = 4:3）【替换 6】
+     原：aspect-ratio:4/3; width:min(1080px,96vw,125vh) */
+  width:1080px;
+  height:810px;
   display:flex;
   flex-direction:column;
-  background-color:var(--pane);
-  background-image:url('/tex/pane_gen.png');
+  /* 60px：三栏的硬环向外扩 8px，再留出 52px。
+     外框贴图本身也占一圈宽度，所以这个值要比看上去的需要更大。 */
+  padding:60px;
+  background-color:var(--parchment);
+  background-image:url('/tex/card_gen.png');
   background-size:100% 100%;
   background-repeat:no-repeat;
   image-rendering:pixelated;
   box-shadow:
-    0 0 0 2px var(--border-deep),
-    0 0 0 4px var(--border-dark),
-    0 0 0 6px var(--border-mid),
-    0 0 0 8px var(--border-deep),
-    8px 8px 0 0 rgba(0,0,0,.45);
+    8px 8px 0 0 rgba(0,0,0,.5),
+    16px 16px 0 0 rgba(0,0,0,.28);
 }
 
-/* ---------- 标题条与底栏：羊皮纸状态栏贴图 ---------- */
-.head-row{
-  flex:0 0 auto;
-  display:flex;
-  align-items:center;
-  gap:var(--sp-3);
-  padding:6px 10px;
-  background-color:var(--parchment-lo);
-  background-image:url('/tex/parchment_status.png');
-  background-size:100% 100%;
-  background-repeat:no-repeat;
-  image-rendering:pixelated;
-  border-bottom:2px solid var(--border-mid);
-}
-
-.head-title{
+/* 三个主框紧贴拼成一块：间距为 0，各栏自己带边框。
+   因为相邻栏的边界重合，两栏的硬环落在同一位置会完全重叠，
+   所以中间看到的是"一条线"，而不是两条——这正是三框共边的效果。
+   原稿是 grid repeat(3,minmax(0,1fr))；AUI 的 grid 分栏比例不可靠，
+   改 flex:1 1 0——同样是三栏等宽，且能保证共边。【替换 10】 */
+.ch-hall-inner{
   flex:1 1 auto;
-  min-width:0;
-  font-size:15px;
-  line-height:20px;
-  letter-spacing:.3em;
-  text-indent:.3em;
-}
-
-/* 标题前的小菱形：主题用 ::before，AUI 里伪元素支持不确定，改成真实元素 */
-.ch-mark{
-  flex:0 0 auto;
-  width:6px;
-  height:6px;
-  margin-right:6px;
-  background:var(--border-mid);
-}
-
-.head-meta{
-  flex:0 0 auto;
-  font-size:12px;
-  line-height:18px;
-  letter-spacing:.18em;
-  text-indent:.18em;
-  color:var(--ink-2);
-}
-
-.foot{
-  flex:0 0 auto;
+  min-height:0;
   display:flex;
-  align-items:center;
-  gap:var(--sp-2);
-  padding:7px 8px 8px;
-  background-color:var(--parchment-lo);
-  background-image:url('/tex/parchment_status.png');
-  background-size:100% 100%;
-  background-repeat:no-repeat;
-  image-rendering:pixelated;
-  border-top:2px solid var(--border-mid);
 }
 
-/* ---------- 按钮 ---------- */
-.btn{
-  flex:0 0 auto;
-  padding:4px 10px;
-  border:0;
-  font-family:inherit;
-  font-size:12px;
-  line-height:18px;
-  color:var(--ink);
-  background-color:var(--parchment-hi);
-  box-shadow:
-    0 0 0 2px var(--border-dark),
-    inset 1px 1px 0 0 rgba(255,240,200,.5),
-    inset -1px -1px 0 0 var(--border-mid);
-  cursor:pointer;
-}
-
-.btn:hover{
-  color:var(--ink);
-  box-shadow:
-    0 0 0 2px var(--gold),
-    inset 1px 1px 0 0 var(--gold-l),
-    inset -1px -1px 0 0 var(--border-mid);
-}
-
-.btn-primary{
-  background-color:var(--gold);
-  color:var(--border-deep);
-}
-
-.btn-quiet{
-  background-color:var(--parchment-lo);
-  color:var(--ink-2);
-}
-
-/* ============================================================
-   三栏：左地图 / 中概况 / 右名录
-   ============================================================ */
-.ch-body{
-  display:flex;
-  gap:var(--sp-4);
-  padding:var(--sp-4) var(--sp-5) var(--sp-5);
-}
-
-.ch-side{
-  flex:0 0 200px;
-  display:flex;
-  flex-direction:column;
-}
-
-.ch-cols{
-  flex:1 1 auto;
-  min-width:0;
-  display:flex;
-  gap:var(--sp-4);
-}
-
-.ch-col{
+.ch-left,
+.ch-mid,
+.ch-right{
   flex:1 1 0;
   min-width:0;
+  min-height:0;
   display:flex;
   flex-direction:column;
-  gap:var(--sp-2);
 }
 
-/* 内嵌面板：与外壳同一张底纹，边框细一档 */
-.pane{
+/* 每栏只有一个主框，让它撑满栏高——三个主框才会等高、底边对齐。
+   缺了这条，框只会按内容高度收起，三栏高度就各不相同。 */
+.ch-left .pane,
+.ch-mid .pane,
+.ch-right .pane{flex:1 1 auto;min-height:0;}
+
+/* ---------- 右主框内的三个小框 ---------- */
+.rbox{
   display:flex;
   flex-direction:column;
-  gap:var(--sp-2);
-  padding:var(--sp-5) var(--sp-6);
-  background-color:var(--parchment-hi);
-  background-image:url('/tex/pane_gen.png');
-  background-size:100% 100%;
-  background-repeat:no-repeat;
-  image-rendering:pixelated;
+  padding:10px 12px;
+  background-color:var(--parchment);
+  border:2px solid var(--border-dark);
   box-shadow:
     0 0 0 1px var(--border-mid),
-    inset 0 0 0 1px var(--border-light);
-}
-
-.eyebrow{
-  flex:0 0 auto;
-  font-size:13px;
-  line-height:18px;
-  letter-spacing:.4em;
-  text-indent:.4em;
-  color:var(--ink-2);
-}
-
-/* 城市名 */
-.title{
-  flex:0 0 auto;
-  font-size:42px;
-  line-height:1.2;
-  letter-spacing:.24em;
-  text-indent:.24em;
-}
-
-/* ---------- 地图框：照模型渲染框（半透明底 + 16px 网格 + 内凹圈）---------- */
-.model-box{
-  position:relative;
-  flex:1 1 auto;
-  overflow:hidden;
-  background-color:var(--grid-line);
-  background-image:
-    linear-gradient(var(--grid-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-  background-size:16px 16px;
-  background-position:center center;
-  box-shadow:
-    inset 0 0 0 2px var(--border-light),
-    inset 2px 2px 0 0 var(--border-hi),
-    inset -2px -2px 0 0 var(--border-dark);
-}
-
-.ch-map-viewport{
-  flex:1 1 auto;
-  min-height:220px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-}
-
-.ch-map-note{
-  color:var(--ink-2);
-  font-size:12px;
-  letter-spacing:.2em;
-}
-
-/* 地图与金币条之间的分隔：2px 实线 + 1px 高光 */
-.ch-treasury{
-  flex:0 0 auto;
-  padding-top:var(--sp-2);
-  border-top:2px solid var(--border-mid);
-  box-shadow:0 -1px 0 var(--shine-soft);
-}
-
-/* ---------- 金币条 ---------- */
-.vital{
-  display:flex;
-  flex-direction:column;
-  gap:3px;
-}
-
-.vital-head{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:var(--sp-3);
-}
-
-.vital-label{
-  font-size:12px;
-  line-height:16px;
-  color:var(--ink-2);
-}
-
-.vital-num{
-  font-size:12px;
-  line-height:16px;
-}
-
-.bar{
-  position:relative;
-  height:22px;
-  overflow:hidden;
-  background-color:var(--border-deep);
-  background-image:url('/tex/parchment_bar.png');
-  background-size:100% 100%;
-  background-repeat:no-repeat;
-  image-rendering:pixelated;
-  box-shadow:
-    0 0 0 2px var(--border-deep),
-    inset 0 0 0 2px var(--border-mid);
-}
-
-.bar-fill{
-  position:absolute;
-  left:0;
-  top:0;
-  height:100%;
-  background-color:var(--gold);
-  box-shadow:
-    inset 1px 1px 0 0 var(--gold-l),
-    inset -1px -1px 0 0 var(--border-mid);
-}
-
-/* ---------- 属性格 ---------- */
-.stat-row{
-  flex:0 0 auto;
-  display:flex;
-  gap:var(--sp-3);
-}
-
-.stat{
-  flex:1 1 0;
-  min-width:0;
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  justify-content:center;
-  gap:2px;
-  height:74px;
-  padding:6px 4px;
-  background-color:var(--parchment);
-  background-image:url('/tex/parchment_card.png');
-  background-size:100% 100%;
-  background-repeat:no-repeat;
-  image-rendering:pixelated;
-  box-shadow:
-    0 0 0 2px var(--border-dark),
+    inset 0 0 0 1px var(--border-light),
     inset 2px 2px 0 0 var(--border-hi),
     inset -2px -2px 0 0 var(--border-mid);
 }
 
-.stat-value{
-  font-size:16px;
-  line-height:18px;
+.rbox + .rbox{margin-top:16px;}
+
+/* ============================================================
+   主框：三栏各是一个完整的面板，8 圈硬环照原稿 .pane。
+   栏与栏间距为 0，边界重合，所以相邻的环叠成一条线。
+   ============================================================ */
+.pane{
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+  padding:16px 18px;
+  background-color:var(--parchment-hi);
+  /* 原稿是 JS 的 buildPaneGrid(48,102)——竖长比例（0.47），与主框同比例。
+     不能用 80×60 的横图：纵向会被拉十几倍，颗粒拉成竖条、四周渐暗被扯平。【替换 1】 */
+  background-image:url('/tex/pane_v.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  box-shadow:
+    0 0 0 2px #2a1a08,
+    0 0 0 4px #4a3218,
+    0 0 0 6px #6a4a20,
+    0 0 0 8px #3a2814,
+    inset 0 0 0 2px #8a6e3c,
+    inset 2px 2px 0 0 #d8bc8c,
+    inset -2px -2px 0 0 #4a3218;
 }
 
+.pane-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding-bottom:8px;
+  margin-bottom:12px;
+  border-bottom:2px solid var(--border-mid);
+  box-shadow:0 1px 0 rgba(255,240,200,.45);
+}
+
+.pane-title{
+  display:flex;
+  align-items:center;
+  font-size:15px;
+  font-weight:400;
+  /* 原稿 .3em；15px × .3 = 4.5 → 4px【替换 9】 */
+  letter-spacing:4px;
+  text-indent:4px;
+  color:var(--ink);
+}
+
+/* 标题前的小菱形，照原稿 .pane-title::before */
+.pane-title::before{
+  content:"";
+  display:inline-block;
+  flex-shrink:0;
+  width:6px;
+  height:6px;
+  margin-right:9px;
+  background:var(--border-mid);
+  box-shadow:0 0 0 1px var(--border-deep);
+  transform:translateY(-1px) rotate(45deg);
+}
+
+.pane-meta{
+  flex-shrink:0;
+  font-size:11px;
+  /* 原稿 .18em；11 × .18 = 1.98 → 2px【替换 9】 */
+  letter-spacing:2px;
+  color:rgba(74,50,24,.7);
+  white-space:nowrap;
+}
+
+/* ============================================================
+   地图框：网格底 + 内凹硬环，照原稿的 .model-box
+   ============================================================ */
+/* 地图吃掉栏内剩余空间。栏里多了金库与民情两个框之后，
+   它分到的高度自然比原来矮，不用写死数值 */
+.pane-map{flex:1 1 auto;min-height:0;}
+
+.ch-map{
+  position:relative;
+  flex:1 1 auto;
+  min-height:120px;
+  cursor:grab;
+  /* 未探索区块是黑的，所以底色就是黑（覆盖 .model-box 的网格底） */
+  background:#000;
+}
+
+.ch-map.dragging{cursor:grabbing;}
+
+/* <world-map>：AUI 侧的地图元素，铺满地图框 */
+.ch-map world-map{
+  position:absolute;
+  left:0;
+  top:0;
+  width:100%;
+  height:100%;
+  display:block;
+}
+
+.model-box{
+  position:relative;
+  flex:1 1 auto;
+  min-height:0;
+  overflow:hidden;
+  background-color:rgba(58,40,20,.10);
+  background-image:
+    linear-gradient(rgba(58,40,20,.10) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(58,40,20,.10) 1px, transparent 1px);
+  background-size:16px 16px;
+  background-position:center center;
+  /* 地图框在面板内部，改用原稿 .np-attr 那套「实边 + 内环」：
+     不再向外扩，免得和面板自己的 8 环叠成一片 */
+  border:2px solid var(--border-dark);
+  box-shadow:
+    0 0 0 1px var(--border-mid),
+    inset 0 0 0 1px var(--border-light),
+    inset 2px 2px 0 0 var(--border-hi),
+    inset -2px -2px 0 0 var(--border-dark);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+/* ============================================================
+   金库 / 民情：能量格条，照原稿的 .vital / .vital-bar。
+   条身由 <npc-bar> 画（原为 canvas），外框仍是这里的 CSS。
+   ============================================================ */
+.vitals{
+  flex-shrink:0;
+  margin-top:10px;
+  display:flex;
+  flex-direction:column;
+}
+
+/* 原稿是 flex gap:10px；AUI 的 flex gap 行为不一致，改 margin【替换 8】 */
+.vital + .vital{margin-top:10px;}
+
+.vital{display:flex;flex-direction:column;}
+
+.vital-head{
+  display:flex;
+  /* 原稿 align-items:baseline；AUI 容器页禁用 baseline（§0 铁律 2），改 center【替换 11】 */
+  align-items:center;
+  justify-content:space-between;
+  /* 原稿是 gap:6px（纵向）；改 margin-bottom【替换 8】 */
+  margin-bottom:6px;
+}
+
+.vital-label{
+  font-size:13px;
+  /* 原稿 .28em；13 × .28 = 3.64 → 4px【替换 9】 */
+  letter-spacing:4px;
+  text-indent:4px;
+  color:var(--ink-2);
+}
+
+.vital-num{
+  display:flex;
+  align-items:center;
+  flex-shrink:0;
+}
+
+.vital-num b{font-size:13px;font-weight:400;color:var(--ink);}
+.vital-num i{font-size:13px;font-style:normal;color:rgba(74,50,24,.65);}
+
+.vital-bar{
+  position:relative;
+  height:22px;
+  background-color:var(--border-deep);
+  box-shadow:
+    0 0 0 2px #2a1a08,
+    inset 0 0 0 2px var(--border-mid),
+    inset 1px 1px 0 0 var(--border-dark),
+    inset -1px -1px 0 0 var(--border-light);
+  overflow:hidden;
+}
+
+.vital-canvas{
+  position:absolute;
+  left:0;
+  top:0;
+  width:100%;
+  height:100%;
+  display:block;
+}
+
+/* ============================================================
+   中栏：城名 / 概况属性卡 / 领地信息
+   ============================================================ */
+.ch-mid .pane{flex:1 1 auto;}
+
+.town-name{
+  font-size:34px;
+  line-height:1.2;
+  /* 原稿 .22em；34 × .22 = 7.48 → 7px【替换 9】 */
+  letter-spacing:7px;
+  text-indent:7px;
+  color:var(--ink);
+  padding-bottom:10px;
+}
+
+/* 分隔装饰：虚线 + 正中菱形，照原稿的 .np-sep */
+.sep{
+  position:relative;
+  height:4px;
+  flex-shrink:0;
+  margin:14px 0 2px;
+  background:repeating-linear-gradient(90deg,
+    var(--border-mid) 0 3px,
+    transparent 3px 6px);
+  box-shadow:
+    inset 0 1px 0 rgba(255,240,200,.3),
+    inset 0 -1px 0 rgba(74,50,24,.45);
+}
+
+.sep::before{
+  content:"";
+  position:absolute;
+  left:50%;
+  top:-3px;
+  width:6px;
+  height:6px;
+  transform:translateX(-50%) rotate(45deg);
+  background:var(--border-mid);
+  box-shadow:
+    0 0 0 2px var(--border-deep),
+    0 0 0 3px var(--parchment);
+}
+
+.eyebrow{
+  font-size:13px;
+  line-height:18px;
+  /* 原稿 .4em；13 × .4 = 5.2 → 5px【替换 9】 */
+  letter-spacing:5px;
+  text-indent:5px;
+  color:var(--ink-2);
+}
+
+/* 属性卡：照原稿的 .np-attr（74 高 + 2px 实边 + 四层内环） */
+.stat-row{
+  display:flex;
+  flex-shrink:0;
+  margin:12px 0 4px;
+}
+
+/* 原稿 grid repeat(3,1fr) + gap:12px；改 flex:1 1 0 等宽 + margin【替换 8/10】 */
+.stat{
+  position:relative;
+  flex:1 1 0;
+  min-width:0;
+  height:74px;
+  padding:8px 4px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:space-between;
+  text-align:center;
+  /* 原稿是 JS 的 buildSmall(48,20,0.80,21)【替换 1】 */
+  background-image:url('/tex/card_small.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  background-color:var(--parchment);
+  image-rendering:pixelated;
+  border:2px solid var(--border-dark);
+  box-shadow:
+    0 0 0 1px var(--border-mid),
+    inset 0 0 0 1px var(--border-light),
+    inset 2px 2px 0 0 var(--border-hi),
+    inset -2px -2px 0 0 var(--border-mid);
+  cursor:pointer;
+}
+
+.stat + .stat{margin-left:12px;}
+
+.stat:hover{background-color:var(--gold-l);}
+
 .stat-label{
+  display:block;
   font-size:12px;
   line-height:14px;
   color:var(--ink-2);
 }
 
-/* ---------- 政令 ---------- */
-.ch-decree{
-  flex:0 0 auto;
+.stat-value{
+  display:block;
+  font-size:18px;
+  line-height:20px;
+  padding:2px 0;
+}
+
+.stat-max{
+  display:block;
+  font-size:10px;
+  line-height:12px;
+  color:rgba(74,50,24,.75);
+}
+
+/* ---------- 领地信息：每个字段一个小框 ---------- */
+.realm-info{
+  display:flex;
+  flex-direction:column;
+  flex-shrink:0;
+  margin-top:10px;
+}
+
+.realm-row{
   display:flex;
   align-items:center;
   justify-content:space-between;
-  gap:var(--sp-3);
-  padding:3px 2px;
-}
-
-.ch-decree-note{
-  font-size:10px;
-  line-height:13px;
-  color:var(--ink-2);
-}
-
-/* 开关：选中态由 Java 加 .on 切换，不依赖 :checked 伪类 */
-.switch{
-  position:relative;
-  flex:0 0 auto;
-  width:28px;
-  height:16px;
-  display:block;
-  background-color:var(--parchment-lo);
-  box-shadow:
-    inset 0 0 0 2px var(--border-dark),
-    inset 1px 1px 0 0 var(--border-deep);
-  cursor:pointer;
-}
-
-.switch-knob{
-  display:block;
-  width:10px;
-  height:10px;
-  margin:3px 0 0 3px;
-  background-color:var(--border-mid);
-  box-shadow:inset 1px 1px 0 0 var(--border-light);
-}
-
-.switch.on .switch-knob{
-  margin-left:15px;
-  background-color:var(--gold);
-  box-shadow:inset 1px 1px 0 0 var(--gold-l);
-}
-
-/* ---------- 输入框 ---------- */
-.field{
-  flex:0 0 auto;
-  display:flex;
-  flex-direction:column;
-  gap:var(--sp-2);
-}
-
-.field-label{
-  font-size:12px;
-  line-height:16px;
-  letter-spacing:.24em;
-  text-indent:.24em;
-  color:var(--ink-2);
-}
-
-.field input{
-  width:100%;
-  padding:4px 6px;
-  font-family:'Zpix',monospace;
-  font-size:16px;
-  line-height:22px;
-  color:var(--ink);
-  background-color:var(--parchment-hi);
-  background-image:url('/tex/parchment_card.png');
-  background-size:100% 100%;
-  background-repeat:no-repeat;
-  image-rendering:pixelated;
-  border:0;
-  outline:0;
-  box-shadow:
-    0 0 0 2px var(--border-deep),
-    inset 1px 1px 0 0 var(--border-mid);
-}
-
-.field input::placeholder{
-  color:var(--border-mid);
-}
-
-/* ---------- 居民条 ---------- */
-.ch-citizens{
-  flex:1 1 auto;
-  min-height:0;
-  overflow-y:auto;
-  display:flex;
-  flex-direction:column;
-  gap:var(--sp-1);
-}
-
-/* 独立滚动条：residential.html 在用，可用 */
-.ch-citizens::-webkit-scrollbar{
-  width:8px;
-}
-
-.ch-citizens::-webkit-scrollbar-track{
-  background-color:var(--parchment-lo);
-}
-
-.ch-citizens::-webkit-scrollbar-thumb{
-  background-color:var(--border-mid);
-  box-shadow:inset 1px 1px 0 0 var(--border-light);
-}
-
-.list-row{
-  flex:0 0 auto;
-  display:flex;
-  align-items:center;
-  gap:var(--sp-2);
-  padding:3px 4px;
-  background-color:var(--parchment-hi);
-  background-image:url('/tex/parchment_card.png');
-  background-size:100% 100%;
-  background-repeat:no-repeat;
-  image-rendering:pixelated;
+  padding:8px 10px;
+  background-color:var(--parchment);
+  border:2px solid var(--border-dark);
   box-shadow:
     0 0 0 1px var(--border-mid),
-    inset 1px 1px 0 0 rgba(255,240,200,.5);
-  cursor:pointer;
+    inset 0 0 0 1px var(--border-light),
+    inset 2px 2px 0 0 var(--border-hi),
+    inset -2px -2px 0 0 var(--border-mid);
 }
 
-.list-row:hover{
-  box-shadow:
-    0 0 0 2px var(--gold),
-    inset 1px 1px 0 0 var(--gold-l);
+/* 原稿 gap:10px；改 margin【替换 8】 */
+.realm-row + .realm-row{margin-top:10px;}
+
+.realm-k{
+  flex-shrink:0;
+  font-size:12px;
+  line-height:16px;
+  /* 原稿 .22em；12 × .22 = 2.64 → 3px【替换 9】 */
+  letter-spacing:3px;
+  text-indent:3px;
+  color:var(--ink-2);
+  /* 原稿 .realm-row 的 gap:12px；改 margin【替换 8】 */
+  margin-right:12px;
 }
 
-/* 选中态由 Java 切 .on，页面里不预置 */
-.list-row.on{
-  background-color:var(--parchment-lo);
-  box-shadow:
-    0 0 0 2px var(--gold),
-    inset 1px 1px 0 0 var(--gold-l);
-}
-
-.list-row-name{
-  flex:1 1 auto;
+.realm-v{
   min-width:0;
   font-size:15px;
   line-height:20px;
+  color:var(--ink);
+  text-align:right;
   overflow:hidden;
   white-space:nowrap;
 }
 
-.list-row-sub{
-  flex:0 0 auto;
-  font-size:10px;
-  line-height:16px;
-  color:var(--ink-2);
+/* ---------- 右栏三个主框内部的条目行 ---------- */
+/* flex-basis 必须是 0，不能是 auto。
+   写 auto 时高度会按内容撑开——世界事件有十几条，整页就被拉长了。
+   写 0 才是三块均分可用高度，多出来的条目靠滚动看。 */
+.rbox--grow{
+  flex:1 1 0;
+  min-height:0;
+  overflow:hidden;
 }
 
-/* 行内头像位：24×24，将来由 Java 塞实体头像渲染元素 */
-.avatar-sm{
-  flex:0 0 auto;
-  width:24px;
-  height:24px;
-  background-color:var(--parchment-lo);
-  box-shadow:0 0 0 2px var(--border-dark);
-}
-
-.tag{
-  flex:0 0 auto;
-  padding:0 3px;
-  font-size:10px;
-  line-height:14px;
-  color:var(--parchment-hi);
-  background-color:var(--border-deep);
-}
-
-/* ---------- 键值 ---------- */
-.kv{
-  flex:0 0 auto;
+.rbox-head{
   display:flex;
   align-items:center;
   justify-content:space-between;
-  gap:var(--sp-2);
+  flex-shrink:0;
+  /* 原稿 .rbox 是 gap:8px（纵向）；改 margin-bottom【替换 8】 */
+  margin-bottom:8px;
 }
 
-.kv-key{
-  font-size:12px;
-  line-height:16px;
-  color:var(--ink-2);
+.rlines{
+  display:flex;
+  flex-direction:column;
+  /* 同样是 basis 0：条目再多也不是把框撑高，而是自己滚 */
+  flex:1 1 0;
+  min-height:0;
+  overflow-y:auto;
 }
 
-.kv-val{
-  font-size:12px;
+/* 像素日历图标：外框 + 顶部一条深色当表头。
+   AUI 里跑不了图标字体，用纯 CSS 画一个更稳。 */
+.cal-icon{
+  flex-shrink:0;
+  width:16px;
+  height:16px;
+  cursor:pointer;
+  background-color:var(--parchment);
+  border:2px solid var(--border-dark);
+  box-shadow:
+    0 0 0 1px var(--border-mid),
+    inset 0 4px 0 0 var(--border-mid);
+}
+
+.cal-icon:hover{background-color:var(--gold-l);}
+
+/* 三块等分右栏高度 */
+.ch-right .pane > .rbox--grow + .rbox--grow{margin-top:12px;}
+
+.rline{
+  display:flex;
+  /* 原稿 align-items:baseline；同 .vital-head，改 center【替换 11】 */
+  align-items:center;
+  justify-content:space-between;
+  padding:5px 0;
+  border-bottom:1px dotted rgba(74,50,24,.35);
+}
+
+.rline:last-child{border-bottom:0;}
+
+.rline-k{
+  flex-shrink:0;
+  font-size:11px;
   line-height:16px;
+  color:rgba(74,50,24,.7);
+  /* 原稿 .rline 的 gap:8px；改 margin【替换 8】 */
+  margin-right:8px;
+}
+
+.rline-v{
+  min-width:0;
+  font-size:13px;
+  line-height:18px;
+  color:var(--ink);
+  overflow:hidden;
+  white-space:nowrap;
+}
+
+.kv-val--up{color:#2f5a1c;}
+.kv-val--down{color:#7a3a10;}
+
+/* ---------- 空列表提示 ---------- */
+.empty-note{
+  padding:26px 6px;
+  text-align:center;
+  font-size:13px;
+  line-height:20px;
+  color:rgba(74,50,24,.62);
+}
+
+/* ============================================================
+   像素中世纪滚动条
+   ------------------------------------------------------------
+   系统默认滚动条是灰色的，跟羊皮纸界面完全不搭。这里用 WebKit
+   伪元素重画：槽是内凹的深色，滑块是凸起的亮褐，悬停转金——
+   与 .pane / .rbox 同一套「左上高光、右下暗边」的语汇。
+
+   两个注意点：
+   · WebKit 伪元素不接受 border，描边只能用 box-shadow 的 0 0 0 Npx；
+   · scrollbar-color 会覆盖 ::-webkit-scrollbar，两者不能同时写，
+     这里以 WebKit 为准（Firefox 下会退回系统样式）。
+
+   这一份与 theme/pixel-medieval.css 里的 §14 是同一套值，
+   页面自包含不能引外部 CSS，所以两边都留了一份。
+   ============================================================ */
+.scroll{overflow-y:auto;min-height:0;}
+
+.scroll::-webkit-scrollbar{
+  width:14px;
+  height:14px;
+}
+
+/* 槽：深色内凹 */
+.scroll::-webkit-scrollbar-track{
+  background-color:var(--border-deep);
+  box-shadow:
+    inset 1px 1px 0 0 #2a1a08,
+    inset -1px -1px 0 0 var(--border-mid);
+}
+
+/* 滑块：亮褐凸起 */
+.scroll::-webkit-scrollbar-thumb{
+  background-color:var(--border-light);
+  box-shadow:
+    0 0 0 1px #2a1a08,
+    inset 1px 1px 0 0 var(--border-hi),
+    inset -1px -1px 0 0 var(--border-dark);
+}
+
+/* 悬停转金 */
+.scroll::-webkit-scrollbar-thumb:hover{
+  background-color:var(--gold);
+  box-shadow:
+    0 0 0 1px #2a1a08,
+    inset 1px 1px 0 0 var(--gold-l),
+    inset -1px -1px 0 0 var(--border-dark);
+}
+
+/* 两个方向的交汇角，别留出一块白 */
+.scroll::-webkit-scrollbar-corner{
+  background-color:var(--border-deep);
+}
+
+/* ============================================================
+   列表卡片
+   ============================================================ */
+
+/* 人口：32 的头像位 + 名字 + 职业/班次 */
+.pcard{
+  display:flex;
+  align-items:center;
+  padding:7px 6px;
+  border-bottom:1px dotted rgba(74,50,24,.35);
+  cursor:pointer;
+}
+
+.pcard:last-child{border-bottom:0;}
+.pcard:hover{background-color:rgba(201,162,39,.16);}
+
+/* 选中态由 Java 切 .on */
+.pcard.on{
+  background-color:rgba(201,162,39,.26);
+  box-shadow:inset 0 0 0 2px var(--gold);
+}
+
+/* 头像位：由 <kingdom-entity-avatar> 贴皮肤上那张 2D 的脸 */
+.pcard-avatar{
+  flex-shrink:0;
+  width:32px;
+  height:32px;
+  display:block;
+  background-color:var(--parchment-lo);
+  border:2px solid var(--border-dark);
+  box-shadow:
+    0 0 0 1px var(--border-mid),
+    inset 1px 1px 0 rgba(255,240,200,.35);
+  image-rendering:pixelated;
+  /* 原稿 .pcard 的 gap:10px；改 margin【替换 8】 */
+  margin-right:10px;
+}
+
+.pcard-main{flex:1 1 auto;min-width:0;}
+
+.pcard-name{
+  font-size:15px;
+  line-height:20px;
+  color:var(--ink);
+  overflow:hidden;
+  white-space:nowrap;
+}
+
+.pcard-sub{
+  font-size:11px;
+  line-height:15px;
+  color:rgba(74,50,24,.7);
+}
+
+/* 建筑：没有头像，只有名称 + 分类 + 坐标 */
+.bcard{
+  display:flex;
+  align-items:center;
+  padding:8px 6px;
+  border-bottom:1px dotted rgba(74,50,24,.35);
+  cursor:pointer;
+}
+
+.bcard:last-child{border-bottom:0;}
+.bcard:hover{background-color:rgba(201,162,39,.16);}
+.bcard.on{
+  background-color:rgba(201,162,39,.26);
+  box-shadow:inset 0 0 0 2px var(--gold);
+}
+
+/* 原稿 .bcard 的 gap:10px；改 margin【替换 8】 */
+.bcard-main{flex:1 1 auto;min-width:0;margin-right:10px;}
+
+.bcard-name{
+  font-size:15px;
+  line-height:20px;
+  color:var(--ink);
+  overflow:hidden;
+  white-space:nowrap;
+}
+
+/* 坐标用等宽感呈现，别让它被省略号截掉 */
+.bcard-pos{
+  flex-shrink:0;
+  font-size:11px;
+  line-height:15px;
+  color:rgba(74,50,24,.72);
+}
+
+/* ============================================================
+   页内弹窗：盖在面板里的一层小 UI，不切页面。
+   默认 display:none，Java 加 .is-open 才显示——
+   标记里不预置任何显隐状态。
+   ============================================================ */
+.modal{
+  position:absolute;
+  left:0;
+  top:0;
+  right:0;
+  bottom:0;
+  z-index:30;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  background:rgba(10,6,4,.55);
+}
+
+.modal.is-open{display:flex;}
+
+.modal-box{
+  display:flex;
+  flex-direction:column;
+  /* 原稿 width:min(560px,84%); max-height:72%；
+     AUI 的 min()/% 不可靠，改固定值【替换 12】 */
+  width:560px;
+  height:420px;
+  padding:14px 16px;
+  background-color:var(--parchment-hi);
+  /* 原稿是 JS 的 buildSmall【替换 1】 */
+  background-image:url('/tex/card_small.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  box-shadow:
+    0 0 0 2px #2a1a08,
+    0 0 0 4px #4a3218,
+    0 0 0 6px #6a4a20,
+    0 0 0 8px #3a2814,
+    inset 0 0 0 2px #8a6e3c,
+    inset 2px 2px 0 0 #d8bc8c,
+    inset -2px -2px 0 0 #4a3218;
+}
+
+.modal-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  flex-shrink:0;
+  padding-bottom:8px;
+  margin-bottom:10px;
+  border-bottom:2px solid var(--border-mid);
+  box-shadow:0 1px 0 rgba(255,240,200,.45);
+}
+
+.modal-title{
+  font-size:15px;
+  line-height:20px;
+  /* 原稿 .3em；15 × .3 = 4.5 → 4px【替换 9】 */
+  letter-spacing:4px;
+  text-indent:4px;
+  color:var(--ink);
+}
+
+/* 关闭按钮：照 .rbox 的语汇做一个小方钮 */
+.modal-close{
+  flex-shrink:0;
+  width:22px;
+  height:22px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:13px;
+  line-height:1;
+  color:var(--ink);
+  cursor:pointer;
+  background-color:var(--parchment);
+  border:2px solid var(--border-dark);
+  box-shadow:
+    0 0 0 1px var(--border-mid),
+    inset 1px 1px 0 var(--border-hi);
+}
+
+.modal-close:hover{background-color:var(--gold-l);}
+
+.modal-search{
+  flex-shrink:0;
+  margin-bottom:10px;
+}
+
+/* 附属地弹窗不需要搜索，由 Java 加这个类藏起来 */
+.modal-search.is-hidden{display:none;}
+
+/* 弹窗正文：滚动区 */
+.modal-body{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+}
+
+/* 输入框：照原稿 .np-attr 的凹槽语汇 */
+.field input{
+  width:100%;
+  padding:5px 8px;
+  font-family:'Zpix',monospace;
+  font-size:15px;
+  line-height:20px;
+  color:var(--ink);
+  background-color:var(--parchment-hi);
+  border:2px solid var(--border-dark);
+  box-shadow:
+    0 0 0 1px var(--border-mid),
+    inset 1px 1px 0 rgba(0,0,0,.22);
+  outline:0;
+}
+
+.field input::placeholder{color:rgba(74,50,24,.55);}
+
+/* ============================================================
+   日期选择：一格一天，可滚动
+   ============================================================ */
+/* 原稿 grid repeat(6,1fr) + gap:8px。
+   AUI 的 grid 只支持无单位整数当列数（等距阵列），间距用子元素 margin。【替换 8/10】 */
+.day-grid{
+  display:grid;
+  grid-template-columns:6;
+}
+
+.day-cell{
+  height:34px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  margin:0 8px 8px 0;
+  font-size:13px;
+  line-height:1;
+  color:var(--ink);
+  cursor:pointer;
+  background-color:var(--parchment);
+  border:2px solid var(--border-dark);
+  box-shadow:
+    0 0 0 1px var(--border-mid),
+    inset 1px 1px 0 var(--border-hi);
+}
+
+.day-cell:hover{background-color:var(--gold-l);}
+
+/* 当前选中的那天由 Java 切 .on */
+.day-cell.on{
+  background-color:var(--gold);
+  color:var(--border-deep);
+  box-shadow:
+    0 0 0 1px var(--gold),
+    inset 1px 1px 0 #fff6cf;
+}
+
+/* ============================================================
+   全屏地图
+   ============================================================ */
+.map-full{
+  position:absolute;
+  left:0;
+  top:0;
+  right:0;
+  bottom:0;
+  z-index:25;
+  display:none;
+  flex-direction:column;
+  padding:26px;
+  background:rgba(10,6,4,.88);
+}
+
+.map-full.is-open{display:flex;}
+
+.map-full-box{
+  position:relative;
+  flex:1 1 auto;
+  min-height:0;
+  cursor:grab;
+  background:#000;
+  box-shadow:
+    0 0 0 2px #2a1a08,
+    0 0 0 4px #4a3218,
+    0 0 0 6px #6a4a20,
+    0 0 0 8px #3a2814;
+}
+
+.map-full-box.dragging{cursor:grabbing;}
+
+.map-full-box world-map{
+  position:absolute;
+  left:0;
+  top:0;
+  width:100%;
+  height:100%;
+  display:block;
+}
+
+.map-full-hint{
+  flex-shrink:0;
+  padding-top:10px;
+  text-align:center;
+  font-size:11px;
+  line-height:16px;
+  color:rgba(216,188,140,.75);
+}
+
+/* 地图框右上角的放大提示：平时淡，悬停才明显 */
+.ch-map .map-zoom-hint{
+  position:absolute;
+  right:4px;
+  top:4px;
+  z-index:2;
+  padding:2px 6px;
+  font-size:11px;
+  line-height:16px;
+  color:rgba(216,188,140,.7);
+  background:rgba(10,6,4,.45);
+  pointer-events:none;
 }
 </style>
 </head>
 <body>
 
-<div class="ch-shell" id="chShell">
+<div class="ch-hall" id="chHall">
+  <div class="ch-hall-inner">
 
-  <div class="head-row">
-    <span class="ch-mark"></span>
-    <span class="head-title">市 政 厅</span>
-    <span class="head-meta" id="chMeta">—</span>
-  </div>
+    <!-- ================= 左主框：城镇地图 / 金库 / 民情 ================= -->
+    <div class="ch-left">
 
-  <div class="ch-body">
+      <section class="pane pane-map">
+        <header class="pane-head">
+          <h2 class="pane-title">城 镇 地 图</h2>
+          <span class="pane-meta" id="chMapMeta">32 × 32</span>
+        </header>
 
-    <!-- 左：城镇地图 + 金库（同框） -->
-    <div class="ch-side">
-      <div class="pane ch-map" style="flex:1 1 auto;">
-        <div class="model-box ch-map-viewport">
-          <div class="ch-map-note">城 镇 地 图</div>
+        <!-- 世界地图：真实世界数据由 <world-map> 向服务端请求后绘制。
+             center-x / center-z 是占位，打开界面时由 CityHallScreen 按市政厅方块位置覆盖。 -->
+        <div class="model-box ch-map" id="chMapBox">
+          <world-map id="chMap" center-x="0" center-z="0" radius="192"></world-map>
+          <span class="map-zoom-hint">点 击 放 大</span>
         </div>
-        <div class="ch-treasury">
+
+        <div class="sep"></div>
+
+        <div class="eyebrow">金 库</div>
+
+        <div class="vitals">
           <div class="vital">
             <div class="vital-head">
-              <span class="vital-label">金库</span>
-              <span class="vital-num" id="chTreasuryNum">0 / 0</span>
+              <span class="vital-label">库存</span>
+              <span class="vital-num"><b id="chGoldNow">1240</b><i id="chGoldMax">/2000</i></span>
             </div>
-            <div class="bar"><div class="bar-fill" id="chTreasuryFill" style="width:0;"></div></div>
+            <div class="vital-bar">
+              <npc-bar class="vital-canvas" id="chGoldBar" type="gold" value="1240" max="2000"></npc-bar>
+            </div>
           </div>
         </div>
-      </div>
+
+        <div class="sep"></div>
+
+        <div class="eyebrow">民 情</div>
+
+        <!-- 三条的刻画与金库条完全一致，只把计数换成百分比 -->
+        <div class="vitals">
+          <div class="vital">
+            <div class="vital-head">
+              <span class="vital-label">凝聚力</span>
+              <span class="vital-num"><b id="chUnityNow">76</b><i>%</i></span>
+            </div>
+            <div class="vital-bar">
+              <npc-bar class="vital-canvas" id="chUnityBar" type="mana" value="76" max="100"></npc-bar>
+            </div>
+          </div>
+
+          <div class="vital">
+            <div class="vital-head">
+              <span class="vital-label">忠诚度</span>
+              <span class="vital-num"><b id="chLoyalNow">82</b><i>%</i></span>
+            </div>
+            <div class="vital-bar">
+              <npc-bar class="vital-canvas" id="chLoyalBar" type="hunger" value="82" max="100"></npc-bar>
+            </div>
+          </div>
+
+          <div class="vital">
+            <div class="vital-head">
+              <span class="vital-label">幸福度</span>
+              <span class="vital-num"><b id="chHappyNow">68</b><i>%</i></span>
+            </div>
+            <div class="vital-bar">
+              <npc-bar class="vital-canvas" id="chHappyBar" type="hp" value="68" max="100"></npc-bar>
+            </div>
+          </div>
+        </div>
+      </section>
+
     </div>
 
-    <div class="ch-cols">
+    <!-- ================= 中主框：城镇名 / 概况 / 领地信息 ================= -->
+    <div class="ch-mid">
+      <section class="pane">
 
-      <!-- 中：城市名 + 概况 + 政令 -->
-      <div class="pane ch-col">
-        <div class="title" id="chTownName">—</div>
-        <div class="eyebrow">城镇概况</div>
+        <h1 class="town-name" id="chTownName">锈 锤 堡</h1>
+
+        <div class="sep"></div>
+
+        <div class="eyebrow">城 镇 概 况</div>
+
+        <!-- 三个方框可点：人口 / 建筑 / 附属各弹出一个列表 -->
         <div class="stat-row">
-          <div class="stat"><span class="stat-value" id="chPop">0</span><span class="stat-label">居民</span></div>
-          <div class="stat"><span class="stat-value" id="chBuild">0</span><span class="stat-label">建筑</span></div>
-        </div>
-
-        <div class="eyebrow" style="margin-top:4px;">政令</div>
-
-        <div class="ch-decree">
-          <div>
-            <div>集市日</div>
-            <div class="ch-decree-note">每旬开市，民情上涨、税入下降</div>
+          <div class="stat" id="chStatPop">
+            <span class="stat-label">人口</span>
+            <span class="stat-value" id="chPop">48</span>
+            <span class="stat-max" id="chPopMax">/ 64</span>
           </div>
-          <span class="switch" id="chDecreeMarket"><span class="switch-knob"></span></span>
-        </div>
-
-        <div class="ch-decree">
-          <div>
-            <div>宵禁</div>
-            <div class="ch-decree-note">夜间禁止外出，治安上升、民情下降</div>
+          <div class="stat" id="chStatBuild">
+            <span class="stat-label">建筑</span>
+            <span class="stat-value" id="chBuild">17</span>
+            <span class="stat-max" id="chBuildMax">/ 24</span>
           </div>
-          <span class="switch" id="chDecreeCurfew"><span class="switch-knob"></span></span>
-        </div>
-
-        <div class="ch-decree">
-          <div>
-            <div>招工布告</div>
-            <div class="ch-decree-note">空闲市民自动前往待招工建筑</div>
+          <div class="stat" id="chStatVassal">
+            <span class="stat-label">附属</span>
+            <span class="stat-value" id="chVassal">3</span>
+            <span class="stat-max" id="chVassalMax">/ 6</span>
           </div>
-          <span class="switch" id="chDecreeHiring"><span class="switch-knob"></span></span>
         </div>
 
-        <div class="ch-decree">
-          <div>
-            <div>城门税</div>
-            <div class="ch-decree-note">对往来商队抽成</div>
+        <div class="sep"></div>
+
+        <div class="eyebrow">领 地 信 息</div>
+
+        <!-- 四个字段各带一个小框 -->
+        <div class="realm-info">
+          <div class="realm-row">
+            <span class="realm-k">隶 属</span>
+            <span class="realm-v" id="chRealmNation">瓦拉里安 · 北境</span>
           </div>
-          <span class="switch" id="chDecreeToll"><span class="switch-knob"></span></span>
+          <div class="realm-row">
+            <span class="realm-k">盟 友</span>
+            <span class="realm-v" id="chRealmAlly">灰石镇、盐河渡</span>
+          </div>
+          <div class="realm-row">
+            <span class="realm-k">敌 人</span>
+            <span class="realm-v" id="chRealmFoe">黑鸦团</span>
+          </div>
+          <div class="realm-row">
+            <span class="realm-k">当前政策</span>
+            <span class="realm-v" id="chRealmPolicy">屯田令</span>
+          </div>
         </div>
 
-        <div class="field" style="margin-top:2px;">
-          <span class="field-label">税率（%）</span>
-          <input type="text" id="chTaxRate" value="12">
+      </section>
+    </div>
+
+    <!-- ================= 右主框：世界事件 / 政务处理 / 资金流水 ================= -->
+    <div class="ch-right">
+
+      <section class="pane">
+
+        <!-- 三块等分栏高；条目由 Java 注入，容器自己滚 -->
+        <div class="rbox rbox--grow">
+          <div class="rbox-head">
+            <div class="eyebrow">世 界 事 件</div>
+            <span class="cal-icon" id="chCalBtn"></span>
+          </div>
+          <div class="rlines scroll" id="chEventList"></div>
         </div>
+
+        <div class="rbox rbox--grow">
+          <div class="rbox-head">
+            <div class="eyebrow">政 务 处 理</div>
+          </div>
+          <div class="rlines scroll" id="chTodoList"></div>
+        </div>
+
+        <div class="rbox rbox--grow">
+          <div class="rbox-head">
+            <div class="eyebrow">资 金 流 水</div>
+          </div>
+          <div class="rlines scroll" id="chLedgerList"></div>
+        </div>
+
+      </section>
+
+    </div>
+
+  </div>
+
+  <!-- ===================== 页内弹窗层 =====================
+       全部盖在面板内部，不切页面。默认由 CSS 隐藏，
+       Java 按需要加 .is-open。标记里不写任何显隐状态。 -->
+
+  <!-- 通用列表弹窗：人口 / 建筑 / 附属三个共用这一个，
+       标题、搜索框显隐、内容都由 Java 填 -->
+  <div class="modal" id="chModal">
+    <div class="modal-box">
+      <header class="modal-head">
+        <span class="modal-title" id="chModalTitle">—</span>
+        <span class="modal-close" id="chModalClose">✕</span>
+      </header>
+      <div class="modal-search field" id="chModalSearchWrap">
+        <input type="text" id="chModalSearch" placeholder="搜索…">
       </div>
-
-      <!-- 右：居民名录 + 财政 -->
-      <div class="pane ch-col">
-        <div class="eyebrow">居民名录</div>
-        <div class="field">
-          <input type="text" id="chSearch" placeholder="搜索居民…">
-        </div>
-        <div class="ch-citizens" id="chCitizens"></div>
-
-        <div class="eyebrow" style="margin-top:4px;">今日财政</div>
-        <div class="kv"><span class="kv-key">税入</span><span class="kv-val" id="chIncomeTax">+0</span></div>
-        <div class="kv"><span class="kv-key">工钱</span><span class="kv-val" id="chIncomeWage">-0</span></div>
-        <div class="kv"><span class="kv-key">净入</span><span class="kv-val" id="chIncomeNet">+0</span></div>
-      </div>
-
+      <div class="scroll modal-body" id="chModalBody"></div>
     </div>
   </div>
 
-  <div class="foot">
-    <button class="btn btn-primary" id="chDecree">颁布政令</button>
-    <button class="btn" id="chSave">保存</button>
-    <button class="btn btn-quiet" id="chClose">关闭</button>
+  <!-- 日期选择：一格一天，可滚动 -->
+  <div class="modal" id="chModalDay">
+    <div class="modal-box">
+      <header class="modal-head">
+        <span class="modal-title" id="chModalDayTitle">选 择 日 期</span>
+        <span class="modal-close" id="chModalDayClose">✕</span>
+      </header>
+      <div class="scroll modal-body">
+        <div class="day-grid" id="chDayGrid"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 全屏地图 -->
+  <div class="map-full" id="chMapFull">
+    <div class="map-full-box" id="chMapFullBox">
+      <world-map id="chMapFullView" center-x="0" center-z="0" radius="320"></world-map>
+    </div>
+    <div class="map-full-hint">拖 动 平 移　·　滚 轮 缩 放　·　点 击 外 侧 关 闭</div>
   </div>
 
 </div>

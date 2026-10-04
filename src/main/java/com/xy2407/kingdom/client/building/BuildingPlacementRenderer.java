@@ -54,7 +54,7 @@ public final class BuildingPlacementRenderer {
             pendingMesh.draw(view, event.getProjectionMatrix(), BuildingPlacementManager.PENDING_ALPHA);
             drawFootprintBox(view, pending.size());
         }
-        // 施工中的建筑：从开工一直渲染到完工/中止，比放置投影更淡，只留轮廓
+        // 施工中的建筑：从开工一直渲染到完工/中止，透明度与放置投影一致，投影"一直保持"
         for (BuildingSiteManager.Site site : BuildingSiteManager.sites()) {
             StructureMesh siteMesh = site.mesh();
             if (siteMesh == null || siteMesh.isEmpty()) {
@@ -62,6 +62,7 @@ public final class BuildingPlacementRenderer {
             }
             Matrix4f view = worldView(event, site.origin(), site.size());
             siteMesh.draw(view, event.getProjectionMatrix(), BuildingSiteManager.SITE_ALPHA);
+            drawFootprintBox(view, site.size());
         }
     }
 

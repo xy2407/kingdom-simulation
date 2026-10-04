@@ -32,10 +32,13 @@ public final class FarmPlotSchema implements Migration {
     public static final String COL_MAX_Z = "max_z";
     public static final String COL_CREATED_DAY = "created_day";
     public static final String COL_UPDATED_AT = "updated_at";
+    public static final String COL_EXTRA_REGIONS = "extra_regions";
 
     @Override
     public int version() {
-        return 8;
+        // 版本号在各 schema 之间必须全局唯一：runner 会把 version <= user_version 的迁移整个跳过，
+        // 撞号的那条永远不会执行。当前占用：Npc 5 / Building 7 / FarmLand 9 / Ranch 10。
+        return 11;
     }
 
     @Override
@@ -102,6 +105,7 @@ public final class FarmPlotSchema implements Migration {
         defs.put(COL_MAX_Z, "INTEGER NOT NULL DEFAULT 0");
         defs.put(COL_CREATED_DAY, "INTEGER NOT NULL DEFAULT 0");
         defs.put(COL_UPDATED_AT, "INTEGER NOT NULL DEFAULT 0");
+        defs.put(COL_EXTRA_REGIONS, "TEXT NOT NULL DEFAULT ''");
         return defs;
     }
 
@@ -109,7 +113,7 @@ public final class FarmPlotSchema implements Migration {
         return String.join(", ", new String[] {
                 COL_UUID, COL_BUILDING_ID, COL_BLUEPRINT_NAME, COL_NAME, COL_SLOTS, COL_CROP_ID,
                 COL_WORKER_IDS, COL_DIMENSION, COL_MIN_X, COL_MIN_Y, COL_MIN_Z,
-                COL_MAX_X, COL_MAX_Y, COL_MAX_Z, COL_CREATED_DAY, COL_UPDATED_AT
+                COL_MAX_X, COL_MAX_Y, COL_MAX_Z, COL_CREATED_DAY, COL_UPDATED_AT, COL_EXTRA_REGIONS
         });
     }
 }

@@ -1,6 +1,7 @@
 package com.xy2407.kingdom.client.rts;
 
 import com.xy2407.kingdom.client.building.BuildingPlacementManager;
+import com.xy2407.kingdom.client.farm.FarmAreaSelector;
 import com.xy2407.kingdom.common.network.rts.RtsFakePlayerClearPacket;
 import com.xy2407.kingdom.common.network.rts.RtsFakePlayerSpawnPacket;
 import com.xy2407.kingdom.common.network.rts.RtsMoveCommandPacket;
@@ -151,6 +152,7 @@ public final class RtsModeManager {
 
         RtsWaypointState.clear();
         BuildingPlacementManager.cancel();
+        FarmAreaSelector.cancel();
         if (minecraft.getConnection() != null) {
             PacketDistributor.sendToServer(RtsFakePlayerClearPacket.INSTANCE);
         }
@@ -233,6 +235,16 @@ public final class RtsModeManager {
 
     public static boolean isIso() {
         return viewMode != RtsViewMode.FREE;
+    }
+
+    /** 抬俯角：框选这类要往地面落点的操作先摆成俯视，方位角保持玩家当前朝向。 */
+    public static void tiltCameraToGround(float pitch) {
+        if (cameraPos == null) {
+            return;
+        }
+        float next = Math.max(-89.0F, Math.min(89.0F, pitch));
+        cameraPitch = next;
+        prevCameraPitch = next;
     }
 
     /** 把相机瞬移到某个位置上方（用于"前往某处"这类入口）。 */

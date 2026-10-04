@@ -3,7 +3,6 @@ package com.xy2407.kingdom.client.faction;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.client.rts.RtsModeManager;
-import com.xy2407.kingdom.client.structure.StructureDebugChat;
 import com.xy2407.kingdom.common.network.rts.RtsClientHooks;
 
 import net.minecraft.client.KeyMapping;
@@ -46,6 +45,8 @@ public final class FactionSelectClientEvents {
     @SubscribeEvent
     public static void onClientSetup(FMLClientSetupEvent event) {
         RtsClientHooks.selectionSink = RtsModeManager::applyServerSelection;
+        /* 把阵营状态包接到分发器上 */
+        FactionClientState.install();
     }
 
     @SubscribeEvent
@@ -55,11 +56,9 @@ public final class FactionSelectClientEvents {
             if (minecraft.player == null || minecraft.level == null || minecraft.screen != null) {
                 continue;
             }
-            FactionSelectPage.open(choice -> StructureDebugChat.chat(
-                    "择旗预览：%s「%s」%s（正式流程待接入：UUID 标记 + 入库）",
-                    choice.custom() ? "自建国" : "阵营",
-                    choice.name().isBlank() ? choice.id() : choice.name(),
-                    choice.custom() ? "，君主=" + choice.ruler() + "，箴言=" + choice.motto() : ""));
+            /* 手动重开择旗界面。传 null 表示"走真流程"——结果由
+               FactionClientState 收状态包后处理，不再是一条预览聊天。 */
+            FactionSelectPage.open(null);
         }
     }
 }

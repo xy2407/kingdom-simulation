@@ -33,6 +33,12 @@ public class NpcBarElement extends Element {
     private static final int HUNGER_BASE = 0xFFB87A20;
     private static final int HUNGER_HIGHLIGHT = 0xFFE0A848;
     private static final int HUNGER_DARK = 0xFF604010;
+    private static final int GOLD_BASE = 0xFFC9A227;
+    private static final int GOLD_HIGHLIGHT = 0xFFF5E08A;
+    private static final int GOLD_DARK = 0xFF8A6D17;
+    private static final int MANA_BASE = 0xFF1F4A6A;
+    private static final int MANA_HIGHLIGHT = 0xFF4A7AA0;
+    private static final int MANA_DARK = 0xFF0E2A3E;
 
     private SpanSheet sheet;
     private String signature;
@@ -62,13 +68,13 @@ public class NpcBarElement extends Element {
         int width = Math.max(20, (int) Math.round(size.width()));
         int height = Math.max(10, (int) Math.round(size.height()));
         double fill = fillRatio();
-        boolean health = !"hunger".equals(type());
-        String current = width + "|" + height + "|" + fill + "|" + health;
+        String type = type();
+        String current = width + "|" + height + "|" + fill + "|" + type;
         if (sheet != null && current.equals(signature)) {
             return sheet;
         }
         signature = current;
-        sheet = build(width, height, fill, health);
+        sheet = build(width, height, fill, type);
         return sheet;
     }
 
@@ -101,7 +107,20 @@ public class NpcBarElement extends Element {
         return raw == null ? "" : raw.trim().toLowerCase(Locale.ROOT);
     }
 
-    private static SpanSheet build(int width, int height, double fillRatio, boolean health) {
+    /**
+     * 取色阶：hp 红、hunger 橙、gold 金、mana 蓝。未知类型按 hp 处理，
+     * 这样页面上写错 type 也不会画出空条。
+     */
+    private static int[] palette(String type) {
+        return switch (type) {
+            case "hunger" -> new int[] {HUNGER_BASE, HUNGER_HIGHLIGHT, HUNGER_DARK};
+            case "gold" -> new int[] {GOLD_BASE, GOLD_HIGHLIGHT, GOLD_DARK};
+            case "mana" -> new int[] {MANA_BASE, MANA_HIGHLIGHT, MANA_DARK};
+            default -> new int[] {HEALTH_BASE, HEALTH_HIGHLIGHT, HEALTH_DARK};
+        };
+    }
+
+    private static SpanSheet build(int width, int height, double fillRatio, String type) {
         SpanSheet sheet = new SpanSheet(width, height);
         int rows = Math.max(1, (int) Math.round(height / 9.0));
         int cell = (int) Math.round((double) height / rows);
@@ -109,9 +128,10 @@ public class NpcBarElement extends Element {
         int columns = Math.max(1, (int) Math.floor((double) width / cell));
         int filledColumns = (int) Math.round(columns * fillRatio);
 
-        int base = health ? HEALTH_BASE : HUNGER_BASE;
-        int highlight = health ? HEALTH_HIGHLIGHT : HUNGER_HIGHLIGHT;
-        int dark = health ? HEALTH_DARK : HUNGER_DARK;
+        int[] colors = palette(type);
+        int base = colors[0];
+        int highlight = colors[1];
+        int dark = colors[2];
 
         sheet.fill(0, 0, width, height, SLOT_COLOR);
         for (int row = 0; row < rows; row++) {

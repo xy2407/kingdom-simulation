@@ -7,14 +7,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
-import com.xy2407.kingdom.common.npc.NpcBackpackMenu;
-import com.xy2407.kingdom.common.npc.NpcBrain;
-import com.xy2407.kingdom.common.npc.NpcData;
-import com.xy2407.kingdom.common.npc.NpcDetail;
-import com.xy2407.kingdom.common.npc.NpcForageService;
-import com.xy2407.kingdom.common.npc.NpcInventory;
-import com.xy2407.kingdom.common.npc.NpcManager;
-import com.xy2407.kingdom.common.npc.NpcState;
+import com.xy2407.kingdom.common.npc.*;
 import com.xy2407.kingdom.common.path.NpcPathRetry;
 import com.xy2407.kingdom.common.path.SnapshotRepository;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
@@ -88,10 +81,14 @@ public class NpcEntity extends PathfinderMob {
     private static final double RTS_DENSE_ARRIVE_SQR = 0.5625D;
     private static final double RTS_CROWD_ARRIVE_SQR = 2.25D;
     private static final double RTS_ARRIVE_HEIGHT = 3.0D;
-    private static final int WORK_STUCK_TICKS = 40;
     private static final int WORK_STUCK_LIMIT = 3;
     private static final int WORK_SEARCH_FAIL_LIMIT = 8;
-    private static final int WORK_PATH_TIMEOUT_TICKS = 200;
+    /** 施工走位的所有等待都按墙钟算：移动是"格/秒"，用 tick 数当时间会在高 tick 率下集体误判。 */
+    private static final long WORK_STILL_NANOS = 1_200_000_000L;
+    private static final long WORK_NO_PROGRESS_NANOS = 3_000_000_000L;
+    private static final long WORK_PATH_TIMEOUT_NANOS = 2_000_000_000L;
+    private static final long WORK_REPATH_COOLDOWN_NANOS = 400_000_000L;
+    private static final long WORK_CLIMB_COOLDOWN_NANOS = 500_000_000L;
     private static final double WORK_FLOOR_MIN_Y = 0.45D;
     private static final double WORK_HEADROOM_MAX_Y = 0.1D;
 
@@ -122,6 +119,8 @@ public class NpcEntity extends PathfinderMob {
     private Vec3 lastTravelPos;
     private int stillTicks;
     private BlockPos forageTarget;
+    private BlockPos farmTarget;
+    private BlockPos ranchTarget;
     private BlockPos navTarget;
     private final NpcPathRetry pathRetry = new NpcPathRetry();
     private BlockPos rtsTarget;
@@ -132,12 +131,15 @@ public class NpcEntity extends PathfinderMob {
     private Future<List<BlockPos>> pendingPath;
     private final ArrayDeque<BlockPos> rtsWaypoints = new ArrayDeque<>();
     private Future<List<BlockPos>> workPathFuture;
-    private int workRepathCooldown;
-    private int workPathDeadline;
+    private long workRepathAt;
+    private long workPathDeadlineAt;
     private BlockPos workStandSource;
     private BlockPos workStand;
     private BlockPos workAnchor;
-    private int workStuckTicks;
+    private long workStillSince;
+    private long workStuckAt;
+    private long workClimbAt;
+    private double workBestDistance = Double.MAX_VALUE;
     private int workFailures;
 
     public void setRtsTarget(BlockPos target, boolean clearOnArrive) {
@@ -309,41 +311,44 @@ public class NpcEntity extends PathfinderMob {
         stopSitting();
         BlockPos stand = resolveWorkStand(target);
         double dx = getX() - (stand.getX() + 0.5D);
+        double dy = getY() - stand.getY();
         double dz = getZ() - (stand.getZ() + 0.5D);
-        if (dx * dx + dz * dz < 1.0D && Math.abs(getY() - stand.getY()) < 1.5D) {
+        if (dx * dx + dz * dz < 1.0D && Math.abs(dy) < 1.5D) {
             stopConstructionPath();
             return true;
         }
+        long now = System.nanoTime();
         if (getNavigation().isInProgress()) {
-            if (trackWorkStuck()) {
+            trackWorkProgress(dx * dx + dy * dy + dz * dz, now);
+            if (isWorkStuck(now)) {
                 escalateWork(stand, WORK_STUCK_LIMIT);
             } else {
-                assistClimb();
+                assistClimb(now);
             }
             return false;
         }
         workAnchor = null;
-        workStuckTicks = 0;
+        workStuckAt = now;
+        workStillSince = now;
+        workBestDistance = Double.MAX_VALUE;
         if (workPathFuture != null) {
-            if (!workPathFuture.isDone() && tickCount < workPathDeadline) {
+            if (!workPathFuture.isDone() && now < workPathDeadlineAt) {
                 return false;
             }
             Future<List<BlockPos>> future = workPathFuture;
             workPathFuture = null;
             List<BlockPos> waypoints = future.isDone() ? takePath(future) : null;
             future.cancel(false);
+            workRepathAt = now + WORK_REPATH_COOLDOWN_NANOS;
             if (waypoints != null && waypoints.size() > 1) {
-                workRepathCooldown = 20;
                 workFailures = 0;
                 applyPath(waypoints);
             } else {
-                workRepathCooldown = 10;
                 escalateWork(stand, WORK_SEARCH_FAIL_LIMIT);
             }
             return false;
         }
-        if (workRepathCooldown > 0) {
-            workRepathCooldown--;
+        if (now < workRepathAt) {
             return false;
         }
         if (!(level() instanceof ServerLevel level)) {
@@ -355,12 +360,13 @@ public class NpcEntity extends PathfinderMob {
         }
         Future<List<BlockPos>> future = repository.submitSearch(level, blockPosition(), stand);
         if (future == null) {
-            workRepathCooldown = 10;
-            escalateWork(stand, WORK_SEARCH_FAIL_LIMIT);
+            // 名额被占满或快照还没建好：这是"等一会儿"，不是"找不到路"。记成失败的话，
+            // 高 tick 率下它会被飞快累计到上限，变成莫名其妙的传送。
+            workRepathAt = now + WORK_REPATH_COOLDOWN_NANOS;
             return false;
         }
         workPathFuture = future;
-        workPathDeadline = tickCount + WORK_PATH_TIMEOUT_TICKS;
+        workPathDeadlineAt = now + WORK_PATH_TIMEOUT_NANOS;
         return false;
     }
 
@@ -370,33 +376,47 @@ public class NpcEntity extends PathfinderMob {
             workPathFuture.cancel(false);
             workPathFuture = null;
         }
-        workRepathCooldown = 0;
-        workPathDeadline = 0;
+        workRepathAt = 0;
+        workPathDeadlineAt = 0;
         workStandSource = null;
         workStand = null;
         workAnchor = null;
-        workStuckTicks = 0;
+        workStillSince = 0;
+        workStuckAt = 0;
+        workClimbAt = 0;
+        workBestDistance = Double.MAX_VALUE;
         workFailures = 0;
         if (getNavigation().isInProgress()) {
             getNavigation().stop();
         }
     }
 
-    private boolean trackWorkStuck() {
-        BlockPos now = blockPosition();
-        if (workAnchor == null || !workAnchor.equals(now)) {
-            workAnchor = now;
-            workStuckTicks = 0;
-            return false;
+    /** 进展判定：整格位置变了就重置"一动不动"计时，离站位更近就重置"没靠近"计时。 */
+    private void trackWorkProgress(double distanceSqr, long now) {
+        BlockPos current = blockPosition();
+        if (workAnchor == null || !workAnchor.equals(current)) {
+            workAnchor = current;
+            workStillSince = now;
         }
-        return ++workStuckTicks >= WORK_STUCK_TICKS;
+        if (distanceSqr < workBestDistance - 0.01D) {
+            workBestDistance = distanceSqr;
+            workStuckAt = now;
+        }
+    }
+
+    /** 真卡住＝整格位置 1.2 秒没动，或者 3 秒内一次都没更靠近站位（原地打转就是这种）。 */
+    private boolean isWorkStuck(long now) {
+        return now - workStillSince >= WORK_STILL_NANOS || now - workStuckAt >= WORK_NO_PROGRESS_NANOS;
     }
 
     private void escalateWork(BlockPos stand, int limit) {
+        long now = System.nanoTime();
         workAnchor = null;
-        workStuckTicks = 0;
-        workRepathCooldown = 0;
-        workPathDeadline = 0;
+        workStillSince = now;
+        workStuckAt = now;
+        workBestDistance = Double.MAX_VALUE;
+        workRepathAt = 0;
+        workPathDeadlineAt = 0;
         getNavigation().stop();
         if (++workFailures < limit) {
             return;
@@ -451,10 +471,14 @@ public class NpcEntity extends PathfinderMob {
         return shape.isEmpty() || shape.max(Direction.Axis.Y) <= WORK_HEADROOM_MAX_Y;
     }
 
-    private void assistClimb() {
+    private void assistClimb(long now) {
+        if (now < workClimbAt) {
+            return;
+        }
         Path path = getNavigation().getPath();
         Node node = path == null || path.isDone() ? null : path.getNextNode();
         if (node != null && node.y > getBlockY() && (onGround() || onClimbable())) {
+            workClimbAt = now + WORK_CLIMB_COOLDOWN_NANOS;
             getJumpControl().jump();
         }
     }
@@ -490,6 +514,42 @@ public class NpcEntity extends PathfinderMob {
 
     public void haltForage() {
         clearForageTarget();
+        navTarget = null;
+        getNavigation().stop();
+        pathRetry.reset();
+    }
+
+    public BlockPos getFarmTarget() {
+        return farmTarget;
+    }
+
+    /** 农活目标：走到这一格（地表格）后再开垦 / 播种 / 收割。 */
+    public void setFarmTarget(BlockPos target) {
+        farmTarget = target;
+        getNavigation().moveTo(target.getX() + 0.5D, target.getY(), target.getZ() + 0.5D, WALK_SPEED);
+        setNavTarget(target);
+    }
+
+    public void haltFarm() {
+        farmTarget = null;
+        navTarget = null;
+        getNavigation().stop();
+        pathRetry.reset();
+    }
+
+    public BlockPos getRanchTarget() {
+        return ranchTarget;
+    }
+
+    /** 养殖栏工作点：由养殖循环指派，饲养员自己走过去。 */
+    public void setRanchTarget(BlockPos target) {
+        ranchTarget = target;
+        getNavigation().moveTo(target.getX() + 0.5D, target.getY(), target.getZ() + 0.5D, WALK_SPEED);
+        setNavTarget(target);
+    }
+
+    public void haltRanch() {
+        ranchTarget = null;
         navTarget = null;
         getNavigation().stop();
         pathRetry.reset();
@@ -845,6 +905,11 @@ public class NpcEntity extends PathfinderMob {
                 stopSitting();
                 NpcForageService.tick(this, data);
             }
+            case FARMING, PLANTING, HARVESTING -> {
+                stopSitting();
+                NpcFarmService.tick(this, data);
+            }
+            case RANCHING -> stopSitting();
             case GOING_WORK -> {
                 stopSitting();
                 navigateTo(data.getWorkX(), data.getWorkY(), data.getWorkZ(), WORK_ARRIVE_SQR);
@@ -876,8 +941,17 @@ public class NpcEntity extends PathfinderMob {
         activeStyle = null;
         clearSocialPartner();
         forageTarget = null;
-        clearNavTarget();
-        getNavigation().stop();
+        // 农活的三个子行为是同一件事：彼此切换时保留目标与在走的路径，别把走到一半的路清掉
+        if (!isFarmDetail(activeDetail)) {
+            farmTarget = null;
+            ranchTarget = null;
+            clearNavTarget();
+            getNavigation().stop();
+        }
+    }
+
+    private static boolean isFarmDetail(NpcDetail detail) {
+        return detail == NpcDetail.FARMING || detail == NpcDetail.PLANTING || detail == NpcDetail.HARVESTING;
     }
 
     private void executeWander(NpcBrain brain) {

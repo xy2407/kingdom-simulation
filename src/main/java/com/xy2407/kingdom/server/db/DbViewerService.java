@@ -12,7 +12,10 @@ import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.common.network.db.DbViewerDataPacket;
 import com.xy2407.kingdom.common.persistence.BuildingSchema;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
+import com.xy2407.kingdom.common.persistence.NationSchema;
 import com.xy2407.kingdom.common.persistence.NpcSchema;
+import com.xy2407.kingdom.common.persistence.PlayerProfileSchema;
+import com.xy2407.kingdom.common.persistence.TerritorySchema;
 
 /**
  * 数据库表快照服务，按白名单表名整表读取并分块下发
@@ -20,9 +23,29 @@ import com.xy2407.kingdom.common.persistence.NpcSchema;
 public final class DbViewerService {
     public static final String TABLE_NPC = NpcSchema.TABLE_NPC;
     public static final String TABLE_BUILDING = BuildingSchema.TABLE_BUILDING;
-    public static final List<String> TABLES = List.of(TABLE_NPC, TABLE_BUILDING);
+    public static final String TABLE_NATION = NationSchema.TABLE_NATION;
+    public static final String TABLE_TERRITORY = TerritorySchema.TABLE_TERRITORY;
+    public static final String TABLE_PLAYER_PROFILE = PlayerProfileSchema.TABLE_PLAYER_PROFILE;
 
-    private static final Set<String> ALLOWED = Set.of(TABLE_NPC, TABLE_BUILDING);
+    /**
+     * 面板里能翻的表，顺序即展示顺序。
+     *
+     * <p>加新表时本列表与 {@link #ALLOWED} 要<b>一起改</b>：前者决定翻页栏里有没有它，
+     * 后者决定请求会不会被拒——只改一处会出现"栏里有、点开是空的"。</p>
+     */
+    public static final List<String> TABLES = List.of(
+            TABLE_NPC,
+            TABLE_BUILDING,
+            TABLE_NATION,
+            TABLE_TERRITORY,
+            TABLE_PLAYER_PROFILE);
+
+    private static final Set<String> ALLOWED = Set.of(
+            TABLE_NPC,
+            TABLE_BUILDING,
+            TABLE_NATION,
+            TABLE_TERRITORY,
+            TABLE_PLAYER_PROFILE);
     private static final int MAX_ROWS = 500;
     private static final int ROWS_PER_CHUNK = 100;
     private static final int CELL_LIMIT = 96;

@@ -73,6 +73,11 @@ public final class BuildingRegistry {
         return meta.farmSlots();
     }
 
+    /** 全部已完工建筑；养殖栏等下游系统按它补数据。 */
+    public List<BuildingRecord> all() {
+        return List.copyOf(records);
+    }
+
     public BuildingRecord byId(UUID buildingId) {
         if (buildingId == null) {
             return null;

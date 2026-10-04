@@ -17,6 +17,8 @@ public final class NpcBrain {
     private final NpcData owner;
     private boolean rtsControlled;
     private boolean constructionControlled;
+    private boolean farmControlled;
+    private boolean ranchControlled;
     private WanderStyle wanderStyle = WanderStyle.RANDOM_WALK;
     private boolean forageDue;
     private int tickCounter = ThreadLocalRandom.current().nextInt(MAIN_LOOP_INTERVAL);
@@ -51,6 +53,19 @@ public final class NpcBrain {
         if (constructionControlled) {
             setPlan(phase(), NpcSubState.WORKING, NpcDetail.BUILDING);
             return;
+        }
+        if (farmControlled) {
+            // 只在自己班次的工时里下地，其余时间照常回家休息
+            if (NpcSchedule.subState(owner.getShift(), owner.getDayTime()) == NpcSubState.WORKING) {
+                setPlan(phase(), NpcSubState.WORKING, farmDetail());
+                return;
+            }
+        }
+        if (ranchControlled) {
+            if (NpcSchedule.subState(owner.getShift(), owner.getDayTime()) == NpcSubState.WORKING) {
+                setPlan(phase(), NpcSubState.WORKING, NpcDetail.RANCHING);
+                return;
+            }
         }
         if (tickCounter % MAIN_LOOP_INTERVAL != 0) {
             return;
@@ -139,6 +154,21 @@ public final class NpcBrain {
         return true;
     }
 
+    /** 巡检结果写回状态机：种植中 / 收割中 / 在田里候着；值没变不写，免得每 tick 把市民标脏。 */
+    public void setFarmDetail(NpcDetail detail) {
+        NpcDetail next = detail == NpcDetail.PLANTING || detail == NpcDetail.HARVESTING
+                ? detail : NpcDetail.FARMING;
+        if (owner.getDetail() != next) {
+            owner.setDetail(next);
+        }
+    }
+
+    /** 农活子行为由巡检决定，状态机每 tick 复述时不能把它抹回 FARMING。 */
+    private NpcDetail farmDetail() {
+        NpcDetail current = owner.getDetail();
+        return current == NpcDetail.PLANTING || current == NpcDetail.HARVESTING ? current : NpcDetail.FARMING;
+    }
+
     /** 是否处于饥饿状态：饿着的人不能生产，派工前要先问这里。 */
     public boolean isStarving() {
         return owner.getHunger() < HUNGER_TRIGGER;
@@ -182,5 +212,21 @@ public final class NpcBrain {
 
     public void setConstructionControlled(boolean constructionControlled) {
         this.constructionControlled = constructionControlled;
+    }
+
+    public boolean isFarmControlled() {
+        return farmControlled;
+    }
+
+    public void setFarmControlled(boolean farmControlled) {
+        this.farmControlled = farmControlled;
+    }
+
+    public boolean isRanchControlled() {
+        return ranchControlled;
+    }
+
+    public void setRanchControlled(boolean ranchControlled) {
+        this.ranchControlled = ranchControlled;
     }
 }

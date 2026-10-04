@@ -2,6 +2,7 @@ package com.xy2407.kingdom.server.building;
 
 import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.server.farm.FarmPlotManager;
+import com.xy2407.kingdom.server.ranch.RanchPenManager;
 
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -24,6 +25,7 @@ public final class BuildingServerTick {
         BuildingConstructionService.INSTANCE.tick(event.getServer());
         BuildingRegistry.INSTANCE.tick(event.getServer());
         FarmPlotManager.INSTANCE.tick(event.getServer());
+        RanchPenManager.INSTANCE.tick(event.getServer());
     }
 
     @SubscribeEvent

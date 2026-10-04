@@ -13,6 +13,8 @@ import java.util.UUID;
 import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.farm.FarmPlot;
+import com.xy2407.kingdom.common.farm.FarmRegion;
+import com.xy2407.kingdom.common.npc.NpcFarmService;
 import com.xy2407.kingdom.common.persistence.FarmPlotSchema;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
@@ -27,10 +29,14 @@ public final class FarmPlotManager {
     public static final FarmPlotManager INSTANCE = new FarmPlotManager();
 
     private static final int LOAD_RETRY_DELAY_TICKS = 200;
+    private static final int ASSIGN_INTERVAL_TICKS = 100;
+    private static final int SURVEY_INTERVAL_TICKS = 1000;
 
     private final Map<UUID, FarmPlot> plots = new LinkedHashMap<>();
     private boolean loaded;
     private int loadRetryCooldown;
+    private int assignCounter;
+    private int surveyCounter;
 
     private FarmPlotManager() {
     }
@@ -39,10 +45,21 @@ public final class FarmPlotManager {
         plots.clear();
         loaded = false;
         loadRetryCooldown = 0;
+        assignCounter = 0;
+        surveyCounter = 0;
+        FarmLandRegistry.reset();
+        NpcFarmService.reset();
     }
 
     public void tick(MinecraftServer server) {
+        FarmLandRegistry.tick(server);
         if (loaded) {
+            if (++assignCounter % ASSIGN_INTERVAL_TICKS == 0) {
+                NpcFarmService.assignWorkers();
+            }
+            if (++surveyCounter % SURVEY_INTERVAL_TICKS == 0) {
+                NpcFarmService.survey(server);
+            }
             return;
         }
         if (loadRetryCooldown > 0) {
@@ -118,17 +135,23 @@ public final class FarmPlotManager {
     }
 
     public FarmPlot create(BuildingRecord building, String name, int slots, int day) {
+        return create(building, name, slots, day, BlockPos.ZERO, BlockPos.ZERO, "", List.of(), List.of());
+    }
+
+    /** 一次成型：格数按剩余额度钳制（框选格数超过额度时取额度），核心矩形、附加块、作物、打理人一起落库。 */
+    public FarmPlot create(BuildingRecord building, String name, int slots, int day,
+                           BlockPos min, BlockPos max, String cropId, List<UUID> workerIds,
+                           List<FarmRegion> extra) {
         if (building == null) {
             return null;
         }
-        int wanted = Math.max(0, slots);
-        if (wanted > remainingSlots(building)) {
-            return null;
-        }
+        int wanted = Math.max(0, Math.min(slots, remainingSlots(building)));
         FarmPlot plot = new FarmPlot(UUID.randomUUID(), building.id(), building.name(),
                 name == null || name.isBlank() ? defaultName(building.id()) : name.trim(),
-                wanted, "", List.of(), building.dimension(),
-                BlockPos.ZERO, BlockPos.ZERO, day);
+                wanted, cropId == null ? "" : cropId,
+                workerIds == null ? List.of() : workerIds, building.dimension(),
+                min == null ? BlockPos.ZERO : min, max == null ? BlockPos.ZERO : max, day,
+                extra == null ? List.of() : extra);
         plots.put(plot.id(), plot);
         persist(plot);
         return plot;
@@ -197,6 +220,7 @@ public final class FarmPlotManager {
         values.put(FarmPlotSchema.COL_MAX_Z, plot.max().getZ());
         values.put(FarmPlotSchema.COL_CREATED_DAY, plot.createdDay());
         values.put(FarmPlotSchema.COL_UPDATED_AT, System.currentTimeMillis());
+        values.put(FarmPlotSchema.COL_EXTRA_REGIONS, FarmRegion.encode(plot.extra()));
         return values;
     }
 
@@ -214,7 +238,8 @@ public final class FarmPlotManager {
                         rs.getInt(FarmPlotSchema.COL_MIN_Z)),
                 new BlockPos(rs.getInt(FarmPlotSchema.COL_MAX_X), rs.getInt(FarmPlotSchema.COL_MAX_Y),
                         rs.getInt(FarmPlotSchema.COL_MAX_Z)),
-                rs.getInt(FarmPlotSchema.COL_CREATED_DAY));
+                rs.getInt(FarmPlotSchema.COL_CREATED_DAY),
+                FarmRegion.decode(rs.getString(FarmPlotSchema.COL_EXTRA_REGIONS)));
     }
 
     static String joinWorkers(List<UUID> ids) {

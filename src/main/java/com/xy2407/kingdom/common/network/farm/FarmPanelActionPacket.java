@@ -1,8 +1,11 @@
 package com.xy2407.kingdom.common.network.farm;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import com.xy2407.kingdom.ModMain;
+import com.xy2407.kingdom.common.farm.FarmRegion;
 import com.xy2407.kingdom.server.farm.FarmPanelService;
 
 import net.minecraft.network.RegistryFriendlyByteBuf;
@@ -16,7 +19,8 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
  * 客户端 → 服务端：一次农田操作，用一个包按 action 区分，字段按对应构造方法取用
  */
 public record FarmPanelActionPacket(int action, UUID plotId, String text, int value,
-                                    int minX, int minZ, int maxX, int maxZ) implements CustomPacketPayload {
+                                    int minX, int minZ, int maxX, int maxZ, String workers, String regions)
+        implements CustomPacketPayload {
 
     public static final int ACTION_CREATE = 0;
     public static final int ACTION_SET_SLOTS = 1;
@@ -36,29 +40,65 @@ public record FarmPanelActionPacket(int action, UUID plotId, String text, int va
         return TYPE;
     }
 
-    public static FarmPanelActionPacket create(String name, int slots) {
-        return new FarmPanelActionPacket(ACTION_CREATE, null, name == null ? "" : name, slots, 0, 0, 0, 0);
+    /** 一次成型：核心矩形、附加块、格数、作物、打理人一起提交，避免创建后再补三四次包。 */
+    public static FarmPanelActionPacket create(int slots, String cropId, String workerIds,
+                                               int minX, int minZ, int maxX, int maxZ,
+                                               List<FarmRegion> extra) {
+        return new FarmPanelActionPacket(ACTION_CREATE, null, cropId == null ? "" : cropId,
+                slots, minX, minZ, maxX, maxZ, workerIds == null ? "" : workerIds,
+                FarmRegion.encode(extra));
+    }
+
+    public static FarmPanelActionPacket create(int slots, String cropId, String workerIds,
+                                               int minX, int minZ, int maxX, int maxZ) {
+        return create(slots, cropId, workerIds, minX, minZ, maxX, maxZ, List.of());
     }
 
     public static FarmPanelActionPacket setSlots(UUID plotId, int slots) {
-        return new FarmPanelActionPacket(ACTION_SET_SLOTS, plotId, "", slots, 0, 0, 0, 0);
+        return new FarmPanelActionPacket(ACTION_SET_SLOTS, plotId, "", slots, 0, 0, 0, 0, "", "");
     }
 
     public static FarmPanelActionPacket setCrop(UUID plotId, String cropId) {
-        return new FarmPanelActionPacket(ACTION_SET_CROP, plotId, cropId == null ? "" : cropId, 0, 0, 0, 0, 0);
+        return new FarmPanelActionPacket(ACTION_SET_CROP, plotId, cropId == null ? "" : cropId,
+                0, 0, 0, 0, 0, "", "");
     }
 
     public static FarmPanelActionPacket toggleWorker(UUID plotId, UUID workerId) {
         return new FarmPanelActionPacket(ACTION_TOGGLE_WORKER, plotId,
-                workerId == null ? "" : workerId.toString(), 0, 0, 0, 0, 0);
+                workerId == null ? "" : workerId.toString(), 0, 0, 0, 0, 0, "", "");
+    }
+
+    public static FarmPanelActionPacket setArea(UUID plotId, int minX, int minZ, int maxX, int maxZ,
+                                                List<FarmRegion> extra) {
+        return new FarmPanelActionPacket(ACTION_SET_AREA, plotId, "", 0, minX, minZ, maxX, maxZ, "",
+                FarmRegion.encode(extra));
     }
 
     public static FarmPanelActionPacket setArea(UUID plotId, int minX, int minZ, int maxX, int maxZ) {
-        return new FarmPanelActionPacket(ACTION_SET_AREA, plotId, "", 0, minX, minZ, maxX, maxZ);
+        return setArea(plotId, minX, minZ, maxX, maxZ, List.of());
     }
 
     public static FarmPanelActionPacket delete(UUID plotId) {
-        return new FarmPanelActionPacket(ACTION_DELETE, plotId, "", 0, 0, 0, 0, 0);
+        return new FarmPanelActionPacket(ACTION_DELETE, plotId, "", 0, 0, 0, 0, 0, "", "");
+    }
+
+    public List<FarmRegion> extraRegions() {
+        return FarmRegion.decode(regions);
+    }
+
+    /** 逗号分隔的打理人列表；解析失败的单条直接跳过。 */
+    public List<UUID> workerIds() {
+        List<UUID> ids = new ArrayList<>();
+        if (workers == null || workers.isBlank()) {
+            return ids;
+        }
+        for (String part : workers.split(",")) {
+            try {
+                ids.add(UUID.fromString(part.trim()));
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+        return ids;
     }
 
     private static void encode(RegistryFriendlyByteBuf buf, FarmPanelActionPacket packet) {
@@ -70,11 +110,13 @@ public record FarmPanelActionPacket(int action, UUID plotId, String text, int va
         buf.writeInt(packet.minZ());
         buf.writeInt(packet.maxX());
         buf.writeInt(packet.maxZ());
+        buf.writeUtf(packet.workers() == null ? "" : packet.workers(), 512);
+        buf.writeUtf(packet.regions() == null ? "" : packet.regions(), 4096);
     }
 
     private static FarmPanelActionPacket decode(RegistryFriendlyByteBuf buf) {
         return new FarmPanelActionPacket(buf.readVarInt(), buf.readUUID(), buf.readUtf(128), buf.readInt(),
-                buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt());
+                buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt(), buf.readUtf(512), buf.readUtf(4096));
     }
 
     public UUID plotIdOrNull() {

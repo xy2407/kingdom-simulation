@@ -66,6 +66,7 @@ public final class BuildingMetaLoader {
                 integer(root, "level", 1),
                 integer(root, "jobs", 0),
                 Math.max(0, integer(root, "farm_slots", 0)),
+                crops(root),
                 animals(root),
                 recipes(root),
                 string(root, "subtype", ""),
@@ -74,6 +75,43 @@ public final class BuildingMetaLoader {
                 Math.max(0, integer(root, "patrol_radius", 0)),
                 string(root, "nation", "")
         );
+    }
+
+    /**
+     * 解析 {@code crops} 数组。
+     *
+     * <p>两种写法都收：对象 {@code {"item":"minecraft:wheat","name":"小麦"}}，或直接一个 id 字符串。
+     * 没写 {@code item}/空字符串的条目丢掉——没有物品就没有图标，也没法种。</p>
+     */
+    private static List<CropSpec> crops(JsonObject root) {
+        JsonElement element = root.get("crops");
+        if (element == null || !element.isJsonArray()) {
+            return List.of();
+        }
+        JsonArray array = element.getAsJsonArray();
+        List<CropSpec> specs = new ArrayList<>(array.size());
+        for (JsonElement item : array) {
+            if (item == null) {
+                continue;
+            }
+            if (item.isJsonPrimitive()) {
+                String id = item.getAsString();
+                if (id != null && !id.isBlank()) {
+                    specs.add(new CropSpec(id.trim(), ""));
+                }
+                continue;
+            }
+            if (!item.isJsonObject()) {
+                continue;
+            }
+            JsonObject object = item.getAsJsonObject();
+            String id = string(object, "item", "");
+            if (id.isBlank()) {
+                continue;
+            }
+            specs.add(new CropSpec(id, string(object, "name", "")));
+        }
+        return specs;
     }
 
     /**

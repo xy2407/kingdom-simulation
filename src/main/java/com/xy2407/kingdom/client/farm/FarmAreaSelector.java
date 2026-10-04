@@ -1,11 +1,17 @@
 package com.xy2407.kingdom.client.farm;
 
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.client.rts.RtsModeManager;
 import com.xy2407.kingdom.client.rts.RtsPicker;
+import com.xy2407.kingdom.common.farm.FarmRegion;
 import com.xy2407.kingdom.common.network.farm.FarmPanelActionPacket;
+import com.xy2407.kingdom.common.network.farm.FarmPanelStatePacket;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -16,16 +22,16 @@ import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.client.event.InputEvent;
 import net.neoforged.neoforge.client.event.RenderFrameEvent;
 import net.neoforged.neoforge.client.event.RenderGuiEvent;
-import net.neoforged.neoforge.client.event.InputEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
 import com.mojang.blaze3d.platform.InputConstants;
 
 /**
- * 农田范围的 RTS 框选：拖动屏幕矩形投影到地面，得到水平范围后发包写回
+ * 农田范围框选：左键拖拽可多次累加、重复格自动去重，Enter 保存、Esc 清空全部退出
  */
 @OnlyIn(Dist.CLIENT)
 @EventBusSubscriber(modid = ModMain.MOD_ID, value = Dist.CLIENT)
@@ -33,16 +39,48 @@ public final class FarmAreaSelector {
 
     private static final int BOX_BORDER = 0xFFE8D9A8;
     private static final int BOX_FILL = 0x40203040;
-    private static final String HINT = "拖拽框选农田范围（松开确认）";
+    private static final int COUNT_TEXT = 0xFFFFF0C0;
+    private static final int COUNT_BACK = 0xB0202030;
+    private static final int COUNT_BORDER = 0xFFE8D9A8;
+
+    /** 单次框选与总格数的上限，防手抖拖出几十万格把内存吃满。 */
+    private static final int MAX_CELLS = 65536;
 
     private static UUID targetPlot;
+    private static boolean draftMode;
+
     private static boolean dragging;
     private static double startX;
     private static double startY;
     private static double endX;
     private static double endY;
 
+    /** 已累积的框选块，元素为 {minX, minZ, maxX, maxZ, groundY}。 */
+    private static final List<int[]> BLOCKS = new ArrayList<>();
+    /** 去重后的地面格集合，键为 (x, z) 打包。 */
+    private static final Set<Long> CELLS = new HashSet<>();
+    /** 保存时随核心矩形一起提交的散落块。 */
+    private static final List<FarmRegion> EXTRA = new ArrayList<>();
+    /** 正在拖拽中的那一块，结构与 {@link #BLOCKS} 相同。 */
+    private static int[] live;
+
+    private static int minX;
+    private static int minZ;
+    private static int maxX;
+    private static int maxZ;
+    private static int groundY;
+    private static int cells;
+
     private FarmAreaSelector() {
+    }
+
+    /** 新建农田：框完的格数会作为待定草稿写回面板，等玩家选作物与打理人。 */
+    public static void beginNew() {
+        targetPlot = null;
+        draftMode = true;
+        clearSelection();
+        enterRts();
+        hint("左键拖拽框选地面，可多次累加；Enter 保存 / Esc 清空全部");
     }
 
     public static void begin(UUID plotId) {
@@ -50,15 +88,53 @@ public final class FarmAreaSelector {
             return;
         }
         targetPlot = plotId;
-        dragging = false;
-        if (!RtsModeManager.isActive()) {
-            RtsModeManager.enter();
-        }
-        hint(HINT);
+        draftMode = false;
+        clearSelection();
+        enterRts();
+        hint("左键拖拽框选农田范围，可多次累加；Enter 保存 / Esc 清空全部");
     }
 
     public static boolean isActive() {
-        return targetPlot != null;
+        return draftMode || targetPlot != null;
+    }
+
+    public static boolean hasRect() {
+        return !CELLS.isEmpty();
+    }
+
+    public static int minX() {
+        return minX;
+    }
+
+    public static int minZ() {
+        return minZ;
+    }
+
+    public static int maxX() {
+        return maxX;
+    }
+
+    public static int maxZ() {
+        return maxZ;
+    }
+
+    public static int groundY() {
+        return groundY;
+    }
+
+    /** 去重后的唯一格数：多次框选叠到的同一格只算一次。 */
+    public static int cells() {
+        return cells;
+    }
+
+    /** 已累积的框选块（每块一个矩形），世界内逐块画网格用。 */
+    public static List<int[]> blocks() {
+        return BLOCKS;
+    }
+
+    /** 正在拖拽中的那一块；没在拖拽时返回 null。 */
+    public static int[] liveRect() {
+        return live;
     }
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
@@ -66,8 +142,13 @@ public final class FarmAreaSelector {
         if (!isActive()) {
             return;
         }
+        int button = event.getButton();
+        if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
+            // 中键放行：RTS 相机转向只在事件没被消费时才响应，这里吃掉就再也转不动视角
+            return;
+        }
         event.setCanceled(true);
-        if (event.getButton() != GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+        if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             return;
         }
         if (event.getAction() == InputConstants.PRESS) {
@@ -76,28 +157,55 @@ public final class FarmAreaSelector {
             startY = mouse[1];
             endX = mouse[0];
             endY = mouse[1];
+            live = null;
             dragging = true;
         } else if (dragging) {
             dragging = false;
-            finish();
+            commitLive();
+        }
+    }
+
+    @SubscribeEvent
+    public static void onKey(InputEvent.Key event) {
+        if (!isActive() || event.getAction() != GLFW.GLFW_PRESS) {
+            return;
+        }
+        if (event.getKey() == GLFW.GLFW_KEY_ENTER || event.getKey() == GLFW.GLFW_KEY_KP_ENTER) {
+            confirm();
         }
     }
 
     @SubscribeEvent
     public static void onFrame(RenderFrameEvent.Pre event) {
-        if (isActive() && dragging) {
-            double[] mouse = mouse();
-            endX = mouse[0];
-            endY = mouse[1];
+        if (!isActive() || !dragging) {
+            return;
         }
+        double[] mouse = mouse();
+        endX = mouse[0];
+        endY = mouse[1];
+        live = rectOf(startX, startY, endX, endY);
     }
 
     @SubscribeEvent
     public static void onRenderGui(RenderGuiEvent.Post event) {
-        if (!isActive() || !dragging) {
+        GuiGraphics graphics = event.getGuiGraphics();
+        if (!isActive()) {
+            // 框完地之后仍把"待保存 N 格地"这块框顶在屏幕上，直到玩家去面板里处理它
+            FarmPlotDraft draft = FarmPlotDraft.current();
+            if (draft != null && Minecraft.getInstance().screen == null) {
+                drawCountBox(graphics, draft.cells() + " 格地（待保存）· 在农业面板点卡片配置");
+            }
             return;
         }
-        GuiGraphics graphics = event.getGuiGraphics();
+        if (dragging) {
+            drawDragBox(graphics);
+        }
+        if (hasRect() || dragging) {
+            drawCountBox(graphics, statusText());
+        }
+    }
+
+    private static void drawDragBox(GuiGraphics graphics) {
         int x1 = (int) Math.round(startX);
         int y1 = (int) Math.round(startY);
         int x2 = (int) Math.round(endX);
@@ -113,42 +221,185 @@ public final class FarmAreaSelector {
         graphics.fill(right - 1, top, right, bottom, BOX_BORDER);
     }
 
-    private static void finish() {
-        UUID plotId = targetPlot;
-        Vec3 first = RtsPicker.pickTargetBlock(startX, startY);
-        Vec3 second = RtsPicker.pickTargetBlock(endX, endY);
-        reset();
-
-        if (plotId == null || first == null || second == null) {
-            hint("框选失败：没能打到地面，请从俯视角度重新框");
-            reopen();
-            return;
-        }
-        int minX = (int) Math.floor(Math.min(first.x, second.x));
-        int maxX = (int) Math.floor(Math.max(first.x, second.x));
-        int minZ = (int) Math.floor(Math.min(first.z, second.z));
-        int maxZ = (int) Math.floor(Math.max(first.z, second.z));
-        PacketDistributor.sendToServer(FarmPanelActionPacket.setArea(plotId, minX, minZ, maxX, maxZ));
-        reopen();
+    /** 顶部格数框：框了几块、去重后多少格随时可见，保存前就能对着数字调整范围。 */
+    private static void drawCountBox(GuiGraphics graphics, String text) {
+        Minecraft minecraft = Minecraft.getInstance();
+        int width = minecraft.font.width(text) + 12;
+        int x = Math.max(4, (minecraft.getWindow().getGuiScaledWidth() - width) / 2);
+        graphics.fill(x, 6, x + width, 22, COUNT_BACK);
+        graphics.fill(x, 6, x + width, 7, COUNT_BORDER);
+        graphics.fill(x, 21, x + width, 22, COUNT_BORDER);
+        graphics.fill(x, 6, x + 1, 22, COUNT_BORDER);
+        graphics.fill(x + width - 1, 6, x + width, 22, COUNT_BORDER);
+        graphics.drawString(minecraft.font, text, x + 6, 10, COUNT_TEXT, true);
     }
 
-    private static void reopen() {
-        Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.player == null) {
+    private static String statusText() {
+        if (dragging && live != null) {
+            return cells + " + 本次 " + blockCells(live) + " 格 · 松开并入 / Esc 清空全部";
+        }
+        if (BLOCKS.isEmpty()) {
+            return "左键拖拽框选地面，可多次累加 / Esc 清空全部";
+        }
+        return cells + " 格地 · " + BLOCKS.size() + " 块 · Enter 保存 / Esc 清空全部";
+    }
+
+    /** Enter：新建农田落成待定草稿（格数按建筑剩余额度钳制），重划则发包写回。 */
+    public static void confirm() {
+        if (!hasRect()) {
+            hint("还没有框选范围，先左键拖拽框一块地");
             return;
         }
-        minecraft.setScreen(new FarmPanelScreen());
+        resolveRegions();
+        if (draftMode) {
+            FarmPanelStatePacket state = FarmPlotOverlay.lastState();
+            int quota = state == null ? cells : state.remainingSlots();
+            int slots = Math.max(0, Math.min(cells, quota));
+            FarmPlotDraft.set(new FarmPlotDraft(slots, "", List.of(), minX, minZ, maxX, maxZ, groundY,
+                    cells, List.copyOf(EXTRA)));
+            if (slots < cells) {
+                hint("建筑种植格额度只剩 " + quota + " 格，这块地按 " + slots + " 格记");
+            }
+        } else if (targetPlot != null) {
+            PacketDistributor.sendToServer(FarmPanelActionPacket.setArea(targetPlot, minX, minZ, maxX, maxZ,
+                    List.copyOf(EXTRA)));
+        }
+        leave();
+    }
+
+    /** 判定核心矩形与散落块：核心取面积最大的那块（要求某一轴跨两格以上），其余块进附加列表。 */
+    private static void resolveRegions() {
+        int best = -1;
+        int bestCells = 0;
+        for (int index = 0; index < BLOCKS.size(); index++) {
+            int[] block = BLOCKS.get(index);
+            if (block[2] <= block[0] && block[3] <= block[1]) {
+                continue;
+            }
+            int area = blockCells(block);
+            if (area > bestCells) {
+                bestCells = area;
+                best = index;
+            }
+        }
+        if (best >= 0) {
+            int[] core = BLOCKS.get(best);
+            minX = core[0];
+            minZ = core[1];
+            maxX = core[2];
+            maxZ = core[3];
+        } else {
+            minX = 0;
+            minZ = 0;
+            maxX = 0;
+            maxZ = 0;
+        }
+        EXTRA.clear();
+        for (int index = 0; index < BLOCKS.size() && EXTRA.size() < FarmRegion.MAX_REGIONS; index++) {
+            if (index == best) {
+                continue;
+            }
+            int[] block = BLOCKS.get(index);
+            EXTRA.add(new FarmRegion(block[0], block[1], block[2], block[3]));
+        }
+    }
+
+    /** Esc：丢掉全部框选内容（由暂停菜单的 mixin 调用，见 FarmPauseGuardMixin）。 */
+    public static void cancelByEscape() {
+        int dropped = BLOCKS.size();
+        leave();
+        hint(dropped == 0 ? "已取消框选" : "已清空全部框选（" + dropped + " 块）");
     }
 
     public static void cancel() {
         if (isActive()) {
-            reset();
+            clearSelection();
+            targetPlot = null;
+            draftMode = false;
         }
     }
 
-    private static void reset() {
+    private static void leave() {
+        clearSelection();
         targetPlot = null;
+        draftMode = false;
+        if (RtsModeManager.isActive()) {
+            RtsModeManager.exit();
+        }
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player != null) {
+            minecraft.setScreen(new FarmPanelScreen());
+        }
+    }
+
+    private static void enterRts() {
+        if (!RtsModeManager.isActive()) {
+            RtsModeManager.enter();
+        }
+        // 30° 平视角基本打不到地面，框选先摆成俯视才能落点
+        RtsModeManager.tiltCameraToGround(60.0F);
+    }
+
+    /** 松手：把这一块并进累积结果，重复格自动去重，并刷新并集外框。 */
+    private static void commitLive() {
+        int[] block = rectOf(startX, startY, endX, endY);
+        live = null;
+        if (block == null) {
+            hint("这一块没打到地面，从更俯视的角度重框");
+            return;
+        }
+        if (blockCells(block) > MAX_CELLS || CELLS.size() + blockCells(block) > MAX_CELLS) {
+            hint("框选太大，单块上限 " + MAX_CELLS + " 格");
+            return;
+        }
+        boolean first = BLOCKS.isEmpty();
+        BLOCKS.add(block);
+        for (int x = block[0]; x <= block[2]; x++) {
+            for (int z = block[1]; z <= block[3]; z++) {
+                CELLS.add(cellKey(x, z));
+            }
+        }
+        cells = CELLS.size();
+        groundY = first ? block[4] : Math.min(groundY, block[4]);
+        hint(cells + " 格地 · " + BLOCKS.size() + " 块 · Enter 保存 / Esc 清空全部");
+    }
+
+    /** 把屏幕上的两个点打到地面，得到一块矩形 {minX, minZ, maxX, maxZ, groundY}；打不到返回 null。 */
+    private static int[] rectOf(double screenX1, double screenY1, double screenX2, double screenY2) {
+        Vec3 first = RtsPicker.pickTargetBlock(screenX1, screenY1);
+        Vec3 second = RtsPicker.pickTargetBlock(screenX2, screenY2);
+        if (first == null || second == null) {
+            return null;
+        }
+        return new int[] {
+                (int) Math.floor(Math.min(first.x, second.x)),
+                (int) Math.floor(Math.min(first.z, second.z)),
+                (int) Math.floor(Math.max(first.x, second.x)),
+                (int) Math.floor(Math.max(first.z, second.z)),
+                (int) Math.floor(Math.min(first.y, second.y))
+        };
+    }
+
+    private static int blockCells(int[] block) {
+        return (block[2] - block[0] + 1) * (block[3] - block[1] + 1);
+    }
+
+    private static long cellKey(int x, int z) {
+        return ((long) x << 32) ^ (z & 0xFFFFFFFFL);
+    }
+
+    private static void clearSelection() {
+        BLOCKS.clear();
+        CELLS.clear();
+        EXTRA.clear();
+        live = null;
         dragging = false;
+        cells = 0;
+        minX = 0;
+        minZ = 0;
+        maxX = 0;
+        maxZ = 0;
+        groundY = 0;
     }
 
     private static double[] mouse() {

@@ -224,10 +224,11 @@ public final class RtsClientEvents {
     }
 
     /**
-     * 最高优先级，排在 AUI 绘制覆盖层之前：把文档的深度基准整体抬高。
+     * 最高优先级，排在 AUI 绘制覆盖层之前：抬高嵌套渲染面的文档深度基准。
      *
-     * <p>AUI 的覆盖层文档默认 z 从 {@code GLOBAL_DOCUMENT_Z_OFFSET}（1.0）起算，
-     * 会被原版聊天栏压住；这里抬到聊天之上，结束时在最低优先级还原。</p>
+     * <p>注意：扁平覆盖层文档不吃这个值——{@code Base#drawFlatDocumentAtZInContext} 会用
+     * {@code resolveFlatDocumentBaseZ} 覆盖它，文档面恒为 1.0 + 层序号。要压过原版聊天栏，
+     * 只能给页面里有确定尺寸的容器加 {@code transform:translateZ(...)}（见《AUI使用总结》§4.4 坑 36）。</p>
      */
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public static void onRenderGuiPre(RenderGuiEvent.Post event) {

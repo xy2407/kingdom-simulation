@@ -9,9 +9,15 @@ import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 /**
- * 服务端 → 客户端：让客户端打开市政厅界面，空载荷
+ * 服务端 → 客户端：让客户端打开市政厅界面。
+ *
+ * <p>带上方块坐标：界面里的地图要**以这座市政厅为中心**采样世界表面，
+ * 不带坐标的话客户端不知道画哪一块。</p>
+ *
+ * @param x 市政厅方块的世界 X
+ * @param z 市政厅方块的世界 Z
  */
-public record CityHallOpenPacket() implements CustomPacketPayload {
+public record CityHallOpenPacket(int x, int z) implements CustomPacketPayload {
 
     public static final CustomPacketPayload.Type<CityHallOpenPacket> TYPE =
             new CustomPacketPayload.Type<>(
@@ -26,13 +32,15 @@ public record CityHallOpenPacket() implements CustomPacketPayload {
     }
 
     private static void encode(RegistryFriendlyByteBuf buf, CityHallOpenPacket packet) {
+        buf.writeVarInt(packet.x());
+        buf.writeVarInt(packet.z());
     }
 
     private static CityHallOpenPacket decode(RegistryFriendlyByteBuf buf) {
-        return new CityHallOpenPacket();
+        return new CityHallOpenPacket(buf.readVarInt(), buf.readVarInt());
     }
 
     public static void handle(CityHallOpenPacket packet, IPayloadContext context) {
-        context.enqueueWork(CityHallHooks.openSink);
+        context.enqueueWork(() -> CityHallHooks.openSink.accept(packet.x(), packet.z()));
     }
 }

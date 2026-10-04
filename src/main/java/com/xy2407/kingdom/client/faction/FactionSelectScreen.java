@@ -7,9 +7,11 @@ import com.sighs.apricityui.init.Node;
 import com.sighs.apricityui.screen.ApricityScreen;
 
 import com.xy2407.kingdom.client.faction.FactionSelectPage.FactionChoice;
+import com.xy2407.kingdom.common.network.faction.FactionSelectPacket;
 
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
+import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -401,6 +403,18 @@ public final class FactionSelectScreen extends ApricityScreen {
         if (choice == null) {
             return;
         }
+
+        /* 真流程：把决定交给服务端落库。
+           自建国的 id 只是这一侧的临时编号（realm-1、realm-2……），发出去时留空，
+           由服务端统一分配、避免两个客户端撞号。 */
+        boolean custom = choice.custom();
+        PacketDistributor.sendToServer(new FactionSelectPacket(
+                custom,
+                custom ? "" : choice.id(),
+                choice.name(), choice.ruler(), choice.motto(),
+                choice.colorLeft(), choice.colorRight(),
+                choice.emblem(), choice.emblemColor()));
+
         Consumer<FactionChoice> callback = onConfirm;
         onClose();
         if (callback != null) {

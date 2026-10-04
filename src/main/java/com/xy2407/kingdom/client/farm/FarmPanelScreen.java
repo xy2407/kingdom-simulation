@@ -9,6 +9,7 @@ import com.sighs.apricityui.element.Item;
 import com.sighs.apricityui.init.Document;
 import com.sighs.apricityui.init.Element;
 import com.sighs.apricityui.screen.ApricityScreen;
+import com.xy2407.kingdom.common.farm.FarmRegion;
 import com.xy2407.kingdom.common.network.farm.FarmPanelActionPacket;
 import com.xy2407.kingdom.common.network.farm.FarmPanelRequestPacket;
 import com.xy2407.kingdom.common.network.farm.FarmPanelStatePacket;
@@ -18,6 +19,7 @@ import com.xy2407.kingdom.common.network.farm.FarmPanelStatePacket.WorkerOption;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.api.distmarker.Dist;
@@ -72,12 +74,16 @@ public final class FarmPanelScreen extends ApricityScreen {
     private Element cropsHost;
     private Element workersHost;
     private Element workerSearchInput;
+    private Element detailDelete;
+    private Element detailSave;
+    private Element detailCancel;
 
     private FarmPanelStatePacket latest = FarmPanelStatePacket.outside();
     private UUID selectedPlotId;
     private int draftSlots;
-    private boolean cropsBuilt;
+    private String builtCrops;
     private boolean detailOpen;
+    private boolean draftOpen;
 
     private String filter = "";
     private String workerFilter = "";
@@ -94,7 +100,6 @@ public final class FarmPanelScreen extends ApricityScreen {
     protected void init() {
         super.init();
         bind();
-        PacketDistributor.sendToServer(new FarmPanelRequestPacket());
     }
 
     private void bind() {
@@ -103,7 +108,7 @@ public final class FarmPanelScreen extends ApricityScreen {
             return;
         }
         boundDocument = document;
-        cropsBuilt = false;
+        builtCrops = null;
 
         mainHead = document.getElementById("fm-head");
         mainBody = document.getElementById("fm-body");
@@ -131,18 +136,27 @@ public final class FarmPanelScreen extends ApricityScreen {
         cropsHost = document.getElementById("fd-crops");
         workersHost = document.getElementById("fd-workers");
         workerSearchInput = document.getElementById("fd-worker-search");
+        detailDelete = document.getElementById("fd-delete");
+        detailSave = document.getElementById("fd-save");
+        detailCancel = document.getElementById("fd-cancel");
 
-        on("fm-new", this::createPlot);
+        on("fm-new", this::startNewPlot);
         on("fm-close", this::onClose);
         on("fm-search-clear", () -> setFilter(""));
         on("fd-back", this::closeDetail);
-        on("fd-save", this::closeDetail);
+        on("fd-save", this::saveDetail);
+        on("fd-cancel", this::cancelDraft);
         on("fd-minus", () -> stepSlots(-1));
         on("fd-plus", () -> stepSlots(1));
         on("fd-delete", this::deletePlot);
-        on("fd-clear-workers", () -> send(FarmPanelActionPacket.toggleWorker(selectedPlotId, null)));
+        on("fd-clear-workers", this::clearWorkers);
         on("fd-worker-search-clear", () -> setWorkerFilter(""));
         on("fd-draw", () -> {
+            if (draftOpen) {
+                onClose();
+                FarmAreaSelector.beginNew();
+                return;
+            }
             if (selectedPlotId == null) {
                 return;
             }
@@ -153,6 +167,7 @@ public final class FarmPanelScreen extends ApricityScreen {
 
         showDetail(false);
         apply(latest);
+        PacketDistributor.sendToServer(new FarmPanelRequestPacket());
     }
 
     private void on(String elementId, Runnable action) {
@@ -166,6 +181,7 @@ public final class FarmPanelScreen extends ApricityScreen {
     }
 
     public static void accept(FarmPanelStatePacket packet) {
+        FarmPlotOverlay.cache(packet);
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.screen instanceof FarmPanelScreen screen) {
             screen.apply(packet);
@@ -199,6 +215,16 @@ public final class FarmPanelScreen extends ApricityScreen {
         refreshList(packet);
         refreshCrops(packet);
 
+        if (draftOpen) {
+            FarmPlotDraft draft = FarmPlotDraft.current();
+            if (draft == null) {
+                closeDetail();
+            } else {
+                refreshDraft(draft);
+                refreshWorkers(packet, draft.workerIds());
+            }
+            return;
+        }
         Plot selected = plotOf(packet, selectedPlotId);
         if (selected == null) {
             if (detailOpen) {
@@ -208,7 +234,7 @@ public final class FarmPanelScreen extends ApricityScreen {
             draftSlots = selected.slots();
             refreshDetail(packet, selected);
         }
-        refreshWorkers(packet, selected);
+        refreshWorkers(packet, selected == null ? null : selected.workers());
     }
 
     private void refreshQuota(FarmPanelStatePacket packet) {
@@ -238,7 +264,9 @@ public final class FarmPanelScreen extends ApricityScreen {
                 visible.add(plot);
             }
         }
-        if (visible.isEmpty()) {
+        FarmPlotDraft draft = FarmPlotDraft.current();
+        boolean showDraft = draft != null && filter.isBlank();
+        if (visible.isEmpty() && !showDraft) {
             listHost.setInnerHTML("");
             setVisible(emptyHint, true);
             setText(emptyHint, filter.isBlank() ? "这座建筑还没有划出农田" : "没有匹配的农田");
@@ -247,12 +275,23 @@ public final class FarmPanelScreen extends ApricityScreen {
         setVisible(emptyHint, false);
 
         StringBuilder html = new StringBuilder();
+        int offset = 0;
+        if (showDraft) {
+            html.append("<div class=\"").append(ROW).append(" bp-item-draft\" id=\"fm-row-draft\">")
+                    .append("<span class=\"bp-name\">新农田（待保存）</span>")
+                    .append("<span class=\"bp-sub\">").append(draft.slots()).append(" 格</span>")
+                    .append("<span class=\"bp-tag\">").append(draft.cells()).append(" 格地</span>")
+                    .append("<span class=\"bp-sub\">").append(draft.workerIds().size()).append(" 人</span>")
+                    .append("</div>");
+            offset = 1;
+        }
         for (int index = 0; index < visible.size(); index++) {
             Plot plot = visible.get(index);
-            html.append("<div class=\"").append(ROW).append("\" id=\"fm-row-").append(index).append("\">")
+            int row = index + offset;
+            html.append("<div class=\"").append(ROW).append("\" id=\"fm-row-").append(row).append("\">")
                     .append("<span class=\"bp-crop\">")
                     .append("<").append(TAG_ITEM).append(" class=\"bp-crop-icon\" id=\"fm-row-icon-")
-                    .append(index).append("\"></").append(TAG_ITEM).append("></span>")
+                    .append(row).append("\"></").append(TAG_ITEM).append("></span>")
                     .append("<span class=\"bp-name\">").append(escape(plot.name())).append("</span>")
                     .append("<span class=\"bp-sub\">").append(plot.slots()).append(" 格</span>")
                     .append("<span class=\"bp-tag\">")
@@ -263,20 +302,32 @@ public final class FarmPanelScreen extends ApricityScreen {
         }
         listHost.setInnerHTML(html.toString());
 
+        if (showDraft) {
+            Element draftRow = boundDocument.getElementById("fm-row-draft");
+            if (draftRow != null) {
+                draftRow.addEventListener("click", event -> openDraft());
+            }
+        }
         for (int index = 0; index < visible.size(); index++) {
             Plot plot = visible.get(index);
-            Element row = boundDocument.getElementById("fm-row-" + index);
-            if (row != null) {
-                row.addEventListener("click", event -> openDetail(plot.id()));
+            int row = index + offset;
+            Element element = boundDocument.getElementById("fm-row-" + row);
+            if (element != null) {
+                element.addEventListener("click", event -> openDetail(plot.id()));
             }
-            applyIcon(boundDocument.getElementById("fm-row-icon-" + index), plot.cropId());
+            applyIcon(boundDocument.getElementById("fm-row-icon-" + row), plot.cropId());
         }
     }
 
     private void refreshCrops(FarmPanelStatePacket packet) {
-        if (cropsHost == null || cropsBuilt) {
+        if (cropsHost == null) {
             return;
         }
+        String key = cropKey(packet);
+        if (key.equals(builtCrops)) {
+            return;
+        }
+        builtCrops = key;
         StringBuilder html = new StringBuilder();
         for (int index = 0; index < packet.crops().size(); index++) {
             if (index % CROPS_PER_ROW == 0) {
@@ -296,7 +347,6 @@ public final class FarmPanelScreen extends ApricityScreen {
             html.append("</div>");
         }
         cropsHost.setInnerHTML(html.toString());
-        cropsBuilt = true;
 
         for (int index = 0; index < packet.crops().size(); index++) {
             CropOption crop = packet.crops().get(index);
@@ -308,6 +358,15 @@ public final class FarmPanelScreen extends ApricityScreen {
         }
     }
 
+    /** 作物槽位的重建依据：清单变了（含"先空后到"）就重建，图标与名字一起刷新。 */
+    private static String cropKey(FarmPanelStatePacket packet) {
+        StringBuilder key = new StringBuilder();
+        for (CropOption crop : packet.crops()) {
+            key.append(crop.id()).append('|').append(crop.label()).append(';');
+        }
+        return key.toString();
+    }
+
     private void refreshDetail(FarmPanelStatePacket packet, Plot plot) {
         setText(detailName, plot.name());
         setText(detailSlots, String.valueOf(draftSlots));
@@ -315,43 +374,73 @@ public final class FarmPanelScreen extends ApricityScreen {
         setText(detailCap, "上限 " + (packet.remainingSlots() + plot.slots()));
         setText(detailArea, plot.hasArea()
                 ? String.format("(%d,%d)-(%d,%d)", plot.minX(), plot.minZ(), plot.maxX(), plot.maxZ())
+                        + (plot.extra().isEmpty() ? "" : " ＋" + plot.extra().size() + " 块")
                 : "尚未划定");
         setText(detailWorkerNote, plot.workers().size() + " 人");
         setText(detailCropNote, labelOf(packet, plot.cropId()));
-        if (cropsHost != null) {
-            for (int index = 0; index < packet.crops().size(); index++) {
-                Element cell = boundDocument.getElementById("fd-crop-" + index);
-                if (cell != null) {
-                    cell.getClassList().toggle(ON, packet.crops().get(index).id().equals(plot.cropId()));
-                }
+        markSelectedCrop(plot.cropId());
+        showDetailButtons(false);
+    }
+
+    /** 待定农田的详情：数据全在客户端草稿里，点作物与打理人只改草稿，不发包。 */
+    private void refreshDraft(FarmPlotDraft draft) {
+        setText(detailName, "新农田（待保存）");
+        setText(detailSlots, String.valueOf(draft.slots()));
+        setText(detailSlotNote, draft.slots() + " 格 / 共 " + draft.cells() + " 格地");
+        setText(detailCap, "上限 " + latest.remainingSlots());
+        setText(detailArea, String.format("(%d,%d)-(%d,%d)", draft.minX(), draft.minZ(), draft.maxX(), draft.maxZ())
+                + (draft.extra().isEmpty() ? "" : " ＋" + draft.extra().size() + " 块"));
+        setText(detailWorkerNote, draft.workerIds().size() + " 人");
+        setText(detailCropNote, labelOf(latest, draft.cropId()));
+        markSelectedCrop(draft.cropId());
+        showDetailButtons(true);
+    }
+
+    private void markSelectedCrop(String cropId) {
+        if (cropsHost == null) {
+            return;
+        }
+        for (int index = 0; index < latest.crops().size(); index++) {
+            Element cell = boundDocument.getElementById("fd-crop-" + index);
+            if (cell != null) {
+                cell.getClassList().toggle(ON, latest.crops().get(index).id().equals(cropId));
             }
         }
     }
 
-    private void refreshWorkers(FarmPanelStatePacket packet, Plot selected) {
+    /** 待定态底部只留「取消 / 保存」；已建农田保留「删除 / 框选范围 / 完成」。 */
+    private void showDetailButtons(boolean draft) {
+        setVisible(detailDelete, !draft);
+        setText(detailSave, draft ? "保存" : "完成");
+        setVisible(detailCancel, draft);
+    }
+
+    private void refreshWorkers(FarmPanelStatePacket packet, List<UUID> assigned) {
         if (workersHost == null) {
             return;
         }
-        if (selected == null) {
-            workersHost.setInnerHTML("");
-            return;
-        }
+        List<UUID> hired = assigned == null ? List.of() : assigned;
         List<UUID> ids = new ArrayList<>();
         StringBuilder html = new StringBuilder();
         for (WorkerOption worker : packet.workers()) {
             if (!workerFilter.isBlank() && !worker.name().contains(workerFilter)) {
                 continue;
             }
-            boolean assigned = selected.workers().contains(worker.id());
+            boolean isHired = hired.contains(worker.id());
             int index = ids.size();
             ids.add(worker.id());
-            html.append("<div class=\"").append(ROW).append(assigned ? " " + ON : "")
+            html.append("<div class=\"").append(ROW).append(isHired ? " " + ON : "")
                     .append("\" id=\"fd-worker-").append(index).append("\">")
                     .append("<kingdom-entity-avatar class=\"bp-worker-face\" skin=\"")
                     .append(escape(worker.skin())).append("\"></kingdom-entity-avatar>")
                     .append("<span class=\"bp-name\">").append(escape(worker.name())).append("</span>")
-                    .append("<span class=\"bp-sub\">").append(assigned ? "打理中" : "空闲").append("</span>")
+                    .append("<span class=\"bp-sub\">").append(isHired ? "打理中" : "空闲").append("</span>")
                     .append("</div>");
+        }
+        if (ids.isEmpty()) {
+            html.append("<div class=\"bp-empty\">").append(packet.workers().isEmpty()
+                    ? "这份名册里还没有市民"
+                    : "没有匹配「" + escape(workerFilter) + "」的市民").append("</div>");
         }
         workersHost.setInnerHTML(html.toString());
 
@@ -359,8 +448,7 @@ public final class FarmPanelScreen extends ApricityScreen {
             UUID workerId = ids.get(index);
             Element row = boundDocument.getElementById("fd-worker-" + index);
             if (row != null) {
-                row.addEventListener("click", event ->
-                        send(FarmPanelActionPacket.toggleWorker(selectedPlotId, workerId)));
+                row.addEventListener("click", event -> toggleWorker(workerId));
             }
         }
     }
@@ -401,23 +489,47 @@ public final class FarmPanelScreen extends ApricityScreen {
     }
 
     private static String areaText(Plot plot) {
-        return (plot.maxX() - plot.minX() + 1) * (plot.maxZ() - plot.minZ() + 1) + " 格地";
+        int cells = 0;
+        if (plot.maxX() > plot.minX() || plot.maxZ() > plot.minZ()) {
+            cells = (plot.maxX() - plot.minX() + 1) * (plot.maxZ() - plot.minZ() + 1);
+        }
+        for (FarmRegion region : plot.extra()) {
+            cells += region.cells();
+        }
+        return plot.extra().isEmpty() ? cells + " 格地" : cells + " 格地 · " + plot.extra().size() + " 块附加";
     }
 
-    private void createPlot() {
-        send(FarmPanelActionPacket.create("", 1));
+    /** 新建农田：先关面板去框地，框完的地变成待定卡片，作物与打理人在卡片里选。 */
+    private void startNewPlot() {
+        onClose();
+        FarmAreaSelector.beginNew();
     }
 
     private void openDetail(UUID plotId) {
         selectedPlotId = plotId;
+        draftOpen = false;
         Plot plot = plotOf(latest, plotId);
         draftSlots = plot == null ? 0 : plot.slots();
         showDetail(true);
         apply(latest);
     }
 
+    private void openDraft() {
+        FarmPlotDraft draft = FarmPlotDraft.current();
+        if (draft == null) {
+            return;
+        }
+        selectedPlotId = null;
+        draftOpen = true;
+        draftSlots = draft.slots();
+        showDetail(true);
+        refreshDraft(draft);
+        refreshWorkers(latest, draft.workerIds());
+    }
+
     private void closeDetail() {
         selectedPlotId = null;
+        draftOpen = false;
         showDetail(false);
     }
 
@@ -429,6 +541,9 @@ public final class FarmPanelScreen extends ApricityScreen {
         setOff(detailHead, OFF_HEAD, !open);
         setOff(detailBody, OFF_BODY, !open);
         setOff(detailFoot, OFF_FOOT, !open);
+        if (!open) {
+            showDetailButtons(false);
+        }
     }
 
     private static void setOff(Element element, String token, boolean off) {
@@ -438,6 +553,18 @@ public final class FarmPanelScreen extends ApricityScreen {
     }
 
     private void stepSlots(int delta) {
+        if (draftOpen) {
+            FarmPlotDraft draft = FarmPlotDraft.current();
+            if (draft == null) {
+                return;
+            }
+            FarmPlotDraft next = draft.withSlots(
+                    Math.max(0, Math.min(latest.remainingSlots(), draft.slots() + delta)));
+            FarmPlotDraft.set(next);
+            refreshDraft(next);
+            refreshList(latest);
+            return;
+        }
         if (selectedPlotId == null) {
             return;
         }
@@ -455,6 +582,17 @@ public final class FarmPanelScreen extends ApricityScreen {
     }
 
     private void selectCrop(String cropId) {
+        if (draftOpen) {
+            FarmPlotDraft draft = FarmPlotDraft.current();
+            if (draft == null) {
+                return;
+            }
+            FarmPlotDraft next = draft.withCrop(cropId.equals(draft.cropId()) ? "" : cropId);
+            FarmPlotDraft.set(next);
+            refreshDraft(next);
+            refreshList(latest);
+            return;
+        }
         if (selectedPlotId == null) {
             return;
         }
@@ -463,6 +601,70 @@ public final class FarmPanelScreen extends ApricityScreen {
             return;
         }
         send(FarmPanelActionPacket.setCrop(selectedPlotId, cropId.equals(plot.cropId()) ? "" : cropId));
+    }
+
+    private void toggleWorker(UUID workerId) {
+        if (draftOpen) {
+            FarmPlotDraft draft = FarmPlotDraft.current();
+            if (draft == null) {
+                return;
+            }
+            FarmPlotDraft next = draft.toggleWorker(workerId);
+            FarmPlotDraft.set(next);
+            refreshDraft(next);
+            refreshWorkers(latest, next.workerIds());
+            refreshList(latest);
+            return;
+        }
+        if (selectedPlotId != null) {
+            send(FarmPanelActionPacket.toggleWorker(selectedPlotId, workerId));
+        }
+    }
+
+    private void clearWorkers() {
+        if (draftOpen) {
+            FarmPlotDraft draft = FarmPlotDraft.current();
+            if (draft == null) {
+                return;
+            }
+            FarmPlotDraft next = draft.withWorkers(List.of());
+            FarmPlotDraft.set(next);
+            refreshDraft(next);
+            refreshWorkers(latest, next.workerIds());
+            refreshList(latest);
+            return;
+        }
+        if (selectedPlotId != null) {
+            send(FarmPanelActionPacket.toggleWorker(selectedPlotId, null));
+        }
+    }
+
+    /** 待定卡片的保存：区域、格数、作物、打理人一次成型发给服务端。 */
+    private void saveDetail() {
+        if (!draftOpen) {
+            closeDetail();
+            return;
+        }
+        FarmPlotDraft draft = FarmPlotDraft.current();
+        if (draft != null) {
+            send(FarmPanelActionPacket.create(draft.slots(), draft.cropId(), draft.workerCsv(),
+                    draft.minX(), draft.minZ(), draft.maxX(), draft.maxZ(), draft.extra()));
+        }
+        FarmPlotDraft.clear();
+        closeDetail();
+        refreshList(latest);
+        hint("农田已保存");
+    }
+
+    private void cancelDraft() {
+        if (!draftOpen) {
+            closeDetail();
+            return;
+        }
+        FarmPlotDraft.clear();
+        closeDetail();
+        refreshList(latest);
+        hint("已放弃这块待定农田");
     }
 
     private void deletePlot() {
@@ -482,7 +684,25 @@ public final class FarmPanelScreen extends ApricityScreen {
     private void setWorkerFilter(String value) {
         workerFilter = value == null ? "" : value;
         shownWorkerFilter = workerFilter;
-        refreshWorkers(latest, plotOf(latest, selectedPlotId));
+        refreshWorkers(latest, assignedWorkers());
+    }
+
+    /** 详情页正在编辑谁的打理人：待定草稿，或已建的某块农田。 */
+    private List<UUID> assignedWorkers() {
+        if (draftOpen) {
+            FarmPlotDraft draft = FarmPlotDraft.current();
+            return draft == null ? null : draft.workerIds();
+        }
+        Plot plot = plotOf(latest, selectedPlotId);
+        return plot == null ? null : plot.workers();
+    }
+
+    /** 操作反馈走动作栏，不弹聊天框。 */
+    private static void hint(String message) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player != null) {
+            minecraft.player.displayClientMessage(Component.literal(message), true);
+        }
     }
 
     private static void send(FarmPanelActionPacket packet) {

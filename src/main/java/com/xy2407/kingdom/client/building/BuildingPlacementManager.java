@@ -16,6 +16,7 @@ import com.xy2407.kingdom.common.structure.StructureRotation;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Vec3i;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
@@ -26,9 +27,11 @@ import net.neoforged.neoforge.network.PacketDistributor;
  */
 @OnlyIn(Dist.CLIENT)
 public final class BuildingPlacementManager {
-    /** 按需求取"80% 透明"，即只保留 20% 不透明度。 */
-    public static final float GHOST_ALPHA = 0.2F;
-    public static final float PENDING_ALPHA = 0.45F;
+    /** 跟随鼠标的建筑投影：全不透明。 */
+    public static final float GHOST_ALPHA = 1.0F;
+
+    /** 右键固定落点后的投影：八成不透明。 */
+    public static final float PENDING_ALPHA = 0.8F;
 
     /** 已暂存、等待统一开工的投影；保留原始模型以便拖动时继续改旋转。 */
     public record Pending(String name, BlockPos origin, int rotation, Vec3i size,
@@ -132,18 +135,28 @@ public final class BuildingPlacementManager {
 
     /** Enter：把所有暂存投影一次性提交给服务端开工。 */
     public static void confirmAll() {
+        Minecraft minecraft = Minecraft.getInstance();
         if (PENDINGS.isEmpty()) {
+            // 静默返回会让人以为按键坏了：右键很可能被 AUI 覆盖层吃掉了
+            hint(minecraft, "还没有待建投影：先把跟随鼠标的建筑右键固定在落点");
             return;
         }
-        Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.getConnection() == null) {
             return;
         }
+        int submitted = PENDINGS.size();
         for (Pending pending : PENDINGS) {
             PacketDistributor.sendToServer(
                     new BuildingPlaceConfirmPacket(pending.name(), pending.origin(), pending.rotation()));
         }
         clearPending();
+        hint(minecraft, "已提交 " + submitted + " 处建筑开工");
+    }
+
+    private static void hint(Minecraft minecraft, String message) {
+        if (minecraft.player != null) {
+            minecraft.player.displayClientMessage(Component.literal(message), true);
+        }
     }
 
     /** 左键按下时尝试抓住一张蓝影拖动。 */
