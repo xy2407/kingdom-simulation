@@ -2,11 +2,19 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<!-- 定尺寸视口：整页逻辑尺寸 1124×854 = 面板 1080×810 + body 四周 22px。
-     scale=fit 让宿主等比缩放；回浏览器预览时删掉这个 meta 即可。 -->
-<meta name="aui-viewport" content="mode=fixed,width=1124,height=854,scale=fit,zoom=1,min-zoom=0.3,max-zoom=2,zoom-step=0.05,user-scalable=true">
-<!-- 参数照已核实的 backpack.html 配齐（zoom / zoom-step 它都有）。
-     若整页仍偏大或偏小，用 Ctrl+滚轮调，或由 Java 按 getViewportSize() 现算 scale。 -->
+<!-- 纯 DOM 页的居中靠**成对的两个 mixin**完成（这正是 backpack 一直正常的原因）：
+     · AuiDocumentCenterMixin（注 Document.applyViewport）把居中偏移写进 Document.viewportTransform
+       —— **只有输入映射消费它**（screenToDocumentPosition / tooltip / 点击热区）；
+     · AuiScreenDocCenterMixin（注 ApricityScreen.render，kingdom 照容器页那套补出来的）
+       在绘制前后成对 translate **同一个偏移** —— 画面这才跟着走。
+     两者一致后，mode=fixed + scale 在纯 DOM 页上也能正确居中，点击与画面不再错位。
+     （容器页一直有对应的 AuiContainerDocCenterMixin，所以 backpack.html 从来不出这个问题；
+     从前纯 DOM 页缺第二个 mixin，一加偏移就变成"画面钉左上、点击按居中算"。）
+     · width/height 是文档逻辑尺寸 1124×854 = 面板 1080×810 + 四周 22px；
+     · scale=0.45 把它缩到约 506×384 GUI px。缩放后文档必须**小于视口**，
+       mixin 的「已占满视口就不动」短路才不会命中——0.45 对常见视口都留有余量。
+     zoom 钉死 1（铁律 1）：像素字体被非整数缩放会糊。 -->
+<meta name="aui-viewport" content="mode=fixed,width=1124,height=854,scale=0.45,zoom=1,min-zoom=1,max-zoom=1,user-scalable=false">
 <!-- 纯 DOM 页（没有任何真实槽位），必须写 intercept，否则输入框与按钮点不动。
      有真实槽位的容器页绝不能写这条（§11 坑 32）。 -->
 <meta name="aui-mouse-events" content="intercept">
@@ -73,17 +81,31 @@
    把页面节点静默削掉——左下角边框整块缺一半就是这个遮罩干的。
    原来的浏览器稿有这一行，搬到 AUI 时必须删。 */
 
+/* identify.html（已核实的纯 DOM 页）给 html/body 定了高：
+   没有确定高度的 flex 居中在纵向上不生效，而空流文档的根盒子高为 0。 */
+html,body{height:100%;}
+
 body{
   /* 原稿是深色径向渐变底，那是给浏览器看的；
      游戏里容器屏自带压暗，透明让世界透出来，
-     否则 scale=fit 下文档矩形整块发黑（"部分黑屏"）。【替换：原 background 为渐变+#0a0604】 */
+     否则文档矩形会整块发黑（"部分黑屏"）。【替换：原 background 为渐变+#0a0604】 */
   background-color:transparent;
   font-family:'Zpix',monospace;
   font-size:15px;
   color:var(--ink);
+  /* 居中就在 body 里做，照 identify.html（已核实能跑的纯 DOM 页）：
+     先给 html/body 显式定高，再用 flex 居中。
+     **不要**写成 position:fixed —— 那会让 body 脱离文档流，html 的高度跟着塌成 0，
+     而 AUI 解析 % 与包含块时要沿族谱取祖先的**已缓存内宽/内高**（Size.getScaleWidth /
+     containingBlockPaddingBoxExtent），基准一塌居中就没了。
+     也**不要**用 left:50% + 负 margin（坑 3，AUI 不支持那种居中）。
+     mode=gui 下文档尺寸恰好等于逻辑视口，所以 100% / vh 都是确定值，不会塌。 */
+  min-height:100vh;
   display:flex;
+  flex-direction:column;
   justify-content:center;
   align-items:center;
+  /* padding 只给 .ch-hall 那两层硬投影（16px）留位置，不当居中用 */
   padding:22px;
   image-rendering:pixelated;
   image-rendering:-moz-crisp-edges;
@@ -977,7 +999,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
         <!-- 世界地图：真实世界数据由 <world-map> 向服务端请求后绘制。
              center-x / center-z 是占位，打开界面时由 CityHallScreen 按市政厅方块位置覆盖。 -->
         <div class="model-box ch-map" id="chMapBox">
-          <world-map id="chMap" center-x="0" center-z="0" radius="192"></world-map>
+          <world-map id="chMap" center-x="0" center-z="0" radius="192" marker-x="0" marker-z="0"></world-map>
           <span class="map-zoom-hint">点 击 放 大</span>
         </div>
 
@@ -1162,7 +1184,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   <!-- 全屏地图 -->
   <div class="map-full" id="chMapFull">
     <div class="map-full-box" id="chMapFullBox">
-      <world-map id="chMapFullView" center-x="0" center-z="0" radius="320"></world-map>
+      <world-map id="chMapFullView" center-x="0" center-z="0" radius="320" marker-x="0" marker-z="0"></world-map>
     </div>
     <div class="map-full-hint">拖 动 平 移　·　滚 轮 缩 放　·　点 击 外 侧 关 闭</div>
   </div>

@@ -2,8 +2,11 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<!-- 纯 DOM 页（无任何真实槽位），用 mode=gui + 1:1 缩放——与 start.html 同一档。
-     尺寸不写死：文档随视口走，面板固定 420 宽后由 flex 居中。 -->
+<!-- 纯 DOM 页照 start.html（唯一验证过的纯 DOM 页）的写法：
+     mode=gui 让文档尺寸等于视口，页面用 position:fixed + 100% 撑满，再由 body 的 flex 居中。
+     《AUI使用总结》§0 铁律 3 明确认可「position:fixed + % 宽高（mode=gui 的纯 DOM 页面里可用）」，
+     residential.html 的侧边栏就是这么写的；坑 3 禁的只是「fixed + left:50% + 负 margin」那种居中。
+     zoom 钉死 1（铁律 1）：像素字体被非整数缩放会重采样成糊。 -->
 <meta name="aui-viewport" content="mode=gui,zoom=1,min-zoom=1,max-zoom=1,user-scalable=false">
 <!-- 纯 DOM 页必须写 intercept，否则输入框与按钮点不动（§0 铁律 4）。 -->
 <meta name="aui-mouse-events" content="intercept">
@@ -82,9 +85,9 @@ body{
   font-family:'Zpix',monospace;
   font-size:15px;
   color:var(--ink);
-  /* 居中基准：AUI 里根元素盒子高为 0，光写 align-items:center 顶不住——面板会贴在顶部。
-     按《AUI适配指南》§0 铁律 3 许可的写法（mode=gui 的纯 DOM 页里 position:fixed + % 宽高可用），
-     把 body 铺满整个视口，flex 居中才有高度作基准。 */
+  /* mode=gui 下文档尺寸 = 视口，所以 position:fixed + 100% 撑满的就是整个视口（铁律 3），
+     再 flex 居中即得屏幕正中的面板——start.html（唯一验证过的纯 DOM 页）同一套做法。
+     坑 3 禁的是「fixed + left:50% + 负 margin」那种居中，fixed 本身在纯 DOM 页是好的。 */
   position:fixed;
   left:0;
   top:0;
@@ -171,9 +174,12 @@ body{
    transform 相关全部去掉（AUI 未实现），只保留 box-shadow 的层次变化
    ============================================================ */
 .btn{
-  display:flex;
-  align-items:center;
-  justify-content:center;
+  /* ⚠ **AUI 下按钮不要用 display:flex**（实测坑）：
+     按钮里的纯文本会成为"匿名 flex 项"，命中测试落到那个文本项上而不是按钮元素本身，
+     症状就是"文字所在的内部完全点不动、只有边框那几像素能响应点击"。
+     换成最普通的块级 + 行内居中即可——命中盒与视觉盒完全一致。
+     （start.html 的 .btn 一直没用 flex，所以它没这个毛病。） */
+  display:block;
   padding:12px 24px;
   font-family:'Zpix',monospace;
   font-size:14px;
@@ -341,13 +347,15 @@ body{
     inset 1px 1px 0 0 var(--border-mid);
 }
 
-/* 两个按钮与输入框等高：4 + 22 + 4 = 30 */
+/* 两个按钮与输入框等高：4 + 22 + 4 = 30。
+   按钮改成块级之后要靠行高自己撑垂直居中：
+   30px 高 − 上下各 2px 边框 = 26px 内容高，行高取 26px 即正好居中。 */
 .cc-btn-eq{
   flex:0 0 auto;
   height:30px;
   padding:0 10px;
   font-size:16px;
-  line-height:22px;
+  line-height:26px;
 }
 </style>
 </head>

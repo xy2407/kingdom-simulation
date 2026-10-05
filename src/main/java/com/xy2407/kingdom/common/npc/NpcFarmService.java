@@ -129,8 +129,8 @@ public final class NpcFarmService {
                     if (++scanned > AREA_LIMIT) {
                         break scan;
                     }
-                    BlockPos soil = new BlockPos(x, groundY, z);
-                    if (!level.isLoaded(soil)) {
+                    BlockPos soil = resolveSoil(level, x, groundY, z);
+                    if (soil == null) {
                         continue;
                     }
                     if (held.contains(soil.asLong())) {
@@ -147,8 +147,7 @@ public final class NpcFarmService {
                         occupied++;
                         continue;
                     }
-                    BlockState soilState = level.getBlockState(soil);
-                    if (isFarmland(soilState) || soilState.is(BlockTags.DIRT)) {
+                    if (isPlantable(level.getBlockState(soil))) {
                         plants.add(new Task(soil, Action.PLANT));
                     }
                 }
@@ -288,7 +287,11 @@ public final class NpcFarmService {
             List<ItemStack> drops = Block.getDrops(cropState, level, cropPos, null, npc, ItemStack.EMPTY);
             level.setBlock(cropPos, Blocks.AIR.defaultBlockState(), Block.UPDATE_CLIENTS);
             markSnapshot(level, cropPos);
-            collect(level, cropPos, npc, drops);
+            for (ItemStack drop : drops) {
+                if (drop != null && !drop.isEmpty()) {
+                    Block.popResource(level, cropPos, drop);
+                }
+            }
             return;
         }
         if (!cropState.isAir()) {
@@ -317,25 +320,6 @@ public final class NpcFarmService {
         markSnapshot(level, cropPos);
     }
 
-    /** 产物先进打理人行装（24 格），塞不下的掉在田里，不静默吞掉。 */
-    private static void collect(ServerLevel level, BlockPos pos, NpcEntity npc, List<ItemStack> drops) {
-        NpcInventory inventory = npc == null ? null : npc.getNpcInventory();
-        for (ItemStack drop : drops) {
-            if (drop == null || drop.isEmpty()) {
-                continue;
-            }
-            ItemStack remaining = drop.copy();
-            if (inventory != null) {
-                for (int slot = 0; slot < inventory.getSlots() && !remaining.isEmpty(); slot++) {
-                    remaining = inventory.insertItem(slot, remaining, false);
-                }
-            }
-            if (!remaining.isEmpty()) {
-                Block.popResource(level, pos, remaining);
-            }
-        }
-    }
-
     /** 核心矩形（index = -1，不成立时为 null）与第 index 个附加块，巡检只按这份定义扫。 */
     private static FarmRegion regionOf(FarmPlot plot, int index) {
         if (index < 0) {
@@ -358,6 +342,24 @@ public final class NpcFarmService {
 
     private static boolean isFarmland(BlockState state) {
         return state.is(Blocks.FARMLAND);
+    }
+
+    private static boolean isPlantable(BlockState state) {
+        return isFarmland(state) || state.is(BlockTags.DIRT);
+    }
+
+    private static BlockPos resolveSoil(ServerLevel level, int x, int y, int z) {
+        BlockPos recorded = new BlockPos(x, y, z);
+        if (!level.isLoaded(recorded)) {
+            return null;
+        }
+        for (int dy = 0; dy >= -3; dy--) {
+            BlockPos pos = new BlockPos(x, y + dy, z);
+            if (isPlantable(level.getBlockState(pos))) {
+                return pos;
+            }
+        }
+        return recorded;
     }
 
     private static Block cropBlock(String cropId) {
@@ -397,5 +399,50 @@ public final class NpcFarmService {
         if (repository != null) {
             repository.markDirty(level, pos);
         }
+    }
+
+    /** 诊断：逐块田列出作物、格数、巡检产出与打理人状态，定位"市民为什么不干活"。 */
+    public static List<String> debugReport(ServerLevel level) {
+        List<String> lines = new ArrayList<>();
+        for (FarmPlot plot : FarmPlotManager.INSTANCE.all()) {
+            Deque<Task> queue = QUEUES.get(plot.id());
+            lines.add("农田 " + plot.id().toString().substring(0, 8)
+                    + " 作物=" + (plot.cropId().isBlank() ? "未选" : plot.cropId())
+                    + " 格数=" + plot.slots()
+                    + " 地=" + (plot.hasArea() ? plot.areaBlocks() + "格" : "未划")
+                    + " 待办=" + (queue == null ? "未巡检" : String.valueOf(queue.size())));
+            BlockPos sample = plot.hasCore()
+                    ? plot.min()
+                    : (plot.extra().isEmpty() ? null
+                            : new BlockPos(plot.extra().get(0).minX(), plot.min().getY(),
+                                    plot.extra().get(0).minZ()));
+            if (level != null && sample != null && level.isLoaded(sample)) {
+                BlockPos soil = resolveSoil(level, sample.getX(), sample.getY(), sample.getZ());
+                lines.add("   采样 " + sample.toShortString()
+                        + " 该格=" + level.getBlockState(sample).getBlock().getName().getString()
+                        + " 上方=" + level.getBlockState(sample.above()).getBlock().getName().getString()
+                        + " 土壤=" + (soil == null ? "无"
+                        : soil.toShortString() + "/" + level.getBlockState(soil).getBlock().getName().getString()));
+            }
+            for (UUID id : plot.workerIds()) {
+                NpcData npc = NpcManager.INSTANCE.getNpc(id);
+                if (npc == null) {
+                    lines.add("   打理人 " + id.toString().substring(0, 8) + " 不在内存");
+                    continue;
+                }
+                Work work = WORKS.get(id);
+                lines.add("   打理人 " + npc.getName()
+                        + " 饥饿=" + npc.getBrain().isStarving()
+                        + " 农活受控=" + npc.getBrain().isFarmControlled()
+                        + " 明细=" + npc.getBrain().getDetail()
+                        + " 排班=" + NpcSchedule.subState(npc.getShift(), npc.getDayTime())
+                        + " 时刻=" + npc.getDayTime()
+                        + " 目标=" + (work == null || work.target == null ? "无" : work.target.toShortString()));
+            }
+        }
+        if (lines.isEmpty()) {
+            lines.add("没有任何农田");
+        }
+        return lines;
     }
 }

@@ -37,6 +37,16 @@ public final class RanchSchema implements Migration {
     }
 
     @Override
+    public String tableName() {
+        return TABLE_RANCH_PEN;
+    }
+
+    @Override
+    public String primaryKeyColumn() {
+        return COL_UUID;
+    }
+
+    @Override
     public void apply(Connection connection) throws SQLException {
         try (Statement st = connection.createStatement()) {
             st.executeUpdate("CREATE TABLE IF NOT EXISTS " + TABLE_RANCH_PEN + " ("

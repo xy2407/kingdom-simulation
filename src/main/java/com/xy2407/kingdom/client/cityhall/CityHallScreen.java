@@ -29,14 +29,27 @@ public final class CityHallScreen extends ApricityScreen {
 
     public static final String PAGE = "ui/city_hall.html";
 
-    /** 打开界面时市政厅方块所在的位置。地图以它为中心采样。 */
+    /** 打开界面时市政厅方块所在的位置。地图没记过中心时用它兜底。 */
     private static int hallX;
     private static int hallZ;
+
+    /** 这名玩家上次看地图的位置（服务端存的）。两个都是 0 表示没记过，那就用市政厅位置。 */
+    private int mapCenterX;
+    private int mapCenterZ;
 
     /** 最近一次收到的城镇数据。开屏包与数据包谁先到都靠它兜住。 */
     private static volatile CityHallDataPacket snapshot = CityHallDataPacket.EMPTY;
 
-    private Document boundDocument;
+    /**
+     * 事件已经挂到哪个 Document 上了。
+     *
+     * <p><b>必须是静态的</b>：AUI 按页面路径复用 Document 对象，而这个 Screen 每次都 new。
+     * 用实例字段挡不住跨界面的重复绑定——同一个 Document 会被挂上两轮监听，点一次触发两次。</p>
+     *
+     * <p>但数据**不能**跟着只填一次：重进界面要看最新数值，所以 {@link #bind()} 里
+     * 事件只绑一次、{@link #applyData} 每次都跑。</p>
+     */
+    private static Document boundDocument;
 
     public CityHallScreen() {
         super(PAGE);
@@ -48,6 +61,7 @@ public final class CityHallScreen extends ApricityScreen {
     public static void open(int x, int z) {
         hallX = x;
         hallZ = z;
+        com.xy2407.kingdom.ModMain.LOGGER.info("[市政厅] 客户端要开管理界面 pos={},{}", x, z);
         Minecraft.getInstance().setScreen(new CityHallScreen());
     }
 
@@ -56,30 +70,56 @@ public final class CityHallScreen extends ApricityScreen {
         snapshot = packet;
         /* 界面已经开着就立刻重填；没开就只存着，等 init() 时读 */
         if (Minecraft.getInstance().screen instanceof CityHallScreen screen) {
-            screen.applyData(packet);
+            /* 走 bind() 而不是直接 applyData：Document 是异步加载的，
+               init() 那一刻可能还没就绪、事件也没挂上，这里补一次。 */
+            screen.bind();
         }
     }
 
     @Override
     protected void init() {
         super.init();
+        /* 报一次实际视口：面板是 1080×810 的定尺设计，而本页是纯 DOM 页、
+           没有容器页那套"整稿缩放"机制，视口比它小就会被裁。
+           尺寸问题只能靠这行日志定位（§4.3 的推荐做法）。 */
+        Document document = getLinkedDocument();
+        if (document != null) {
+            var viewport = document.getViewportSize();
+            com.xy2407.kingdom.ModMain.LOGGER.info("[市政厅] 文档视口 {}×{}",
+                    viewport.width(), viewport.height());
+        }
         bind();
     }
 
+    /** 兜底：直到 Document 到手为止，每帧再试一次（bind() 自身幂等）。 */
+    @Override
+    public void render(net.minecraft.client.gui.GuiGraphics graphics, int mouseX, int mouseY,
+                       float partialTick) {
+        super.render(graphics, mouseX, mouseY, partialTick);
+        if (boundDocument == null) {
+            bind();
+        }
+    }
+
+    /**
+     * 把当前 Document 接上：**事件只绑一次，数据每次都刷**。
+     *
+     * <p>Document 由 AUI 异步加载，{@code init()} 时 {@code getLinkedDocument()} 常常还是 null；
+     * 所以数据包到达、以及每帧渲染时都会再调一次，Document 一到手立刻补绑，
+     * 不必等下次开界面（那正是"重进后界面空白/没反应"的成因）。</p>
+     */
     private void bind() {
         Document document = getLinkedDocument();
-        if (document == null || document == boundDocument) {
-            /* 同一个 Document 只接一次事件，否则重进界面会重复挂监听 */
+        if (document == null) {
             return;
         }
-        boundDocument = document;
-
-        /* 地图：把市政厅坐标交给 <world-map>，元素据此向服务端要数据。
-           页面里这两个属性是占位，真值一律由这里填。 */
-        pointMap(document, "chMap");
-        pointMap(document, "chMapFullView");
-
-        bindInteractions(document);
+        if (document != boundDocument) {
+            boundDocument = document;
+            com.xy2407.kingdom.ModMain.LOGGER.info("[市政厅] 首次绑定 Document，挂载交互");
+            /* 地图中心要等数据到了才知道（在 applyData 里从包里取），所以这里先不设，
+               applyData 末尾会统一设一次。 */
+            bindInteractions(document);
+        }
         applyData(document, snapshot);
     }
 
@@ -90,6 +130,10 @@ public final class CityHallScreen extends ApricityScreen {
      * 服务端暂时没有这些数据，硬塞 0 会让人以为是真实值。详见 {@code CityHallDataCollector}。</p>
      */
     private void applyData(CityHallDataPacket packet) {
+        if (boundDocument == null) {
+            /* Document 还没就绪，先补一次绑定；绑上后下面这段就能把数据填进去 */
+            bind();
+        }
         if (boundDocument != null) {
             applyData(boundDocument, packet);
         }
@@ -395,12 +439,25 @@ public final class CityHallScreen extends ApricityScreen {
 
     // ------------------------------------------------------------ DOM 小工具
 
+    /**
+     * 给地图元素填中心点。
+     *
+     * <p>优先用这名玩家<b>自己</b>上次看的位置（服务端存在 player_profile 上），
+     * 没记过才退回市政厅方块位置——不是每个人都想从领地中心看起。
+     * 改这两个属性会触发元素重新采一块新区域，见 {@code WorldMapElement.ensureData}。</p>
+     */
     private void pointMap(Document document, String id) {
         Element map = document.getElementById(id);
-        if (map != null) {
-            map.setAttribute("center-x", String.valueOf(hallX));
-            map.setAttribute("center-z", String.valueOf(hallZ));
+        if (map == null) {
+            return;
         }
+        boolean hasSaved = mapCenterX != 0 || mapCenterZ != 0;
+        map.setAttribute("center-x", String.valueOf(hasSaved ? mapCenterX : hallX));
+        map.setAttribute("center-z", String.valueOf(hasSaved ? mapCenterZ : hallZ));
+        /* 标记点始终是市政厅方块本身，不跟着视角跑——
+           它是"我家在哪"的锚，玩家怎么拖地图它都钉在那片地面上。 */
+        map.setAttribute("marker-x", String.valueOf(hallX));
+        map.setAttribute("marker-z", String.valueOf(hallZ));
     }
 
     private static void text(Document document, String id, String value) {

@@ -3,17 +3,22 @@ package com.xy2407.kingdom.server.cityhall;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.UUID;
 
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.date.DateSystem;
 import com.xy2407.kingdom.common.faction.Nation;
+import com.xy2407.kingdom.common.faction.PlayerProfile;
 import com.xy2407.kingdom.common.faction.Territory;
+import com.xy2407.kingdom.common.faction.TerritoryVitals;
 import com.xy2407.kingdom.common.network.cityhall.CityHallDataPacket;
 import com.xy2407.kingdom.common.npc.NpcData;
 import com.xy2407.kingdom.common.npc.NpcManager;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
 import com.xy2407.kingdom.server.faction.NationRegistry;
+import com.xy2407.kingdom.server.faction.PlayerProfileStore;
 import com.xy2407.kingdom.server.faction.TerritoryRegistry;
+import com.xy2407.kingdom.server.faction.TerritoryVitalsStore;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
@@ -45,12 +50,22 @@ public final class CityHallDataCollector {
 
     /**
      * @param level   服务端世界，用于取天数
-     * @param hallPos 市政厅方块位置。当前只用于将来"按城镇/领地过滤建筑"，
-     *                现在没有归属概念，所以计入全部已完工建筑
+     * @param hallPos 市政厅方块位置。既用来反查它所在的领地，也作为地图的默认中心
+     * @param viewer  看这份数据的玩家。地图中心优先用<b>他自己</b>上次看的位置，
+     *                没记过才退回市政厅——每人一份，不会互相干扰
      */
-    public static CityHallDataPacket collect(ServerLevel level, BlockPos hallPos) {
+    public static CityHallDataPacket collect(ServerLevel level, BlockPos hallPos, UUID viewer) {
+        /* 两张表都是懒加载的，冷启动 / 刚重进世界时可能还没读出来。
+           这里一律容忍 null——本方法宁可给出空数据，也不能抛异常连累界面打开
+           （调用点 CityHallBlock 也另有一层 try/catch 兜底）。 */
         Collection<NpcData> npcs = NpcManager.INSTANCE.allNpcs();
+        if (npcs == null) {
+            npcs = List.of();
+        }
         List<BuildingRecord> records = BuildingRegistry.INSTANCE.all();
+        if (records == null) {
+            records = List.of();
+        }
 
         List<CityHallDataPacket.Citizen> citizens = new ArrayList<>();
         double moodSum = 0.0;
@@ -75,7 +90,24 @@ public final class CityHallDataCollector {
                     record.name(), record.dimension(), min.getX(), min.getY(), min.getZ()));
         }
 
-        int happiness = moodCount == 0 ? 0 : (int) Math.round(moodSum / moodCount);
+        /* 市民的**平均心情**。注意别和下面 vitals 的 happiness 搞混：那是领地的
+           幸福度属性（存 territory_vitals 表、与凝聚力/忠诚度成套），这是每个市民
+           个体心情的平均值，两者概念不同。
+           目前界面上的"幸福度"取自 vitals，所以这个平均值还没有消费方——
+           之所以仍然算出来，是因为"按**全量**市民平均、不受名录条数上限影响"
+           只有这一处会做（见上面那个循环）；以后要在界面上加"民心"一栏，
+           直接取 moodAverage 即可，不用重写统计。 */
+        int moodAverage = moodCount == 0 ? 0 : (int) Math.round(moodSum / moodCount);
+
+        /* 地图中心：优先这名玩家自己上次看的位置（WorldMapServer 在收到采样请求时记的），
+           没记过就让客户端退回市政厅位置（0,0 当"没记过"，见 PlayerProfile.hasMapCenter）。 */
+        int mapCenterX = 0;
+        int mapCenterZ = 0;
+        PlayerProfile viewerProfile = PlayerProfileStore.INSTANCE.byUuid(viewer);
+        if (viewerProfile != null && viewerProfile.hasMapCenter()) {
+            mapCenterX = viewerProfile.mapCenterX();
+            mapCenterZ = viewerProfile.mapCenterZ();
+        }
 
         /* 城名与隶属来自"市政厅所在的这块领地"。
            领地是按区块存的，所以把方块坐标换算成区块再查，正好命中它自己那一块；
@@ -100,6 +132,15 @@ public final class CityHallDataCollector {
             }
         }
 
+        /* 民心三值取自 territory_vitals 表（TerritoryVitalsStore）。
+           市政厅不在任何领地里时没有对应行，就退回"创建领地时"的默认档：
+           凝聚力 100 / 忠诚度 80 / 幸福度 80，与新建领地一致。 */
+        TerritoryVitals vitals = territory == null ? null
+                : TerritoryVitalsStore.INSTANCE.of(territory.id());
+        int unity = vitals == null ? TerritoryVitals.UNITY_DEFAULT : vitals.unity();
+        int loyalty = vitals == null ? TerritoryVitals.LOYALTY_DEFAULT : vitals.loyalty();
+        int happiness = vitals == null ? TerritoryVitals.HAPPINESS_DEFAULT : vitals.happiness();
+
         return new CityHallDataPacket(
                 townName,
                 DateSystem.totalDay(level),
@@ -107,10 +148,11 @@ public final class CityHallDataCollector {
                 records.size(), 0,          // 建筑 / 上限（同上）
                 vassals, 0,                 // 附属地 / 上限
                 0L, 0L,                     // 金库 / 上限
-                0, 0, happiness,            // 凝聚力 / 忠诚度 / 幸福度
+                unity, loyalty, happiness,  // 凝聚力 / 忠诚度 / 幸福度（实取）
                 nationLabel, "", "", "",    // 隶属 / 盟友 / 敌人 / 政策
                 citizens, structures,
-                List.of(), List.of(), List.of());
+                List.of(), List.of(), List.of(),
+                mapCenterX, mapCenterZ);
     }
 
     /** 名录的第二行：职业与年龄，缺哪个就只显示另一个。 */

@@ -66,6 +66,20 @@ public final class WorldMapClientData {
         return colors != null && size > 0 && received >= total;
     }
 
+    /**
+     * 手上这份缓存，是不是正好是请求的那块区域。
+     *
+     * <p>用来判断"中心点或半径变了，得重新请求"——光看 {@link #isComplete()} 不够：
+     * 它只说明上一块区域收齐了，跟这一块没关系。少了这个判断，
+     * 会话里改中心点就不会重采，拖动只是对旧快照做视觉偏移。</p>
+     */
+    public static boolean hasRegion(int wantedOriginX, int wantedOriginZ, int wantedSize) {
+        return colors != null
+                && size == wantedSize
+                && originX == wantedOriginX
+                && originZ == wantedOriginZ;
+    }
+
     public static boolean isPending() {
         return pending;
     }

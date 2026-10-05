@@ -34,6 +34,7 @@ import net.minecraft.world.level.block.LiquidBlock;
 import net.minecraft.world.level.block.ScaffoldingBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.item.ItemStack;
 
 /**
  * 建筑施工调度，建筑师沿脚手架分段施工并在完成后拆除脚手架
@@ -247,6 +248,10 @@ public final class BuildingConstructionService {
         if (!entity.tickConstructionPath(stand)) {
             return;
         }
+        entity.setHeldItem(new ItemStack(step.state().getBlock()));
+        if (task.isSwingDue()) {
+            entity.playSwing();
+        }
         if (!task.isPlacementDue()) {
             return;
         }
@@ -336,6 +341,14 @@ public final class BuildingConstructionService {
         }
     }
 
+    private void clearHeldItem(ServerLevel level, BuildingTask task) {
+        NpcData architect = task.architectId() == null ? null : NpcManager.INSTANCE.getNpc(task.architectId());
+        NpcEntity entity = architect == null ? null : findEntity(level, architect);
+        if (entity != null) {
+            entity.setHeldItem(ItemStack.EMPTY);
+        }
+    }
+
     private NpcEntity findEntity(ServerLevel level, NpcData architect) {
         UUID entityUuid = architect.getEntityUuid();
         if (entityUuid == null) {
@@ -345,6 +358,7 @@ public final class BuildingConstructionService {
     }
 
     private void finish(ServerLevel level, BuildingTask task) {
+        clearHeldItem(level, task);
         removeScaffold(level, task);
         BuildingRegistry.INSTANCE.register(task);
         releaseArchitect(task);
@@ -353,6 +367,7 @@ public final class BuildingConstructionService {
     }
 
     private void abort(ServerLevel level, BuildingTask task) {
+        clearHeldItem(level, task);
         removeScaffold(level, task);
         releaseArchitect(task);
         tasks.remove(task.id());

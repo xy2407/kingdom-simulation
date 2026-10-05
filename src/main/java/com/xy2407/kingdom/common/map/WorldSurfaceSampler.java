@@ -3,26 +3,52 @@ package com.xy2407.kingdom.common.map;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.material.MapColor;
 
 /**
  * 世界表面采样：把一块区域的地表转成地图像素。
  *
- * <p>做法对照原版 {@code MapItemSavedData.updateColor()}：逐列取最高的实体方块，
- * 用它的 {@link MapColor} 压成地图调色板里的一个字节，并按高度分亮度档做出起伏感。
- * 这样出来的是**世界真实数据**，不是画上去的。</p>
+ * <p>逐列取<b>最高的实体方块</b>，用它的 {@link MapColor} 压成地图调色板里的一个字节。
+ * 出来的是**世界真实数据**，不是画上去的。</p>
  *
- * <p>未加载的区块记 {@link #UNEXPLORED}（0）。原版地图里 0 就表示未探索，
- * 渲染时画成黑色。</p>
+ * <p><b>不做明暗</b>。原版 {@code MapItemSavedData.updateColor()} 还会拿本列高度和四个对角邻居
+ * 比高低、定 {@code HIGH}/{@code NORMAL}/{@code LOW} 三档来表现起伏；本实现**去掉那一步**，
+ * 所有格子统一用 {@link #FLAT_BRIGHTNESS}（系数 1.0，即不做任何调整）——
+ * 地图上看到的就是**方块自身的颜色**，没有阴影。代价是失去高度起伏的视觉提示
+ * （山脊不再发亮、洼地不再压暗）。</p>
  *
- * <p>本类只依赖服务端世界，不碰任何客户端类型，预览与联机都用同一份结果。</p>
+ * <p>未加载的区块记 {@link #UNEXPLORED}（0），渲染时画成黑色——与原版地图一致
+ * （原版 {@code MapColor.NONE} 的打包 id 也是 0，语义正好重合）。</p>
+ *
+ * <p><b>为什么不用 {@code Heightmap.WORLD_SURFACE} 定起点。</b>那张高度图是**异步维护**的：
+ * {@code hasChunk} 为真只说明区块在，不说明高度图算好了。重进世界、刚加载区块、
+ * 或者区块刚被外部改动时，{@code getHeight} 常常给出偏低的值甚至最低值——
+ * 从那个位置往下扫，整列地表就被跳过了：高层地形（树冠、建筑、山脊）全部漏掉，
+ * 采到的是地下的石头之类，地图上表现为"地形被剔除 + 颜色诡异"。
+ * 所以这里固定**从世界可建造高度的顶部往下扫**，只认扫到的真实方块。</p>
+ *
+ * <p>本类只依赖服务端世界，不碰任何客户端类型。</p>
  */
 public final class WorldSurfaceSampler {
 
     /** 原版地图的「未探索」值，也是 colors 数组的初始值。 */
     public static final byte UNEXPLORED = 0;
+
+    /** 表示"这一列没采到地表"。 */
+    private static final int NO_SURFACE = Integer.MIN_VALUE;
+
+    /**
+     * 纯色取样用的亮度档。
+     *
+     * <p>原版三档的采样系数是 {@code LOW 0.71 / NORMAL 0.86 / HIGH 1.0}，
+     * 只有 <b>HIGH 是"不调整"</b>，拿到的正好是方块自身的颜色；
+     * 用 NORMAL 会让整张图统一暗 14%。</p>
+     *
+     * <p>注意这里的 HIGH 只是借用"系数 1.0"这个性质，<b>不是</b>原版那种
+     * "本列比四邻高所以发亮"的意思——那种逐列比高低的明暗已经整个去掉了。</p>
+     */
+    private static final MapColor.Brightness FLAT_BRIGHTNESS = MapColor.Brightness.HIGH;
 
     private WorldSurfaceSampler() {
     }
@@ -36,10 +62,10 @@ public final class WorldSurfaceSampler {
      * <p>注意：存的是 byte，但打包 id 的值域是 0~255，取用时务必
      * {@code & 0xFF} 转成无符号，否则大于 127 的值会变成负数。</p>
      *
-     * @param originX  左上角（最小 X）的世界坐标
-     * @param originZ  左上角（最小 Z）的世界坐标
-     * @param size     边长，等于 半径 × 2 + 1
-     * @param colors   地图调色板的打包 id，0 表示未探索
+     * @param originX 左上角（最小 X）的世界坐标
+     * @param originZ 左上角（最小 Z）的世界坐标
+     * @param size    边长，等于 半径 × 2 + 1
+     * @param colors  地图调色板的打包 id，0 表示未探索
      */
     public record Snapshot(int originX, int originZ, int size, byte[] colors) {
 
@@ -81,7 +107,6 @@ public final class WorldSurfaceSampler {
         int originZ = centerZ - radius;
         byte[] colors = new byte[size * size];
 
-        int seaLevel = level.getSeaLevel();
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
 
         for (int dz = 0; dz < size; dz++) {
@@ -91,14 +116,23 @@ public final class WorldSurfaceSampler {
                 int index = dz * size + dx;
 
                 /* 区块没加载就没数据可比，按未探索处理。
-                   这也是原版地图的行为：没走过的地方一直是 0。 */
+                   这也是原版地图的行为：没走过的地方一直是 0。
+                   注意这条判断也是**异步采样唯一的安全性来源**——只碰已加载的区块。 */
                 ChunkPos chunk = new ChunkPos(worldX >> 4, worldZ >> 4);
                 if (!level.getChunkSource().hasChunk(chunk.x, chunk.z)) {
                     colors[index] = UNEXPLORED;
                     continue;
                 }
 
-                colors[index] = sampleColumn(level, cursor, worldX, worldZ, seaLevel);
+                int surface = surfaceY(level, cursor, worldX, worldZ);
+                if (surface == NO_SURFACE) {
+                    continue; // 整列没有实体方块，保持 UNEXPLORED
+                }
+
+                cursor.set(worldX, surface, worldZ);
+                MapColor mapColor = level.getBlockState(cursor).getMapColor(level, cursor);
+                /* 纯色取样：统一用"系数 1.0"那一档，不带任何明暗调整。 */
+                colors[index] = mapColor.getPackedId(FLAT_BRIGHTNESS);
             }
         }
 
@@ -106,53 +140,39 @@ public final class WorldSurfaceSampler {
     }
 
     /**
-     * 采一列。
+     * 扫一列，返回<b>最高那个实体方块</b>的 Y；整列没有实体方块时返回 {@link #NO_SURFACE}。
      *
-     * <p>{@code getHeight(WORLD_SURFACE)} 给的是「第一个空气方块」的高度，
-     * 所以实体方块在它下面一格。</p>
+     * <p><b>快速路径与慢速路径。</b>默认从 {@code getMaxBuildHeight() - 1}（世界可建造高度顶部）
+     * 一路往下找第一个非空气方块，结果与高度图无关，最稳但最贵。</p>
+     *
+     * <p>高度图可信时可以省掉那段高空扫描：判据是"它那一格是空气、它下面一格是实体"，
+     * 即高度图正好指出了地表之上第一格。高度图未就绪或偏低时，
+     * <b>它给的位置必然处在地下</b>（那一格就是实体、不是空气），判定立刻失败，
+     * 于是退回从顶部扫——正是靠这一点保证"偏低的高度图不会让我们从地底开始采"。</p>
      */
-    private static byte sampleColumn(ServerLevel level, BlockPos.MutableBlockPos cursor,
-                                     int worldX, int worldZ, int seaLevel) {
-        int surface = level.getHeight(Heightmap.Types.WORLD_SURFACE, worldX, worldZ);
+    private static int surfaceY(ServerLevel level, BlockPos.MutableBlockPos cursor,
+                                int worldX, int worldZ) {
+        int top = level.getMaxBuildHeight() - 1;
         int bottom = level.getMinBuildHeight();
 
-        /* 从地表往下退，跳过空气（水面、树的空隙等），找到真正的实体方块。 */
-        int y = Math.min(surface - 1, level.getMaxBuildHeight() - 1);
-        BlockState state = null;
-        while (y > bottom) {
-            cursor.set(worldX, y, worldZ);
-            BlockState current = level.getBlockState(cursor);
-            if (!current.isAir()) {
-                state = current;
-                break;
+        int from = top;
+        int hinted = level.getHeight(Heightmap.Types.WORLD_SURFACE, worldX, worldZ);
+        if (hinted > bottom && hinted <= top) {
+            cursor.set(worldX, hinted, worldZ);
+            if (level.getBlockState(cursor).isAir()) {
+                cursor.set(worldX, hinted - 1, worldZ);
+                if (!level.getBlockState(cursor).isAir()) {
+                    from = hinted - 1; // 可信：直接从这里起扫
+                }
             }
-            y--;
-        }
-        if (state == null) {
-            return UNEXPLORED;
         }
 
-        MapColor mapColor = state.getMapColor(level, cursor);
-        return mapColor.getPackedId(brightnessFor(y, seaLevel));
-    }
-
-    /**
-     * 按高度分亮度档，让山脊亮、洼地暗，跟原版地图那种起伏感一致。
-     * 原版是按相邻列的高度差算，这里用相对海平面的高差，效果接近而便宜得多。
-     */
-    private static MapColor.Brightness brightnessFor(int y, int seaLevel) {
-        /* 原版四档的亮度值：LOWEST 135 / LOW 180 / NORMAL 220 / HIGH 255。
-           注意没有 HIGHEST，最高一档就是 HIGH。 */
-        int above = y - seaLevel;
-        if (above < 0) {
-            return MapColor.Brightness.LOWEST;   // 海平面以下，最暗
+        for (int y = from; y >= bottom; y--) {
+            cursor.set(worldX, y, worldZ);
+            if (!level.getBlockState(cursor).isAir()) {
+                return y;
+            }
         }
-        if (above < 24) {
-            return MapColor.Brightness.LOW;
-        }
-        if (above < 56) {
-            return MapColor.Brightness.NORMAL;
-        }
-        return MapColor.Brightness.HIGH;         // 高处最亮
+        return NO_SURFACE;
     }
 }

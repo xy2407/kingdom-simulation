@@ -8,10 +8,10 @@
   ],
   "client": [
     "MaskStencilSuppressMixin",
-    "AuiFabulousStencilMixin",
     "AuiMeasureCacheGateMixin",
     "AuiSlotSyncMeasureCacheMixin",
     "AuiDocumentCenterMixin",
+    "AuiScreenDocCenterMixin",
     "AuiContainerDocCenterMixin",
     "AuiScissorOffsetMixin",
     "AuiSlotMenuOffsetMixin",

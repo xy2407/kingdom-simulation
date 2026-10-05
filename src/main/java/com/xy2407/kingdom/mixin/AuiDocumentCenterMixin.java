@@ -5,6 +5,7 @@ import com.sighs.apricityui.viewport.ApricityViewport;
 import com.xy2407.kingdom.client.aui.AuiDocPlacement;
 import net.minecraft.client.Minecraft;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -51,17 +52,46 @@ public abstract class AuiDocumentCenterMixin {
             }
             // 已占满视口（gui 模式 / 浏览器模式）就不动，保持 AUI 原行为
             if (docWidth >= guiWidth - 0.5d && docHeight >= guiHeight - 0.5d) {
+                kingdomDiagnose(self.getPath(), guiWidth, guiHeight, docWidth, docHeight,
+                        renderScale, viewport, "已占满→不居中(保持AUI原行为)", 0.0d, 0.0d);
                 return;
             }
             double[] offset = AuiDocPlacement.centeredOffset(guiWidth, guiHeight, docWidth, docHeight);
             double offsetX = offset[0];
             double offsetY = offset[1];
             if (offsetX < 0.01d && offsetY < 0.01d) {
+                kingdomDiagnose(self.getPath(), guiWidth, guiHeight, docWidth, docHeight,
+                        renderScale, viewport, "偏移≈0→不居中", offsetX, offsetY);
                 return;
             }
             self.setViewportTransform(renderScale, renderScale, offsetX, offsetY);
+            kingdomDiagnose(self.getPath(), guiWidth, guiHeight, docWidth, docHeight,
+                    renderScale, viewport, "★已加居中偏移", offsetX, offsetY);
         } catch (Throwable ignored) {
             // 居中是纯增益，绝不干扰原渲染
         }
     }
+
+    /**
+     * 每个页面路径只打一次诊断：把"文档尺寸 / 视口尺寸 / 缩放 / 判定结果"一次摊开，
+     * 用来定位"不居中 + 点击偏移"。定位完可以整段删掉。
+     */
+    private static void kingdomDiagnose(String path, double guiWidth, double guiHeight,
+                                        double docWidth, double docHeight, float renderScale,
+                                        ApricityViewport viewport, String verdict,
+                                        double offsetX, double offsetY) {
+        if (path == null || !KINGDOM_DIAGNOSED.add(path)) {
+            return;
+        }
+        com.xy2407.kingdom.ModMain.LOGGER.info(
+                "[AUI诊断] {} | gui={}x{} doc={}x{} layout={}x{} renderScale={} | {} offset=({},{})",
+                path, guiWidth, guiHeight, docWidth, docHeight,
+                viewport.layoutWidth(), viewport.layoutHeight(), renderScale,
+                verdict, offsetX, offsetY);
+    }
+
+    /** 已诊断过的页面路径，避免每帧刷屏。 */
+    @Unique
+    private static final java.util.Set<String> KINGDOM_DIAGNOSED =
+            java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
 }

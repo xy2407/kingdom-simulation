@@ -70,6 +70,16 @@ public final class NpcSchema implements Migration {
     }
 
     @Override
+    public String tableName() {
+        return TABLE_NPC;
+    }
+
+    @Override
+    public String primaryKeyColumn() {
+        return COL_UUID;
+    }
+
+    @Override
     public void apply(Connection connection) throws SQLException {
         try (Statement st = connection.createStatement()) {
             st.executeUpdate(createTableSql());

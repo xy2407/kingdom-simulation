@@ -46,6 +46,17 @@ public final class TerritoryRegistry {
         loadRetryCooldown = 0;
     }
 
+    /**
+     * 表是否已经从库里读出来。
+     *
+     * <p>右键市政厅时要靠它分流。没读完就 {@link #byOwner} 一律返回 null，
+     * 会被当成"这人还没有领地"，于是刚进服的玩家一右键就被引到建城界面——
+     * 哪怕他早就建过。所以分流前必须先问这一句。</p>
+     */
+    public boolean isLoaded() {
+        return loaded;
+    }
+
     public void tick() {
         if (loaded) {
             return;
@@ -61,13 +72,29 @@ public final class TerritoryRegistry {
 
     private void load() {
         try {
+            int[] skipped = {0};
             List<Territory> rows = KingdomPersistence.querySync(connection -> {
                 List<Territory> result = new ArrayList<>();
                 try (Statement st = connection.createStatement();
                      ResultSet rs = st.executeQuery("SELECT " + TerritorySchema.columns()
                              + " FROM " + TerritorySchema.TABLE_TERRITORY)) {
                     while (rs.next()) {
-                        result.add(readRow(rs));
+                        /* 单行坏掉不该让整表加载失败。历史上写入端漏写主键
+                           （见 Database.executeOp 的说明），留下过 id 为 NULL 的废行；
+                           它读出来是 null，put 进 ConcurrentHashMap 会抛 NPE，
+                           一抛整张领地表就永远读不出来——而"领地表没读完"正是
+                           市政厅被判成"你没有领地"、界面打不开的直接原因。
+                           Database 启动时会清这些行，这里再兜一层。 */
+                        try {
+                            Territory territory = readRow(rs);
+                            if (territory.id() == null || territory.id().isBlank()) {
+                                skipped[0]++;
+                                continue;
+                            }
+                            result.add(territory);
+                        } catch (RuntimeException brokenRow) {
+                            skipped[0]++;
+                        }
                     }
                 }
                 return result;
@@ -77,7 +104,8 @@ public final class TerritoryRegistry {
                 byId.put(territory.id(), territory);
             }
             loaded = true;
-            ModMain.LOGGER.info("已加载 {} 块领地", byId.size());
+            ModMain.LOGGER.info("已加载 {} 块领地{}", byId.size(),
+                    skipped[0] > 0 ? "（跳过 " + skipped[0] + " 行废数据）" : "");
         } catch (Exception exception) {
             loadRetryCooldown = LOAD_RETRY_DELAY_TICKS;
             ModMain.LOGGER.error("加载领地数据失败", exception);

@@ -68,13 +68,28 @@ public final class NationRegistry {
 
     private void load() {
         try {
+            int[] skipped = {0};
             List<Nation> rows = KingdomPersistence.querySync(connection -> {
                 List<Nation> result = new ArrayList<>();
                 try (Statement st = connection.createStatement();
                      ResultSet rs = st.executeQuery("SELECT " + NationSchema.columns()
                              + " FROM " + NationSchema.TABLE_NATION)) {
                     while (rs.next()) {
-                        result.add(readRow(rs));
+                        /* 单行坏掉不该让整表加载失败。历史上写入端漏写主键
+                           （见 Database.executeOp 的说明），留下过主键为 NULL 的废行；
+                           读出来 id 是 null，put 进 ConcurrentHashMap 会抛 NPE，
+                           一抛就整张表永远读不出来、每 tick 重试报错。
+                           Database 启动时已经会清这些行，这里再兜一层。 */
+                        try {
+                            Nation nation = readRow(rs);
+                            if (nation.id() == null || nation.id().isBlank()) {
+                                skipped[0]++;
+                                continue;
+                            }
+                            result.add(nation);
+                        } catch (RuntimeException brokenRow) {
+                            skipped[0]++;
+                        }
                     }
                 }
                 return result;
@@ -84,7 +99,8 @@ public final class NationRegistry {
                 byId.put(nation.id(), nation);
             }
             loaded = true;
-            ModMain.LOGGER.info("已加载 {} 个玩家自建国家", byId.size());
+            ModMain.LOGGER.info("已加载 {} 个玩家自建国家{}", byId.size(),
+                    skipped[0] > 0 ? "（跳过 " + skipped[0] + " 行废数据）" : "");
         } catch (Exception exception) {
             loadRetryCooldown = LOAD_RETRY_DELAY_TICKS;
             ModMain.LOGGER.error("加载国家数据失败", exception);

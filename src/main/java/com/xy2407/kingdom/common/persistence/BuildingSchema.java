@@ -47,6 +47,16 @@ public final class BuildingSchema implements Migration {
     }
 
     @Override
+    public String tableName() {
+        return TABLE_BUILDING;
+    }
+
+    @Override
+    public String primaryKeyColumn() {
+        return COL_UUID;
+    }
+
+    @Override
     public void apply(Connection connection) throws SQLException {
         try (Statement st = connection.createStatement()) {
             st.executeUpdate(createTableSql());

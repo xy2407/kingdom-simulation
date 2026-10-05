@@ -47,6 +47,16 @@ public final class TerritorySchema implements Migration {
     }
 
     @Override
+    public String tableName() {
+        return TABLE_TERRITORY;
+    }
+
+    @Override
+    public String primaryKeyColumn() {
+        return COL_ID;
+    }
+
+    @Override
     public void apply(Connection connection) throws SQLException {
         try (Statement st = connection.createStatement()) {
             st.executeUpdate(createTableSql());

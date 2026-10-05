@@ -17,6 +17,8 @@ import com.xy2407.kingdom.common.network.farm.FarmPanelActionPacket;
 import com.xy2407.kingdom.common.network.farm.FarmPanelStatePacket;
 import com.xy2407.kingdom.common.npc.NpcData;
 import com.xy2407.kingdom.common.npc.NpcManager;
+import com.xy2407.kingdom.common.npc.NpcSchedule;
+import com.xy2407.kingdom.common.npc.NpcSubState;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
 
 import net.minecraft.core.BlockPos;
@@ -151,9 +153,18 @@ public final class FarmPanelService {
             if (npc.isDead()) {
                 continue;
             }
-            options.add(new FarmPanelStatePacket.WorkerOption(npc.getId(), npc.getName(), npc.getSkin()));
+            options.add(new FarmPanelStatePacket.WorkerOption(npc.getId(), npc.getName(), npc.getSkin(),
+                    workerNote(npc)));
         }
         return options;
+    }
+
+    /** 名册上的状态提示：让玩家在面板上就能看出这个人为什么不下地。 */
+    private static String workerNote(NpcData npc) {
+        if (npc.getBrain().isStarving()) {
+            return "饥饿";
+        }
+        return NpcSchedule.subState(npc.getShift(), npc.getDayTime()) == NpcSubState.WORKING ? "" : "下班";
     }
 
     private static BuildingRecord agricultureAt(ServerPlayer player) {

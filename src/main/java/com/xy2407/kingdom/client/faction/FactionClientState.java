@@ -1,5 +1,7 @@
 package com.xy2407.kingdom.client.faction;
 
+import com.xy2407.kingdom.ModMain;
+import com.xy2407.kingdom.client.cityhall.CityHallScreen;
 import com.xy2407.kingdom.common.network.faction.FactionHooks;
 import com.xy2407.kingdom.common.network.faction.FactionStatePacket;
 
@@ -49,6 +51,9 @@ public final class FactionClientState {
         if (minecraft == null) {
             return;
         }
+        ModMain.LOGGER.info("[市政厅] 客户端收到状态包 onboarded={} openCityCreate={} 领地={}",
+                packet.onboarded(), packet.openCityCreate(),
+                packet.territoryId().isBlank() ? "无" : packet.territoryId());
 
         if (packet.openCityCreate()) {
             CityCreateScreen.open(packet.hallX(), packet.hallY(), packet.hallZ());
@@ -56,7 +61,13 @@ public final class FactionClientState {
         }
 
         if (!packet.onboarded()) {
-            /* 首登：弹择旗。已经在择旗界面里就别重复开，免得把玩家选的卡刷掉 */
+            /* 玩家正开着市政厅面板时**不许顶掉它**：这个状态包由 FactionService.tick()
+               每 tick 驱动，只要没 onboarded 就一直发；若照旧弹择旗，就会出现
+               "右键市政厅、面板闪一下就被择旗界面盖住"——看着就是市政厅打不开。
+               已经在择旗界面里也跳过，免得把玩家选的卡刷掉。 */
+            if (minecraft.screen instanceof CityHallScreen) {
+                return;
+            }
             if (!(minecraft.screen instanceof FactionSelectScreen)) {
                 FactionSelectPage.open(null);
             }

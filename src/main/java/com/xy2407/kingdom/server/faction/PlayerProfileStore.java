@@ -56,13 +56,29 @@ public final class PlayerProfileStore {
 
     private void load() {
         try {
+            int[] skipped = {0};
             List<PlayerProfile> rows = KingdomPersistence.querySync(connection -> {
                 List<PlayerProfile> result = new ArrayList<>();
                 try (Statement st = connection.createStatement();
                      ResultSet rs = st.executeQuery("SELECT " + PlayerProfileSchema.columns()
                              + " FROM " + PlayerProfileSchema.TABLE_PLAYER_PROFILE)) {
                     while (rs.next()) {
-                        result.add(readRow(rs));
+                        /* 单行坏掉不该让整表加载失败。历史上写入端漏写主键
+                           （见 Database.executeOp 的说明），留下过 uuid 为 NULL 的废行；
+                           UUID.fromString(null) 直接抛 NPE，一抛整份档案表就永远读不出来
+                           （每 tick 重试、每 tick 报一条 ERROR），
+                           连带"有没有领地"判定失效、市政厅界面打不开。
+                           Database 启动时会清这些行，这里再兜一层。 */
+                        try {
+                            PlayerProfile profile = readRow(rs);
+                            if (profile.uuid() == null) {
+                                skipped[0]++;
+                                continue;
+                            }
+                            result.add(profile);
+                        } catch (RuntimeException brokenRow) {
+                            skipped[0]++;
+                        }
                     }
                 }
                 return result;
@@ -72,7 +88,8 @@ public final class PlayerProfileStore {
                 byId.put(profile.uuid(), profile);
             }
             loaded = true;
-            ModMain.LOGGER.info("已加载 {} 份玩家档案", byId.size());
+            ModMain.LOGGER.info("已加载 {} 份玩家档案{}", byId.size(),
+                    skipped[0] > 0 ? "（跳过 " + skipped[0] + " 行废数据）" : "");
         } catch (Exception exception) {
             loadRetryCooldown = LOAD_RETRY_DELAY_TICKS;
             ModMain.LOGGER.error("加载玩家档案失败", exception);
@@ -125,6 +142,27 @@ public final class PlayerProfileStore {
         return updated;
     }
 
+    /**
+     * 记下这名玩家看地图时停留的中心点。
+     *
+     * <p>由 {@code WorldMapServer} 在收到采样请求时调用——请求里带的中心就是
+     * 玩家正在看的地方。每人一份，互不影响。</p>
+     */
+    public PlayerProfile setMapCenter(UUID uuid, int x, int z) {
+        PlayerProfile profile = byId.get(uuid);
+        if (profile == null) {
+            return null;
+        }
+        if (profile.mapCenterX() == x && profile.mapCenterZ() == z) {
+            /* 没变就不写库：拖动地图时请求会比较密，省掉无谓的落盘 */
+            return profile;
+        }
+        PlayerProfile updated = profile.withMapCenter(x, z);
+        byId.put(uuid, updated);
+        persist(updated);
+        return updated;
+    }
+
     /** 建好领地后回填归属。 */
     public PlayerProfile setTerritory(UUID uuid, String territoryId) {
         PlayerProfile profile = byId.get(uuid);
@@ -148,7 +186,9 @@ public final class PlayerProfileStore {
                 rs.getString(PlayerProfileSchema.COL_NATION_ID),
                 rs.getString(PlayerProfileSchema.COL_TERRITORY_ID),
                 rs.getInt(PlayerProfileSchema.COL_ONBOARDED) != 0,
-                rs.getInt(PlayerProfileSchema.COL_FIRST_JOIN_DAY));
+                rs.getInt(PlayerProfileSchema.COL_FIRST_JOIN_DAY),
+                rs.getInt(PlayerProfileSchema.COL_MAP_CENTER_X),
+                rs.getInt(PlayerProfileSchema.COL_MAP_CENTER_Z));
     }
 
     private static Map<String, Object> toValues(PlayerProfile profile) {
@@ -157,6 +197,8 @@ public final class PlayerProfileStore {
         values.put(PlayerProfileSchema.COL_TERRITORY_ID, profile.territoryId());
         values.put(PlayerProfileSchema.COL_ONBOARDED, profile.onboarded() ? 1 : 0);
         values.put(PlayerProfileSchema.COL_FIRST_JOIN_DAY, profile.firstJoinDay());
+        values.put(PlayerProfileSchema.COL_MAP_CENTER_X, profile.mapCenterX());
+        values.put(PlayerProfileSchema.COL_MAP_CENTER_Z, profile.mapCenterZ());
         values.put(PlayerProfileSchema.COL_UPDATED_AT, System.currentTimeMillis());
         return values;
     }

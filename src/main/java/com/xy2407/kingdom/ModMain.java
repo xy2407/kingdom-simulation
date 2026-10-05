@@ -10,6 +10,7 @@ import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.persistence.NationSchema;
 import com.xy2407.kingdom.common.persistence.NpcSchema;
 import com.xy2407.kingdom.common.persistence.PlayerProfileSchema;
+import com.xy2407.kingdom.common.persistence.TerritoryVitalsSchema;
 import com.xy2407.kingdom.common.persistence.RanchSchema;
 import com.xy2407.kingdom.common.persistence.TerritorySchema;
 import com.xy2407.kingdom.server.ServerLifecycle;
@@ -45,6 +46,8 @@ public final class ModMain {
         KingdomPersistence.registerMigration(new NationSchema());
         KingdomPersistence.registerMigration(new TerritorySchema());
         KingdomPersistence.registerMigration(new PlayerProfileSchema());
+        /* 领地民心（凝聚力/忠诚度/幸福度）单独一张表，接在 15 之后 */
+        KingdomPersistence.registerMigration(new TerritoryVitalsSchema());
         NeoForge.EVENT_BUS.register(ServerLifecycle.class);
         NeoForge.EVENT_BUS.register(DateServerTick.class);
         NeoForge.EVENT_BUS.register(NpcJoinWorldHandler.class);

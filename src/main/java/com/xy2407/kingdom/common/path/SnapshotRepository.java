@@ -42,8 +42,7 @@ public final class SnapshotRepository {
     private static final int MAX_TRACKED_CHUNKS = 4096;
     private static final int MAX_SEARCHES_PER_TICK = 20;
     private static final int SEARCH_THREADS = 2;
-    /** 同一区块两次快照重建之间的最短间隔（约 4 tick）。 */
-    private static final long DIRTY_COOLDOWN_NANOS = 200_000_000L;
+    private static final long DIRTY_COOLDOWN_TICKS = 4L;
 
     private final Map<ResourceKey<Level>, Store> stores = new ConcurrentHashMap<>();
     private final AtomicInteger threadSeq = new AtomicInteger();
@@ -204,13 +203,17 @@ public final class SnapshotRepository {
     public void markDirty(ServerLevel level, int chunkX, int chunkZ) {
         Store store = store(level.dimension());
         long id = ChunkPos.asLong(chunkX, chunkZ);
-        long now = System.nanoTime();
+        long now = level.getGameTime();
         Long last = store.dirtyAt.get(id);
-        if (last != null && now - last < DIRTY_COOLDOWN_NANOS) {
+        if (last != null && now - last < DIRTY_COOLDOWN_TICKS) {
             return;
         }
         store.dirtyAt.put(id, now);
         offer(store, id);
+    }
+
+    public void refreshNow(ServerLevel level, BlockPos pos) {
+        offer(store(level.dimension()), ChunkPos.asLong(pos.getX() >> 4, pos.getZ() >> 4));
     }
 
     public void drop(ServerLevel level, ChunkPos pos) {
@@ -291,7 +294,7 @@ public final class SnapshotRepository {
         private final ArrayDeque<Long> pending = new ArrayDeque<>();
         private final Set<Long> pendingIds = new HashSet<>();
         private final List<Long> cycle = new ArrayList<>();
-        /** 各区块上次因标脏而重建的纳秒时刻，用于 {@link #markDirty} 的冷却。 */
+        /** 各区块上次因标脏而重建的游戏刻，用于 {@link #markDirty} 的冷却。 */
         private final Map<Long, Long> dirtyAt = new ConcurrentHashMap<>();
         private int cycleCursor;
     }

@@ -31,11 +31,28 @@ public final class PlayerProfileSchema implements Migration {
     public static final String COL_TERRITORY_ID = "territory_id";
     public static final String COL_ONBOARDED = "onboarded";
     public static final String COL_FIRST_JOIN_DAY = "first_join_day";
+    /** 该玩家上次查看地图时停留的中心点。每人一份，与他人无关。 */
+    public static final String COL_MAP_CENTER_X = "map_center_x";
+    public static final String COL_MAP_CENTER_Z = "map_center_z";
     public static final String COL_UPDATED_AT = "updated_at";
 
     @Override
     public int version() {
-        return 14;
+        /* 版本号只用来排序与排查。Database.migrate 现在**每次启动都执行全部迁移**
+           （apply 幂等：建表 IF NOT EXISTS + 查过列再 ALTER），
+           所以新加的列（如 map_center_x / map_center_z）会自动补上，
+           不再需要靠"抬高版本号"来触发。 */
+        return 15;
+    }
+
+    @Override
+    public String tableName() {
+        return TABLE_PLAYER_PROFILE;
+    }
+
+    @Override
+    public String primaryKeyColumn() {
+        return COL_UUID;
     }
 
     @Override
@@ -88,6 +105,8 @@ public final class PlayerProfileSchema implements Migration {
         defs.put(COL_TERRITORY_ID, "TEXT NOT NULL DEFAULT ''");
         defs.put(COL_ONBOARDED, "INTEGER NOT NULL DEFAULT 0");
         defs.put(COL_FIRST_JOIN_DAY, "INTEGER NOT NULL DEFAULT 0");
+        defs.put(COL_MAP_CENTER_X, "INTEGER NOT NULL DEFAULT 0");
+        defs.put(COL_MAP_CENTER_Z, "INTEGER NOT NULL DEFAULT 0");
         defs.put(COL_UPDATED_AT, "INTEGER NOT NULL DEFAULT 0");
         return defs;
     }
@@ -95,7 +114,7 @@ public final class PlayerProfileSchema implements Migration {
     public static String columns() {
         return String.join(", ", new String[] {
                 COL_UUID, COL_NATION_ID, COL_TERRITORY_ID, COL_ONBOARDED,
-                COL_FIRST_JOIN_DAY, COL_UPDATED_AT
+                COL_FIRST_JOIN_DAY, COL_MAP_CENTER_X, COL_MAP_CENTER_Z, COL_UPDATED_AT
         });
     }
 }

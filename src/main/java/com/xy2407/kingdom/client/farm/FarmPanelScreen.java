@@ -429,12 +429,13 @@ public final class FarmPanelScreen extends ApricityScreen {
             boolean isHired = hired.contains(worker.id());
             int index = ids.size();
             ids.add(worker.id());
+            String state = worker.note().isBlank() ? (isHired ? "打理中" : "空闲") : worker.note();
             html.append("<div class=\"").append(ROW).append(isHired ? " " + ON : "")
                     .append("\" id=\"fd-worker-").append(index).append("\">")
                     .append("<kingdom-entity-avatar class=\"bp-worker-face\" skin=\"")
                     .append(escape(worker.skin())).append("\"></kingdom-entity-avatar>")
                     .append("<span class=\"bp-name\">").append(escape(worker.name())).append("</span>")
-                    .append("<span class=\"bp-sub\">").append(isHired ? "打理中" : "空闲").append("</span>")
+                    .append("<span class=\"bp-sub\">").append(escape(state)).append("</span>")
                     .append("</div>");
         }
         if (ids.isEmpty()) {
@@ -653,7 +654,21 @@ public final class FarmPanelScreen extends ApricityScreen {
         FarmPlotDraft.clear();
         closeDetail();
         refreshList(latest);
-        hint("农田已保存");
+        hint(draft == null ? "农田已保存" : saveHint(draft));
+    }
+
+    /** 保存后的提示直说闸门：市民不会开工的原因就这三个，别让人对着不动的市民猜。 */
+    private static String saveHint(FarmPlotDraft draft) {
+        if (draft.cropId().isBlank()) {
+            return "农田已保存，但还没选作物：市民不会开工";
+        }
+        if (draft.slots() <= 0) {
+            return "农田已保存，但分配格数是 0：市民不会种任何一格";
+        }
+        if (draft.workerIds().isEmpty()) {
+            return "农田已保存，但还没安排打理人：没人会来种";
+        }
+        return "农田已保存";
     }
 
     private void cancelDraft() {

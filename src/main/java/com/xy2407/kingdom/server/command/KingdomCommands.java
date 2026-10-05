@@ -18,6 +18,7 @@ import com.xy2407.kingdom.common.entity.ModEntities;
 import com.xy2407.kingdom.common.entity.NpcEntity;
 import com.xy2407.kingdom.common.map.WorldSurfaceSampler;
 import com.xy2407.kingdom.common.npc.NpcData;
+import com.xy2407.kingdom.common.npc.NpcFarmService;
 import com.xy2407.kingdom.common.npc.NpcManager;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.ranch.RanchPen;
@@ -82,6 +83,7 @@ public final class KingdomCommands {
                                                 .suggests(KingdomCommands::suggestStructures)
                                                 .executes(KingdomCommands::placeStructure))))
                         .then(mapCommand())
+                        .then(farmCommand())
                         .then(ranchCommand())));
     }
 
@@ -93,6 +95,27 @@ public final class KingdomCommands {
         return Commands.literal("map")
                 .then(Commands.literal("export")
                         .executes(ctx -> exportMap(ctx, 128)));
+    }
+
+    /**
+     * 农田诊断命令：把服务端看到的农田与打理人状态直接打出来。
+     *
+     * <p>市民不干活的闸门有四道——作物没选、格数为 0、人饿着、不在工时——任意一道不满足都是
+     * 静默的（什么都不发生）。这条命令就是把这四道一次性摊开看。</p>
+     */
+    private static LiteralArgumentBuilder<CommandSourceStack> farmCommand() {
+        return Commands.literal("farm")
+                .executes(KingdomCommands::farmReport);
+    }
+
+    private static int farmReport(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        CommandSourceStack source = ctx.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        source.sendSuccess(() -> Component.literal("—— 农田诊断 ——"), false);
+        for (String line : NpcFarmService.debugReport(player.serverLevel())) {
+            source.sendSuccess(() -> Component.literal(line), false);
+        }
+        return 1;
     }
 
     /**

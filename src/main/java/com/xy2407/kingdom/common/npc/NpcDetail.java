@@ -30,6 +30,26 @@ public enum NpcDetail {
         return subState;
     }
 
+    public String label() {
+        return switch (this) {
+            case WORKING_FOCUS -> "上班";
+            case SLACKING -> "摸鱼";
+            case BUILDING -> "施工";
+            case PLANTING -> "播种";
+            case HARVESTING -> "收割";
+            case FARMING -> "守着农田";
+            case RANCHING -> "饲养";
+            case SLEEPING -> "睡觉";
+            case WANDERING -> "闲逛";
+            case FORAGING -> "找吃的";
+            case GOING_WORK -> "去上工";
+            case GOING_HOME -> "回家";
+            case FOLLOWING -> "跟随";
+            case DELIVERING -> "送货";
+            case COMMANDED_MOVE -> "执行指令";
+        };
+    }
+
     public static NpcDetail parse(String name) {
         for (NpcDetail value : values()) {
             if (value.name().equals(name)) {

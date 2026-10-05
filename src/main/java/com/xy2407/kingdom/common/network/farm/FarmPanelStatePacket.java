@@ -53,10 +53,11 @@ public record FarmPanelStatePacket(boolean inside, String buildingName, int tota
     public record CropOption(String id, String label) {
     }
 
-    public record WorkerOption(UUID id, String name, String skin) {
+    public record WorkerOption(UUID id, String name, String skin, String note) {
         public WorkerOption {
             name = name == null ? "" : name;
             skin = skin == null ? "" : skin;
+            note = note == null ? "" : note;
         }
     }
 
@@ -102,6 +103,7 @@ public record FarmPanelStatePacket(boolean inside, String buildingName, int tota
             writeUuid(buf, worker.id());
             buf.writeUtf(worker.name(), 64);
             buf.writeUtf(worker.skin(), 128);
+            buf.writeUtf(worker.note(), 16);
         }
     }
 
@@ -146,7 +148,7 @@ public record FarmPanelStatePacket(boolean inside, String buildingName, int tota
         int workerCount = buf.readVarInt();
         List<WorkerOption> workers = new ArrayList<>(workerCount);
         for (int index = 0; index < workerCount; index++) {
-            workers.add(new WorkerOption(readUuid(buf), buf.readUtf(64), buf.readUtf(128)));
+            workers.add(new WorkerOption(readUuid(buf), buf.readUtf(64), buf.readUtf(128), buf.readUtf(16)));
         }
 
         return new FarmPanelStatePacket(inside, buildingName, totalSlots, usedSlots, plots, crops, workers);

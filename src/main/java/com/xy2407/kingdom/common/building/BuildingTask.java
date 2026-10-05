@@ -16,6 +16,7 @@ import net.minecraft.world.level.block.state.BlockState;
 public final class BuildingTask {
     public static final int PLACE_INTERVAL = 2;
     public static final int REPAIR_SCAN_INTERVAL = 80;
+    public static final int SWING_INTERVAL = 20;
 
     /** 工步类型：圈块 / 柱块 / 建筑方块 */
     public enum WorkKind { RING, PILLAR, BUILD }
@@ -43,6 +44,7 @@ public final class BuildingTask {
     private final ArrayDeque<Step> repairs = new ArrayDeque<>();
     private int cursor;
     private int tickCounter;
+    private int swingTimer;
     private int repairScanTimer;
 
     public BuildingTask(UUID id, String blueprintName, ResourceKey<Level> dimension, BlockPos origin,
@@ -148,6 +150,14 @@ public final class BuildingTask {
     public boolean isPlacementDue() {
         tickCounter++;
         return tickCounter % PLACE_INTERVAL == 0;
+    }
+
+    public boolean isSwingDue() {
+        if (++swingTimer < SWING_INTERVAL) {
+            return false;
+        }
+        swingTimer = 0;
+        return true;
     }
 
     public boolean hasRepairs() {

@@ -13,14 +13,17 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 
 import com.mojang.logging.LogUtils;
-import com.xy2407.kingdom.common.entity.ModEntities;
 import com.xy2407.kingdom.common.entity.NpcEntity;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.persistence.NpcSchema;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.phys.AABB;
 
 /**
  * 市民内存索引与变更入口，dirty增量写库
@@ -31,8 +34,8 @@ public final class NpcManager {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final int FLUSH_INTERVAL_TICKS = 60;
     private static final int RECOVER_BIND_BUDGET = 64;
-    private static final int RECOVER_SPAWN_BUDGET = 8;
     private static final int RESTORE_RETRY_TICKS = 200;
+    private static final double CITIZEN_SCAN_RADIUS = 32.0D;
 
     private final Map<UUID, NpcData> byId = new ConcurrentHashMap<>();
     private final List<NpcData> restoreList = new ArrayList<>();
@@ -82,7 +85,6 @@ public final class NpcManager {
 
     private void recoverStep(ServerLevel level) {
         int bindBudget = RECOVER_BIND_BUDGET;
-        int spawnBudget = RECOVER_SPAWN_BUDGET;
         while (restoreCursor < restoreList.size()) {
             NpcData npc = restoreList.get(restoreCursor);
             if (npc.isRestoreDone()) {
@@ -94,11 +96,24 @@ public final class NpcManager {
                 restoreCursor++;
                 continue;
             }
-            if (bindBudget <= 0 && spawnBudget <= 0) {
+            if (bindBudget <= 0) {
                 return;
             }
+            ServerLevel target = dimensionLevel(level, npc);
+            if (!target.isLoaded(BlockPos.containing(npc.getX(), npc.getY(), npc.getZ()))) {
+                restoreCursor++;
+                continue;
+            }
+            NpcEntity existing = claimCitizen(target, npc);
+            if (existing != null) {
+                npc.setEntityUuid(existing.getUUID());
+                npc.markRestoreDone();
+                restoreCursor++;
+                bindBudget--;
+                continue;
+            }
             UUID entityUuid = npc.getEntityUuid();
-            Entity found = entityUuid == null ? null : level.getEntity(entityUuid);
+            Entity found = entityUuid == null ? null : target.getEntity(entityUuid);
             if (found instanceof NpcEntity entity) {
                 if (entity.getCitizenId() == null) {
                     entity.setCitizenId(npc.getId());
@@ -108,17 +123,7 @@ public final class NpcManager {
                 bindBudget--;
                 continue;
             }
-            if (!level.isLoaded(BlockPos.containing(npc.getX(), npc.getY(), npc.getZ()))) {
-                restoreCursor++;
-                continue;
-            }
-            if (spawnBudget <= 0) {
-                return;
-            }
-            spawnShell(level, npc);
-            npc.markRestoreDone();
             restoreCursor++;
-            spawnBudget--;
         }
         restoreCursor = 0;
         int remaining = 0;
@@ -134,15 +139,43 @@ public final class NpcManager {
         }
     }
 
-    private void spawnShell(ServerLevel level, NpcData npc) {
-        NpcEntity entity = ModEntities.NPC.get().create(level);
-        if (entity == null) {
-            return;
+    private static ServerLevel dimensionLevel(ServerLevel fallback, NpcData npc) {
+        ResourceLocation id = ResourceLocation.tryParse(npc.getDimension());
+        if (id == null || fallback.getServer() == null) {
+            return fallback;
         }
-        entity.setCitizenId(npc.getId());
-        entity.setPos(npc.getX(), npc.getY(), npc.getZ());
-        level.addFreshEntity(entity);
-        npc.setEntityUuid(entity.getUUID());
+        ServerLevel level = fallback.getServer().getLevel(ResourceKey.create(Registries.DIMENSION, id));
+        return level == null ? fallback : level;
+    }
+
+    private static NpcEntity claimCitizen(ServerLevel level, NpcData npc) {
+        BlockPos pos = BlockPos.containing(npc.getX(), npc.getY(), npc.getZ());
+        AABB box = new AABB(pos.getX(), pos.getY(), pos.getZ(),
+                pos.getX() + 1.0D, pos.getY() + 1.0D, pos.getZ() + 1.0D).inflate(CITIZEN_SCAN_RADIUS);
+        List<NpcEntity> matches = level.getEntitiesOfClass(NpcEntity.class, box);
+        NpcEntity keeper = null;
+        double best = Double.MAX_VALUE;
+        for (NpcEntity entity : matches) {
+            if (!npc.getId().equals(entity.getCitizenId())) {
+                continue;
+            }
+            if (npc.getEntityUuid() != null && npc.getEntityUuid().equals(entity.getUUID())) {
+                keeper = entity;
+                break;
+            }
+            double distance = entity.distanceToSqr(npc.getX(), npc.getY(), npc.getZ());
+            if (distance < best) {
+                best = distance;
+                keeper = entity;
+            }
+        }
+        for (NpcEntity entity : matches) {
+            if (entity != keeper && npc.getId().equals(entity.getCitizenId())) {
+                entity.setCitizenId(null);
+                entity.discard();
+            }
+        }
+        return keeper;
     }
 
     public void onNewDay(int day) {

@@ -7,9 +7,12 @@ import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.client.watchdog.ClientWatchdog;
 import com.xy2407.kingdom.common.network.npc.NpcBackpackClientHooks;
 import com.xy2407.kingdom.common.network.npc.NpcBackpackOpenPacket;
+import com.xy2407.kingdom.common.entity.NpcEntity;
+import com.xy2407.kingdom.common.npc.NpcData;
 import com.xy2407.kingdom.common.npc.NpcInventory;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.world.entity.Entity;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -58,6 +61,9 @@ public final class NpcBackpackScreenDriver {
 
     private static Document boundDocument;
     private static NpcBackpackOpenPacket appliedSnapshot;
+    private static double shownHealth = Double.NaN;
+    private static double shownHealthMax = Double.NaN;
+    private static double shownHunger = Double.NaN;
 
     static {
         NpcBackpackClientHooks.openSink = NpcBackpackClientState::accept;
@@ -93,6 +99,7 @@ public final class NpcBackpackScreenDriver {
         if (!(minecraft.screen instanceof ApricityContainerScreen screen)) {
             boundDocument = null;
             appliedSnapshot = null;
+            resetVitals();
             return;
         }
         Document document = screen.getLinkedDocument();
@@ -103,16 +110,44 @@ public final class NpcBackpackScreenDriver {
         if (snapshot == null) {
             return;
         }
-        if (document == boundDocument && snapshot == appliedSnapshot) {
-            return;
-        }
         if (document.getElementById(CARD_ID) == null) {
             // 是别的容器页，不认领
             return;
         }
-        boundDocument = document;
-        appliedSnapshot = snapshot;
-        apply(document, snapshot);
+        if (document != boundDocument || snapshot != appliedSnapshot) {
+            boundDocument = document;
+            appliedSnapshot = snapshot;
+            resetVitals();
+            apply(document, snapshot);
+        }
+        refreshVitals(document, minecraft, snapshot);
+    }
+
+    private static void resetVitals() {
+        shownHealth = Double.NaN;
+        shownHealthMax = Double.NaN;
+        shownHunger = Double.NaN;
+    }
+
+    private static void refreshVitals(Document document, Minecraft minecraft, NpcBackpackOpenPacket data) {
+        if (minecraft.level == null) {
+            return;
+        }
+        Entity entity = minecraft.level.getEntity(data.entityId());
+        if (!(entity instanceof NpcEntity npc)) {
+            return;
+        }
+        double health = npc.getHealth();
+        double healthMax = npc.getMaxHealth();
+        double hunger = npc.getSyncedHunger();
+        if (health == shownHealth && healthMax == shownHealthMax && hunger == shownHunger) {
+            return;
+        }
+        shownHealth = health;
+        shownHealthMax = healthMax;
+        shownHunger = hunger;
+        bar(document, ID_HP_BAR, ID_HP_NOW, ID_HP_MAX, health, healthMax);
+        bar(document, ID_HUNGER_BAR, ID_HUNGER_NOW, ID_HUNGER_MAX, hunger, NpcData.HUNGER_MAX);
     }
 
     private static void apply(Document document, NpcBackpackOpenPacket data) {

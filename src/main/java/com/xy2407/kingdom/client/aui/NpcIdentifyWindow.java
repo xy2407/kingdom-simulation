@@ -412,7 +412,7 @@ public final class NpcIdentifyWindow {
                 NpcIdentifyInfo.Stat.ABSENT,
                 NpcIdentifyInfo.Stat.ABSENT,
                 NpcIdentifyInfo.Stat.ABSENT,
-                null,
+                npc.getSyncedStatus(),
                 new NpcIdentifyInfo.Stat((double) npc.getHealth(), maxHealth),
                 // 饥饿只存在于服务端 NpcData，靠实体同步数据读过来（原来写死 ABSENT，
                 // 所以卡片上永远是"无"）
