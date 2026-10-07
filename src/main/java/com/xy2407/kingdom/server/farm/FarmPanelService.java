@@ -20,8 +20,10 @@ import com.xy2407.kingdom.common.npc.NpcManager;
 import com.xy2407.kingdom.common.npc.NpcSchedule;
 import com.xy2407.kingdom.common.npc.NpcSubState;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
+import com.xy2407.kingdom.server.building.BuildingStorageMenu;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
 
@@ -92,6 +94,12 @@ public final class FarmPanelService {
                 if (owned(manager, plotId, building) != null) {
                     manager.remove(plotId);
                 }
+            }
+            case FarmPanelActionPacket.ACTION_OPEN_STORAGE -> {
+                /* 这一步要把整个界面换成容器屏，所以**直接 return**：
+                   末尾那次 respond 会再推一份农田状态包，和刚打开的仓库屏抢同一个界面。 */
+                openStorage(player, building);
+                return;
             }
             default -> {
             }
@@ -165,6 +173,23 @@ public final class FarmPanelService {
             return "饥饿";
         }
         return NpcSchedule.subState(npc.getShift(), npc.getDayTime()) == NpcSubState.WORKING ? "" : "下班";
+    }
+
+    /**
+     * 把当前界面换成这座建筑的仓库。
+     *
+     * <p>容量取自蓝图 json 的 {@code storage_slots}（见
+     * {@code BuildingRegistry#storageSlotsOf}）；没写就是 0，即"这座建筑不是仓库"，
+     * 这时给玩家一句明话——否则点下去毫无反应，只能干瞪眼。</p>
+     */
+    private static void openStorage(ServerPlayer player, BuildingRecord building) {
+        int capacity = BuildingRegistry.INSTANCE.storageSlotsOf(building);
+        if (capacity <= 0) {
+            player.displayClientMessage(
+                    Component.literal("这座建筑没有仓库：蓝图 json 里没写 storage_slots"), true);
+            return;
+        }
+        BuildingStorageMenu.open(player, building, capacity);
     }
 
     private static BuildingRecord agricultureAt(ServerPlayer player) {

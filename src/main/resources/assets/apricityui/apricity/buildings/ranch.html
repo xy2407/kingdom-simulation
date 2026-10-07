@@ -688,8 +688,8 @@ body{
   <!-- ======================= 养殖 ======================= -->
   <div class="bp-head" id="rm-head">
     <span class="bp-type">养殖</span>
-    <span class="bp-title" id="rm-title">养殖</span>
-    <span class="bp-lv" id="rm-lv">Lv.1</span>
+    <span class="bp-title" id="bp-name">养殖</span>
+    <span class="bp-lv" id="bp-level">Lv.1</span>
   </div>
 
   <div class="bp-body" id="rm-body">
@@ -721,7 +721,13 @@ body{
   </div>
 
   <div class="bp-foot" id="rm-foot">
-    <div class="bp-btn" id="rm-close">关闭</div>
+    <div class="bp-btn bp-btn-main" id="rm-take">取出动物</div>
+    <div class="bp-btn" id="bp-close">关闭</div>
+  </div>
+
+  <!-- 与 farm.html 的 fd-foot 同款：打开仓库独占底栏第二行，不与主操作挤在一起 -->
+  <div class="bp-foot bp-foot-off" id="bp-warehouse-row">
+    <div class="bp-btn bp-btn-main" id="bp-warehouse">打开仓库</div>
   </div>
 
   <div class="bp-hint">Tab / Esc 关闭　·　Ctrl + 滚轮缩放</div>

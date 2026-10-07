@@ -68,12 +68,7 @@ public final class CityHallDataCollector {
         }
 
         List<CityHallDataPacket.Citizen> citizens = new ArrayList<>();
-        double moodSum = 0.0;
-        int moodCount = 0;
         for (NpcData npc : npcs) {
-            /* 心情要按全量平均，不受名录条数上限影响 */
-            moodSum += npc.getMood();
-            moodCount++;
             if (citizens.size() < CITIZEN_LIMIT) {
                 citizens.add(new CityHallDataPacket.Citizen(
                         npc.getName(), npc.getSkin(), npc.getJob(), describe(npc)));
@@ -90,14 +85,9 @@ public final class CityHallDataCollector {
                     record.name(), record.dimension(), min.getX(), min.getY(), min.getZ()));
         }
 
-        /* 市民的**平均心情**。注意别和下面 vitals 的 happiness 搞混：那是领地的
-           幸福度属性（存 territory_vitals 表、与凝聚力/忠诚度成套），这是每个市民
-           个体心情的平均值，两者概念不同。
-           目前界面上的"幸福度"取自 vitals，所以这个平均值还没有消费方——
-           之所以仍然算出来，是因为"按**全量**市民平均、不受名录条数上限影响"
-           只有这一处会做（见上面那个循环）；以后要在界面上加"民心"一栏，
-           直接取 moodAverage 即可，不用重写统计。 */
-        int moodAverage = moodCount == 0 ? 0 : (int) Math.round(moodSum / moodCount);
+        /* 市民平均心情（mood）这一项**目前不做**：界面上的"幸福度"取自下面
+           territory_vitals 的持久值（与凝聚力/忠诚度成套），市民心情暂未纳入设计。
+           要恢复时：在上述循环里累加 npc.getMood() 求平均即可。 */
 
         /* 地图中心：优先这名玩家自己上次看的位置（WorldMapServer 在收到采样请求时记的），
            没记过就让客户端退回市政厅位置（0,0 当"没记过"，见 PlayerProfile.hasMapCenter）。 */

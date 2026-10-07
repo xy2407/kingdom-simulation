@@ -5,6 +5,7 @@
   "tags": ["example", "food"],
   "level": 1,
   "jobs": 2,
+  "storage_slots": 18,
   "menu": [
     {
       "id": "stew",

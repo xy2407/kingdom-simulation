@@ -9,12 +9,14 @@ import com.sighs.apricityui.layout.Size;
 import com.sighs.apricityui.registry.annotation.ElementRegister;
 import com.sighs.apricityui.render.Base;
 import com.sighs.apricityui.render.Rect;
+import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.client.map.WorldMapClientData;
 import com.xy2407.kingdom.common.map.WorldSurfaceSampler;
 import com.xy2407.kingdom.common.network.map.WorldMapRequestPacket;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.FastColor;
 import net.minecraft.world.level.material.MapColor;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
@@ -44,6 +46,9 @@ import javax.imageio.ImageIO;
  *
  * <p>交互：左键拖动平移，滚轮缩放。拖动期间像素表按 {@link #DRAG_STEP} 降采样重建，
  * 松手后回到全质量——不然每帧重铺几万个像素会掉帧。</p>
+ *
+ * <p>表上再叠两样：每 {@link #CHUNK_SIZE} 格一条区块边框，以及市政厅位置的标记
+ * （世界坐标由宿主写进 {@code marker-x} / {@code marker-z}）。</p>
  */
 @OnlyIn(Dist.CLIENT)
 @ElementRegister(WorldMapElement.TAG_NAME)
@@ -82,6 +87,21 @@ public class WorldMapElement extends Element {
     /** 未探索区块的颜色，与原版一致：纯黑。 */
     private static final int UNEXPLORED_COLOR = 0xFF000000;
 
+    /** 区块边长（方块）。地图上每隔这么远画一条浅线。 */
+    private static final int CHUNK_SIZE = 16;
+
+    /** 一个区块在屏幕上不足这么多像素就不画边框——缩得太狠时线会挤成一片，比不画还糊。 */
+    private static final double MIN_CHUNK_GRID_PIXELS = 10.0;
+
+    /**
+     * 区块边框的颜色：四分之一白。
+     *
+     * <p>要"较浅"就得靠 alpha——它和底下的地形做 source-over 混合，压在任何颜色上都只是
+     * 提亮一点，不会盖住地形。嫌不明显就把 alpha 往上调（{@code 0x60} 更清楚，
+     * {@code 0x20} 几乎看不见）。</p>
+     */
+    private static final int CHUNK_GRID_COLOR = 0x40FFFFFF;
+
     private static final long STALE_DRAG_NANOS = 500_000_000L;
 
     private double zoom = 1.0;
@@ -96,6 +116,9 @@ public class WorldMapElement extends Element {
 
     private SpanSheet sheet;
     private String signature;
+
+    /** 取色探针只打一次，避免刷屏。 */
+    private static boolean colorProbed;
 
     /** 原版标记图标的像素（ARGB 行优先）。读一次就缓存，读不到则保持 null。 */
     private static int[][] markerPixels;
@@ -127,6 +150,7 @@ public class WorldMapElement extends Element {
                 }
                 applyAttributeOverrides();
                 ensureData();
+                probeColorOnce((int) Math.round(centerX()), (int) Math.round(centerZ()));
                 SpanSheet.draw(poseStack, rect.getBodyRectPosition(), size, sheet(size));
             }
             case BORDER -> rect.drawBorder(poseStack);
@@ -205,6 +229,59 @@ public class WorldMapElement extends Element {
         return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value));
     }
 
+    /**
+     * 把服务端发来的调色板打包 id 解成 AUI 要的 <b>ARGB</b>。
+     *
+     * <p>原版 {@code MapColor.getColorFromPackedId} 吐出来的<b>不是</b> ARGB：它的
+     * <b>低字节是红、高字节是蓝</b>，也就是 {@code 0xAABBGGRR}。这不是它写错了——
+     * 那个值一直是直接喂 {@code NativeImage#setPixelRGBA} 的，而 NativeImage 的像素
+     * 本来就是 ABGR 序。实测可以把这一点钉死：{@code MapColor.WOOD.col} 是
+     * {@code 0x8F7748}（棕），解出来却是 {@code 0xFF48778F}，恰是逐字节反向。</p>
+     *
+     * <p>而 AUI 这一侧从头到尾按标准 ARGB 解——{@code FastColor.ARGB32} 的定义、
+     * {@link SpanSheet} 里的混合、{@code Graph} 的顶点色，全是"红在 {@code >>16}、
+     * 蓝在 {@code &0xFF}"。照直把原版那个值传进去，红蓝就会对调：草地发青、沙地发蓝，
+     * 整张地图偏冷发灰。这里用 {@code FastColor.ARGB32} 显式重装一遍。</p>
+     */
+    private static int mapArgb(int packed) {
+        if (packed == WorldSurfaceSampler.UNEXPLORED) {
+            return 0;
+        }
+        int abgr = MapColor.getColorFromPackedId(packed);
+        return FastColor.ARGB32.color(
+                FastColor.ARGB32.alpha(abgr),
+                FastColor.ARGB32.blue(abgr),
+                FastColor.ARGB32.green(abgr),
+                FastColor.ARGB32.red(abgr));
+    }
+
+    /**
+     * 一次性取色探针：把"服务端发来的打包值"和"原版调色板解出来的颜色"对照打出来。
+     *
+     * <p>颜色错位这种事光看截图猜不出来——是服务端把颜色算错了，还是客户端解错了，
+     * 打一行就能分开。只打一次，不刷屏。</p>
+     */
+    private static void probeColorOnce(int centerX, int centerZ) {
+        if (colorProbed || !WorldMapClientData.isComplete()) {
+            return;
+        }
+        colorProbed = true;
+        int packed = WorldMapClientData.packedAt(centerX, centerZ);
+        int colorId = (packed & 0xFF) >> 2;
+        int brightness = packed & 3;
+        int argb = mapArgb(packed);
+        /* 自检：WOOD 的基础色是 0x8F7748，把它的打包 id 走一遍 mapArgb 应能还原出同一个值。
+           对得上就说明"打包 id → ARGB"这一环没问题；对不上就是这里的通道序又错了。
+           （MapColor 不是枚举，没有 values()/name()，只能拿它的基础色字段来对。） */
+        int woodPacked = MapColor.WOOD.getPackedId(MapColor.Brightness.HIGH) & 0xFF;
+        ModMain.LOGGER.info("[地图] 取色探针 center=({}, {}) packed={} colorId={} brightness={} argb=#{} 未探索={}",
+                centerX, centerZ, packed, colorId, brightness,
+                Integer.toHexString(argb), WorldSurfaceSampler.UNEXPLORED);
+        ModMain.LOGGER.info("[地图] 自检 MapColor.WOOD：col=#{} 经 mapArgb 还原=#{}（两者应一致）",
+                Integer.toHexString(MapColor.WOOD.col & 0xFFFFFF),
+                Integer.toHexString(mapArgb(woodPacked) & 0xFFFFFF));
+    }
+
     /* ------------------------------------------------------------------ 绘制 */
 
     private SpanSheet sheet(Size size) {
@@ -235,36 +312,81 @@ public class WorldMapElement extends Element {
         /* 整块先涂黑：未探索区就是这个底 */
         result.fill(0, 0, width, height, UNEXPLORED_COLOR);
 
-        if (!WorldMapClientData.isComplete()) {
-            return result;
-        }
-
         /* 每世界方块占几个屏幕像素：视野横向覆盖 radius × 2 + 1 格 */
-        /* 注意：标记不在这里画，它在上面 isComplete 判断之前就画过了——见那段注释 */
         double blocksAcross = radius() * 2.0 + 1.0;
         double scale = width / blocksAcross / zoom;
         if (scale <= 0.0) {
             return result;
         }
 
-        int px = Math.max(1, (int) Math.ceil(scale * step));
-        int unexplored = WorldSurfaceSampler.UNEXPLORED & 0xFF;
+        if (WorldMapClientData.isComplete()) {
+            int px = Math.max(1, (int) Math.ceil(scale * step));
+            int unexplored = WorldSurfaceSampler.UNEXPLORED;
 
-        for (int py = 0; py < height; py += px) {
-            int wz = centerZ + (int) Math.round((py + px / 2.0 - height / 2.0) / scale);
-            for (int pxi = 0; pxi < width; pxi += px) {
-                int wx = centerX + (int) Math.round((pxi + px / 2.0 - width / 2.0) / scale);
-                int packed = WorldMapClientData.packedAt(wx, wz);
-                if (packed == unexplored) {
-                    continue;   // 未探索，留着黑底
+            for (int py = 0; py < height; py += px) {
+                int wz = centerZ + (int) Math.round((py + px / 2.0 - height / 2.0) / scale);
+                for (int pxi = 0; pxi < width; pxi += px) {
+                    int wx = centerX + (int) Math.round((pxi + px / 2.0 - width / 2.0) / scale);
+                    int packed = WorldMapClientData.packedAt(wx, wz);
+                    if (packed == unexplored) {
+                        continue;   // 未探索，留着黑底
+                    }
+                    /* 原版地图的取色：把服务端算好的打包 id（含明暗档）交给原版调色板。
+                       明暗档由服务端按"本列高度与四邻比较"定，地形起伏就是这样表现出来的。
+                       注意必须经 mapArgb 换序——原版那个返回值是 ABGR，见该方法注释。 */
+                    result.fill(pxi, py,
+                            Math.min(width, pxi + px), Math.min(height, py + px),
+                            mapArgb(packed));
                 }
-                /* packed 已按无符号展开，这里直接交给原版调色板 */
-                result.fill(pxi, py,
-                        Math.min(width, pxi + px), Math.min(height, py + px),
-                        MapColor.getColorFromPackedId(packed));
             }
+
+            /* 区块边框叠在地形之上。放进数据判齐里：没数据时整块是黑的，画格子只是徒增噪点。 */
+            drawChunkGrid(result, width, height, centerX, centerZ, scale, step);
         }
+
+        /* 标记永远最后画：它标的是市政厅的位置，跟"这块地图数据收齐没有"无关——
+           数据还没回来时整块是黑的，那时更该看得见标记。 */
+        drawMarker(result, width, height, centerX, centerZ, scale, step);
+
         return result;
+    }
+
+    /**
+     * 叠一层区块边框：每 {@link #CHUNK_SIZE} 格一条浅线，跟着地图一起缩放与平移。
+     *
+     * <p>换算与 {@link #build} 反解世界坐标是同一套，只是方向相反：
+     * 世界 X 落在 {@code 16k} 上的那条竖线，屏幕横坐标是
+     * {@code 画布宽/2 + (16k - 中心X) × scale}。所以拖动和缩放时它自然跟着地面走，
+     * 不用额外记账。</p>
+     *
+     * <p>两个收敛：一个区块在屏幕上不足 {@link #MIN_CHUNK_GRID_PIXELS} 像素时整层不画；
+     * 拖动期间地图按 {@link #DRAG_STEP} 降采样，线宽也跟着加粗——不加粗的话，
+     * 一像素宽的线会被降采样整条抹掉，看着就像拖动时边框消失了。</p>
+     */
+    private static void drawChunkGrid(SpanSheet sheet, int width, int height,
+                                      int centerX, int centerZ, double scale, int step) {
+        if (scale <= 0.0 || scale * CHUNK_SIZE < MIN_CHUNK_GRID_PIXELS) {
+            return;
+        }
+        int thickness = Math.max(1, step);
+
+        /* 竖线：世界 X 是 CHUNK_SIZE 的倍数 */
+        int leftWorld = centerX + (int) Math.floor(-width / 2.0 / scale);
+        int rightWorld = centerX + (int) Math.ceil(width / 2.0 / scale);
+        for (int worldX = Math.floorDiv(leftWorld, CHUNK_SIZE) * CHUNK_SIZE;
+             worldX <= rightWorld; worldX += CHUNK_SIZE) {
+            int px = (int) Math.round(width / 2.0 + (worldX - centerX) * scale);
+            sheet.fill(px, 0, px + thickness, height, CHUNK_GRID_COLOR);
+        }
+
+        /* 横线：世界 Z 是 CHUNK_SIZE 的倍数 */
+        int topWorld = centerZ + (int) Math.floor(-height / 2.0 / scale);
+        int bottomWorld = centerZ + (int) Math.ceil(height / 2.0 / scale);
+        for (int worldZ = Math.floorDiv(topWorld, CHUNK_SIZE) * CHUNK_SIZE;
+             worldZ <= bottomWorld; worldZ += CHUNK_SIZE) {
+            int py = (int) Math.round(height / 2.0 + (worldZ - centerZ) * scale);
+            sheet.fill(0, py, width, py + thickness, CHUNK_GRID_COLOR);
+        }
     }
 
     /* ------------------------------------------------------------------ 标记 */
@@ -438,8 +560,12 @@ public class WorldMapElement extends Element {
         double next = clampZoom(zoom * (e.scrollDelta > 0.0 ? ZOOM_PER_NOTCH : 1.0 / ZOOM_PER_NOTCH));
         if (Math.abs(next - zoom) > 1e-6) {
             zoom = next;
-            /* panX/panZ 的单位是世界格，缩放不改变"看的是哪一块地面"，所以不用动它。
-               （早先的注释写"会把平移量按比例缩放"，与实现不符，这里对齐成实际行为。） */
+            /* 写回 zoom 属性。两个原因：
+               ① 放大后的全屏地图要继承当前视角，读的就是这个属性；
+               ② applyAttributeOverrides() 每帧按属性校准字段，不写回就会被它拉回原值
+                  （页面没写 zoom 属性时不会，写了就会——所以这里统一写回，行为才确定）。
+               panX/panZ 的单位是世界格，缩放不改变"看的是哪一块地面"，不用动它。 */
+            setAttribute(ATTR_ZOOM, String.valueOf(next));
             sheet = null;
         }
     }

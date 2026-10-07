@@ -5,6 +5,7 @@
   "level": 1,
   "jobs": 2,
   "farm_slots": 32,
+  "storage_slots": 54,
   "crops": [
     { "item": "minecraft:wheat", "name": "小麦" },
     { "item": "minecraft:carrot", "name": "胡萝卜" },

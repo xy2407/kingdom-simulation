@@ -501,135 +501,28 @@ body{
 
 <div class="bp-bar">
 
-  <div class="bp-head">
+  <div class="bp-head" id="rd-head">
     <span class="bp-type">住宅</span>
-    <span class="bp-title">小木屋</span>
-    <span class="bp-lv">Lv.1</span>
+    <span class="bp-title" id="bp-name">住宅</span>
+    <span class="bp-lv" id="bp-level">Lv.1</span>
   </div>
 
-  <div class="bp-body">
+  <div class="bp-body" id="rd-body">
 
     <!-- 建筑信息：只读。字段由 Java 在打开界面时按数据库记录填充 -->
     <div class="bp-info">
-      <div class="bp-info-row"><span class="bp-k">位置</span><span class="bp-v">128, 64, -240</span></div>
-      <div class="bp-info-row"><span class="bp-k">尺寸</span><span class="bp-v">12 × 8 × 10</span></div>
-      <div class="bp-info-row"><span class="bp-k">朝向</span><span class="bp-v">北</span></div>
-      <div class="bp-info-row"><span class="bp-k">蓝图</span><span class="bp-v">residential/house_small</span></div>
-      <div class="bp-info-row"><span class="bp-k">完工</span><span class="bp-v">第 12 天</span></div>
-    </div>
-
-    <!-- 六个床位格：有人住的金色，空的木色 -->
-    <div class="bp-beds">
-      <span class="bp-bed on"></span>
-      <span class="bp-bed on"></span>
-      <span class="bp-bed on"></span>
-      <span class="bp-bed on"></span>
-      <span class="bp-bed"></span>
-      <span class="bp-bed"></span>
-      <span class="bp-beds-note">空 2 个床位</span>
-    </div>
-
-    <!-- 入住居民：独立搜索 + 独立滚动 -->
-    <div class="bp-block">
-      <div class="bp-sec">
-        <span class="bp-sec-title">入住居民</span>
-        <span class="bp-sec-actions">
-          <span class="bp-sec-note">4 人</span>
-          <span class="bp-sec-btn">全部移出</span>
-        </span>
-      </div>
-      <div class="bp-search">
-        <span class="bp-search-icon">⌕</span>
-        <input type="text" id="bp-search-resident" maxlength="16" placeholder="搜索住户…">
-        <span class="bp-search-clear">✕</span>
-      </div>
-      <div class="bp-list">
-        <!-- skin 属性写住户皮肤名；打开界面时由 Java 按数据库里的住户名单填充 -->
-        <div class="bp-item">
-          <kingdom-entity-avatar class="bp-face" skin="female12"></kingdom-entity-avatar>
-          <span class="bp-name">林小满</span>
-          <span class="bp-sub">女 24</span>
-          <span class="bp-btn bp-btn-quiet">移出</span>
-        </div>
-        <div class="bp-item">
-          <kingdom-entity-avatar class="bp-face" skin="male1"></kingdom-entity-avatar>
-          <span class="bp-name">周大石</span>
-          <span class="bp-sub">男 38</span>
-          <span class="bp-btn bp-btn-quiet">移出</span>
-        </div>
-        <div class="bp-item">
-          <kingdom-entity-avatar class="bp-face" skin="female3"></kingdom-entity-avatar>
-          <span class="bp-name">苏青禾</span>
-          <span class="bp-sub">女 31</span>
-          <span class="bp-btn bp-btn-quiet">移出</span>
-        </div>
-        <div class="bp-item">
-          <kingdom-entity-avatar class="bp-face" skin="female27"></kingdom-entity-avatar>
-          <span class="bp-name">陈砚</span>
-          <span class="bp-sub">女 27</span>
-          <span class="bp-btn bp-btn-quiet">移出</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- 可入住：独立搜索 + 独立滚动 -->
-    <div class="bp-block">
-      <div class="bp-sec">
-        <span class="bp-sec-title">可入住</span>
-        <span class="bp-sec-actions">
-          <span class="bp-sec-note">附近 12 人</span>
-          <span class="bp-sec-btn">填满空床</span>
-        </span>
-      </div>
-      <div class="bp-search">
-        <span class="bp-search-icon">⌕</span>
-        <input type="text" id="bp-search-candidate" maxlength="16" placeholder="搜索附近居民…">
-        <span class="bp-search-clear">✕</span>
-      </div>
-      <div class="bp-list">
-        <div class="bp-item">
-          <kingdom-entity-avatar class="bp-face" skin="female45"></kingdom-entity-avatar>
-          <span class="bp-name">阿杏</span>
-          <span class="bp-sub">女 19</span>
-          <span class="bp-btn bp-btn-quiet">安排</span>
-        </div>
-        <div class="bp-item">
-          <kingdom-entity-avatar class="bp-face" skin="male1"></kingdom-entity-avatar>
-          <span class="bp-name">老栓</span>
-          <span class="bp-sub">男 52</span>
-          <span class="bp-btn bp-btn-quiet">安排</span>
-        </div>
-        <div class="bp-item">
-          <kingdom-entity-avatar class="bp-face" skin="female8"></kingdom-entity-avatar>
-          <span class="bp-name">石头</span>
-          <span class="bp-sub">男 21</span>
-          <span class="bp-btn bp-btn-quiet">安排</span>
-        </div>
-        <div class="bp-item">
-          <kingdom-entity-avatar class="bp-face" skin="female15"></kingdom-entity-avatar>
-          <span class="bp-name">柳娘</span>
-          <span class="bp-sub">女 44</span>
-          <span class="bp-btn bp-btn-quiet">安排</span>
-        </div>
-        <div class="bp-item">
-          <kingdom-entity-avatar class="bp-face" skin="female22"></kingdom-entity-avatar>
-          <span class="bp-name">阿禾</span>
-          <span class="bp-sub">女 16</span>
-          <span class="bp-btn bp-btn-quiet">安排</span>
-        </div>
-        <div class="bp-item">
-          <kingdom-entity-avatar class="bp-face" skin="male1"></kingdom-entity-avatar>
-          <span class="bp-name">铁蛋</span>
-          <span class="bp-sub">男 29</span>
-          <span class="bp-btn bp-btn-quiet">安排</span>
-        </div>
-      </div>
+      <div class="bp-info-row"><span class="bp-k">位置</span><span class="bp-v" id="rd-pos">—</span></div>
+      <div class="bp-info-row"><span class="bp-k">尺寸</span><span class="bp-v" id="rd-size">—</span></div>
+      <div class="bp-info-row"><span class="bp-k">朝向</span><span class="bp-v" id="rd-facing">—</span></div>
+      <div class="bp-info-row"><span class="bp-k">蓝图</span><span class="bp-v" id="rd-blueprint">—</span></div>
+      <div class="bp-info-row"><span class="bp-k">完工</span><span class="bp-v" id="rd-built">—</span></div>
     </div>
 
   </div>
 
-  <div class="bp-foot">
-    <div class="bp-btn bp-btn-main">关闭</div>
+  <div class="bp-foot" id="rd-foot">
+    <div class="bp-btn bp-btn-main" id="rd-move">安排入住</div>
+    <div class="bp-btn" id="rd-close">关闭</div>
   </div>
 
   <div class="bp-hint">Tab / Esc 关闭　·　Ctrl + 滚轮缩放</div>

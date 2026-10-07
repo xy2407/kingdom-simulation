@@ -16,12 +16,16 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.phys.AABB;
 
 /**
- * 觅食执行服务，每个觅食周期按行装、餐厅、容器、掉落物的顺序补食，四处都没有就停下挨饿
+ * 觅食执行服务，每个觅食周期按行装、餐厅、容器、掉落物的顺序补食；
+ * 四处都没有就在 10 格内随机采一个点走过去，等下一轮再找。
  */
 public final class NpcForageService {
     private static final int CONTAINER_RADIUS = 5;
     private static final int COMMERCIAL_RADIUS = 64;
     private static final double ARRIVE_DISTANCE_SQR = 6.25D;
+
+    /** 四级查找全落空时的随机游走半径（格）。走完不等到达，下一轮轮询重新查。 */
+    private static final double FORAGE_WANDER_RADIUS = 10.0D;
 
     private NpcForageService() {
     }
@@ -59,7 +63,17 @@ public final class NpcForageService {
         if (eatFromGroundItems(npc, data, needed)) {
             return;
         }
-        npc.haltForage();
+        /* 四处都没有：在 10 格内随机采一个可站立的点走过去——"换个地方找找"。
+         *
+         * 这里**只移动、不进食**：到达与否都不影响下一轮。下一个 240 tick 的轮询
+         * 周期会重新走上面这四级查找（`forageDue` 由 NpcBrain 按 MAIN_LOOP_INTERVAL 置位），
+         * 真走到有食物的地方时，那一轮就会被查到。这正是需求里"下次轮询重复此逻辑"。
+         *
+         * 采样失败（8 次都没掷出可站立的落点，比如被墙围住/悬空）才原地停下，
+         * 避免每 tick 空转寻路。 */
+        if (!npc.walkToRandomPoint(npc.blockPosition(), FORAGE_WANDER_RADIUS)) {
+            npc.haltForage();
+        }
     }
 
     private static boolean arrived(NpcEntity npc, BlockPos target) {

@@ -638,8 +638,8 @@ body{
   <!-- ======================= 出售铺 ======================= -->
   <div class="bp-head" id="sh-head">
     <span class="bp-type">出售</span>
-    <span class="bp-title" id="sh-title">出售铺</span>
-    <span class="bp-lv" id="sh-lv">Lv.1</span>
+    <span class="bp-title" id="bp-name">出售铺</span>
+    <span class="bp-lv" id="bp-level">Lv.1</span>
   </div>
 
   <div class="bp-body" id="sh-body">
@@ -651,41 +651,16 @@ body{
       <div class="bp-info-row"><span class="bp-k">售货员</span><span class="bp-v" id="sh-worker">未指派</span></div>
     </div>
 
-    <!-- 已上架：行由 Java 注入，每行带下架按钮 -->
-    <div class="bp-block">
-      <div class="bp-sec">
-        <span class="bp-sec-title">已上架</span>
-        <span class="bp-sec-actions">
-          <span class="bp-sec-note" id="sh-listed-note">0 件</span>
-        </span>
-      </div>
-      <div class="bp-list" id="sh-listed"></div>
-      <div class="bp-empty" id="sh-listed-empty">还没有上架任何物品</div>
-    </div>
-
-    <!-- 背包渠道：点击物品上架；仓库渠道留待接入 -->
-    <div class="bp-block">
-      <div class="bp-sec">
-        <span class="bp-sec-title">从背包上架</span>
-        <span class="bp-sec-actions">
-          <span class="bp-sec-btn" id="sh-refresh">刷新</span>
-        </span>
-      </div>
-      <div class="bp-list" id="sh-bag"></div>
-      <div class="bp-empty" id="sh-bag-empty">背包里没有可上架的东西</div>
-    </div>
-
-    <div class="bp-block">
-      <div class="bp-sec">
-        <span class="bp-sec-title">仓库</span>
-      </div>
-      <div class="bp-empty">仓库渠道尚未接入</div>
-    </div>
-
   </div>
 
   <div class="bp-foot" id="sh-foot">
-    <div class="bp-btn" id="sh-close">关闭</div>
+    <div class="bp-btn bp-btn-main" id="sh-shelve">自动上架</div>
+    <div class="bp-btn" id="bp-close">关闭</div>
+  </div>
+
+  <!-- 与 farm.html 的 fd-foot 同款：打开仓库独占底栏第二行，不与主操作挤在一起 -->
+  <div class="bp-foot bp-foot-off" id="bp-warehouse-row">
+    <div class="bp-btn bp-btn-main" id="bp-warehouse">打开仓库</div>
   </div>
 
   <div class="bp-hint">Tab / Esc 关闭　·　Ctrl + 滚轮缩放</div>

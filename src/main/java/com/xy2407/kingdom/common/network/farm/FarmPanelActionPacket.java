@@ -28,6 +28,8 @@ public record FarmPanelActionPacket(int action, UUID plotId, String text, int va
     public static final int ACTION_TOGGLE_WORKER = 3;
     public static final int ACTION_SET_AREA = 4;
     public static final int ACTION_DELETE = 5;
+    /** 请服务端打开这座建筑的仓库界面（面板底栏的「打开仓库」）。 */
+    public static final int ACTION_OPEN_STORAGE = 6;
 
     public static final CustomPacketPayload.Type<FarmPanelActionPacket> TYPE =
             new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath(ModMain.MOD_ID, "farm_panel_action"));
@@ -80,6 +82,11 @@ public record FarmPanelActionPacket(int action, UUID plotId, String text, int va
 
     public static FarmPanelActionPacket delete(UUID plotId) {
         return new FarmPanelActionPacket(ACTION_DELETE, plotId, "", 0, 0, 0, 0, 0, "", "");
+    }
+
+    /** 请服务端把当前界面换成这座建筑的仓库。不需要任何参数——建筑由服务端按玩家位置判定。 */
+    public static FarmPanelActionPacket openStorage() {
+        return new FarmPanelActionPacket(ACTION_OPEN_STORAGE, null, "", 0, 0, 0, 0, 0, "", "");
     }
 
     public List<FarmRegion> extraRegions() {

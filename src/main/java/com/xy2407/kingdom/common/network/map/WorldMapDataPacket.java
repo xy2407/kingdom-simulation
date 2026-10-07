@@ -11,24 +11,28 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 /**
  * 一块地图数据的分片。
  *
- * <p>一张 257×257 的采样有 6.6 万个字节，一次发完会撞上包体积上限，
- * 所以按 {@link #CHUNK_BYTES} 切片，客户端按 {@code chunkIndex} 拼回去。</p>
+ * <p>一张 385×385 的采样有 14.8 万格，一次发完会撞上包体积上限，
+ * 所以按 {@link #CHUNK_INTS} 切片，客户端按 {@code chunkIndex} 拼回去。</p>
  *
- * <p>{@code colors} 里每格是原版 {@code MapColor} 的打包 id，0 表示未探索。
- * 注意它是「无符号字节」，取用时务必 {@code & 0xFF}。</p>
+ * <p>{@code colors} 里每格是原版 {@code MapColor} 的<b>打包 id</b>（含明暗档），
+ * {@code -1} 表示未探索。与 {@code WorldMapDataPacket} 发送方的
+ * {@code WorldSurfaceSampler.UNEXPLORED} 对应。</p>
+ *
+ * <p><b>传输用 VarInt 逐个编码。</b>打包 id 都在 0~255，VarInt 里绝大多数只占 2 字节
+ * （第七位标志），比定长 int 省不少。</p>
  *
  * @param originX    这块图左上角的世界 X
  * @param originZ    这块图左上角的世界 Z
  * @param size       边长
  * @param chunkIndex 分片序号，从 0 起
  * @param chunkTotal 分片总数
- * @param colors     该分片的像素数据
+ * @param colors     该分片的调色板打包 id 数据
  */
 public record WorldMapDataPacket(int originX, int originZ, int size,
-                                 int chunkIndex, int chunkTotal, byte[] colors) implements CustomPacketPayload {
+                                 int chunkIndex, int chunkTotal, int[] colors) implements CustomPacketPayload {
 
-    /** 每片的字节数。8K 足够小，不会撞上限，包数也不至于太多。 */
-    public static final int CHUNK_BYTES = 8192;
+    /** 每片的格数。4096 格最多约 20KB，包体不至于过大，片数也不至于太多。 */
+    public static final int CHUNK_INTS = 4096;
 
     public static final CustomPacketPayload.Type<WorldMapDataPacket> TYPE =
             new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath(ModMain.MOD_ID, "world_map_data"));
@@ -47,10 +51,12 @@ public record WorldMapDataPacket(int originX, int originZ, int size,
         buf.writeVarInt(packet.size());
         buf.writeVarInt(packet.chunkIndex());
         buf.writeVarInt(Math.max(1, packet.chunkTotal()));
-        byte[] colors = packet.colors();
+        int[] colors = packet.colors();
         buf.writeVarInt(colors == null ? 0 : colors.length);
         if (colors != null) {
-            buf.writeBytes(colors);
+            for (int color : colors) {
+                buf.writeVarInt(color);
+            }
         }
     }
 
@@ -61,9 +67,9 @@ public record WorldMapDataPacket(int originX, int originZ, int size,
         int chunkIndex = buf.readVarInt();
         int chunkTotal = buf.readVarInt();
         int length = buf.readVarInt();
-        byte[] colors = new byte[Math.max(0, Math.min(CHUNK_BYTES * 2, length))];
-        if (colors.length > 0) {
-            buf.readBytes(colors);
+        int[] colors = new int[Math.max(0, Math.min(CHUNK_INTS * 2, length))];
+        for (int i = 0; i < colors.length; i++) {
+            colors[i] = buf.readVarInt();
         }
         return new WorldMapDataPacket(originX, originZ, size, chunkIndex, chunkTotal, colors);
     }

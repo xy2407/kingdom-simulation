@@ -32,6 +32,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.material.MapColor;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -192,19 +193,19 @@ public final class KingdomCommands {
         long elapsedMs = (System.nanoTime() - started) / 1_000_000L;
 
         int size = snapshot.size();
-        /* 原版 NativeImage 的像素是 ABGR 顺序，不是 ARGB，写进去前要换一次 */
+        /* NativeImage 的像素序是 ABGR（低字节是红）。而原版 MapColor.getColorFromPackedId
+           返回的正好就是这个序（它一直是要直接喂 setPixelRGBA 的），所以直接写即可——
+           之前在这里又套了一层 ARGB→ABGR，反而把红蓝调了个头。 */
         var image = new com.mojang.blaze3d.platform.NativeImage(
                 com.mojang.blaze3d.platform.NativeImage.Format.RGBA, size, size, false);
         for (int z = 0; z < size; z++) {
             for (int x = 0; x < size; x++) {
-                byte packed = snapshot.colors()[z * size + x];
-                /* getPackedId 返回的是 byte，而 getColorFromPackedId 收 int：
-                   直接传会按符号扩展，打包值大于 127 的颜色会变成负数、颜色全错。
-                   所以必须先按无符号取到 0~255。 */
-                int argb = packed == WorldSurfaceSampler.UNEXPLORED
+                int packed = snapshot.colors()[z * size + x];
+                /* 与游戏里同一套取色：打包 id 直接交给原版调色板 */
+                int abgr = packed == WorldSurfaceSampler.UNEXPLORED
                         ? 0xFF000000
-                        : MapColor.getColorFromPackedId(packed & 0xFF);
-                image.setPixelRGBA(x, z, toAbgr(argb));
+                        : MapColor.getColorFromPackedId(packed);
+                image.setPixelRGBA(x, z, abgr);
             }
         }
 
@@ -228,15 +229,6 @@ public final class KingdomCommands {
                         + "　已探索 " + explored + "/" + total
                         + "　耗时 " + elapsedMs + "ms"), false);
         return explored;
-    }
-
-    /** ARGB → ABGR。NativeImage 用的是后者。 */
-    private static int toAbgr(int argb) {
-        int a = (argb >>> 24) & 0xFF;
-        int r = (argb >> 16) & 0xFF;
-        int g = (argb >> 8) & 0xFF;
-        int b = argb & 0xFF;
-        return (a << 24) | (b << 16) | (g << 8) | r;
     }
 
     private static int spawn(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {

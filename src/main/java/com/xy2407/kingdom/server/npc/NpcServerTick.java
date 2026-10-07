@@ -28,6 +28,9 @@ public final class NpcServerTick {
     @SubscribeEvent
     public static void onServerStarting(ServerStartingEvent event) {
         server = event.getServer();
+        /* 通勤调度：待办队列与在算的搜索都随存档清掉（上次注册的日结回调不受影响，
+           所以这句要放在下面那个 if 之外） */
+        CommuteScheduler.reset();
         if (!dailyRegistered) {
             dailyRegistered = true;
             DailyProcessor.registerOnNewDay(day -> NpcManager.INSTANCE.onNewDay(day));
@@ -49,5 +52,9 @@ public final class NpcServerTick {
             repository.tick(overworld);
         }
         NpcManager.INSTANCE.tick(overworld);
+        /* 上下班错峰通勤：只在两个 1000 tick 窗口内动作，
+           窗口内每 tick 最多提交 5 条自定义 A*（= 每 40 tick 200 个），
+           且走的是独立于 RTS 指令的寻路名额。详见 CommuteScheduler 的类注释。 */
+        CommuteScheduler.tick(event.getServer());
     }
 }

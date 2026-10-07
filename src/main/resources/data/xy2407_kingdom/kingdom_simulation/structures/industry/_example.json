@@ -4,6 +4,7 @@
   "tags": ["example", "wood"],
   "level": 1,
   "jobs": 3,
+  "storage_slots": 27,
   "recipes": [
     {
       "id": "oak_planks",

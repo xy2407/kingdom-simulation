@@ -11,11 +11,16 @@ import java.util.Set;
 import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.common.network.db.DbViewerDataPacket;
 import com.xy2407.kingdom.common.persistence.BuildingSchema;
+import com.xy2407.kingdom.common.persistence.BuildingStorageSchema;
+import com.xy2407.kingdom.common.persistence.FarmLandSchema;
+import com.xy2407.kingdom.common.persistence.FarmPlotSchema;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.persistence.NationSchema;
 import com.xy2407.kingdom.common.persistence.NpcSchema;
 import com.xy2407.kingdom.common.persistence.PlayerProfileSchema;
+import com.xy2407.kingdom.common.persistence.RanchSchema;
 import com.xy2407.kingdom.common.persistence.TerritorySchema;
+import com.xy2407.kingdom.common.persistence.TerritoryVitalsSchema;
 
 /**
  * 数据库表快照服务，按白名单表名整表读取并分块下发
@@ -23,29 +28,28 @@ import com.xy2407.kingdom.common.persistence.TerritorySchema;
 public final class DbViewerService {
     public static final String TABLE_NPC = NpcSchema.TABLE_NPC;
     public static final String TABLE_BUILDING = BuildingSchema.TABLE_BUILDING;
+    public static final String TABLE_FARM_PLOT = FarmPlotSchema.TABLE_FARM_PLOT;
+    public static final String TABLE_FARM_LAND = FarmLandSchema.TABLE_FARM_LAND;
+    public static final String TABLE_RANCH_PEN = RanchSchema.TABLE_RANCH_PEN;
     public static final String TABLE_NATION = NationSchema.TABLE_NATION;
     public static final String TABLE_TERRITORY = TerritorySchema.TABLE_TERRITORY;
     public static final String TABLE_PLAYER_PROFILE = PlayerProfileSchema.TABLE_PLAYER_PROFILE;
+    public static final String TABLE_TERRITORY_VITALS = TerritoryVitalsSchema.TABLE_TERRITORY_VITALS;
+    public static final String TABLE_BUILDING_STORAGE = BuildingStorageSchema.TABLE_BUILDING_STORAGE;
 
-    /**
-     * 面板里能翻的表，顺序即展示顺序。
-     *
-     * <p>加新表时本列表与 {@link #ALLOWED} 要<b>一起改</b>：前者决定翻页栏里有没有它，
-     * 后者决定请求会不会被拒——只改一处会出现"栏里有、点开是空的"。</p>
-     */
     public static final List<String> TABLES = List.of(
             TABLE_NPC,
             TABLE_BUILDING,
+            TABLE_FARM_PLOT,
+            TABLE_FARM_LAND,
+            TABLE_RANCH_PEN,
             TABLE_NATION,
             TABLE_TERRITORY,
-            TABLE_PLAYER_PROFILE);
+            TABLE_TERRITORY_VITALS,
+            TABLE_PLAYER_PROFILE,
+            TABLE_BUILDING_STORAGE);
 
-    private static final Set<String> ALLOWED = Set.of(
-            TABLE_NPC,
-            TABLE_BUILDING,
-            TABLE_NATION,
-            TABLE_TERRITORY,
-            TABLE_PLAYER_PROFILE);
+    private static final Set<String> ALLOWED = Set.copyOf(TABLES);
     private static final int MAX_ROWS = 500;
     private static final int ROWS_PER_CHUNK = 100;
     private static final int CELL_LIMIT = 96;

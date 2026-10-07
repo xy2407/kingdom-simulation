@@ -688,8 +688,8 @@ body{
   <!-- ======================= 军事 ======================= -->
   <div class="bp-head" id="mt-head">
     <span class="bp-type">军事</span>
-    <span class="bp-title" id="mt-title">军事</span>
-    <span class="bp-lv" id="mt-lv">Lv.1</span>
+    <span class="bp-title" id="bp-name">军事</span>
+    <span class="bp-lv" id="bp-level">Lv.1</span>
   </div>
 
   <div class="bp-body" id="mt-body">
@@ -702,22 +702,16 @@ body{
       <div class="bp-info-row"><span class="bp-k">巡逻半径</span><span class="bp-v" id="mt-radius">0 格</span></div>
     </div>
 
-    <!-- 兵种卡片：一种编制一张，按 json 的 troops 清单注入，每行 2 张 -->
-    <div class="bp-block">
-      <div class="bp-sec">
-        <span class="bp-sec-title">驻军编制</span>
-        <span class="bp-sec-actions">
-          <span class="bp-sec-note" id="mt-total">0 / 0 人</span>
-        </span>
-      </div>
-      <div class="bp-list" id="mt-troops"></div>
-      <div class="bp-empty" id="mt-empty">这座建筑没有配置驻军编制</div>
-    </div>
-
   </div>
 
   <div class="bp-foot" id="mt-foot">
-    <div class="bp-btn" id="mt-close">关闭</div>
+    <div class="bp-btn bp-btn-main" id="mt-army">创建军队</div>
+    <div class="bp-btn" id="bp-close">关闭</div>
+  </div>
+
+  <!-- 与 farm.html 的 fd-foot 同款：打开仓库独占底栏第二行，不与主操作挤在一起 -->
+  <div class="bp-foot bp-foot-off" id="bp-warehouse-row">
+    <div class="bp-btn bp-btn-main" id="bp-warehouse">打开仓库</div>
   </div>
 
   <div class="bp-hint">Tab / Esc 关闭　·　Ctrl + 滚轮缩放</div>

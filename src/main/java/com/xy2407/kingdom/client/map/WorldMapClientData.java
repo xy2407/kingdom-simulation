@@ -22,7 +22,8 @@ public final class WorldMapClientData {
     private static int originX;
     private static int originZ;
     private static int size;
-    private static byte[] colors;
+    /** 每格是原版 {@code MapColor} 的打包 id；{@code WorldSurfaceSampler.UNEXPLORED} 为未探索。 */
+    private static int[] colors;
     private static int received;
     private static int total = 1;
     private static long revision;
@@ -39,7 +40,12 @@ public final class WorldMapClientData {
             size = Math.max(0, packet.size());
             originX = packet.originX();
             originZ = packet.originZ();
-            colors = size > 0 ? new byte[size * size] : null;
+            colors = size > 0 ? new int[size * size] : null;
+            if (colors != null) {
+                /* 未探索必须显式标 -1：数组初值 0 是 MapColor.NONE 的打包 id，
+                   与"这一格没采到"要区分开 */
+                java.util.Arrays.fill(colors, WorldSurfaceSampler.UNEXPLORED);
+            }
             received = 0;
         }
         if (colors == null) {
@@ -47,8 +53,8 @@ public final class WorldMapClientData {
         }
 
         total = Math.max(1, packet.chunkTotal());
-        byte[] slice = packet.colors();
-        int from = packet.chunkIndex() * WorldMapDataPacket.CHUNK_BYTES;
+        int[] slice = packet.colors();
+        int from = packet.chunkIndex() * WorldMapDataPacket.CHUNK_INTS;
         if (slice != null && from >= 0 && from < colors.length) {
             int length = Math.min(slice.length, colors.length - from);
             System.arraycopy(slice, 0, colors, from, length);
@@ -105,21 +111,21 @@ public final class WorldMapClientData {
         return size;
     }
 
-    public static byte[] colors() {
+    public static int[] colors() {
         return colors;
     }
 
-    /** 取某个世界坐标的打包 id（已按无符号展开）；图外返回未探索。 */
+    /** 取某个世界坐标的调色板打包 id；图外返回未探索（-1）。 */
     public static int packedAt(int worldX, int worldZ) {
         if (colors == null || size <= 0) {
-            return WorldSurfaceSampler.UNEXPLORED & 0xFF;
+            return WorldSurfaceSampler.UNEXPLORED;
         }
         int x = worldX - originX;
         int z = worldZ - originZ;
         if (x < 0 || z < 0 || x >= size || z >= size) {
-            return WorldSurfaceSampler.UNEXPLORED & 0xFF;
+            return WorldSurfaceSampler.UNEXPLORED;
         }
-        return colors[z * size + x] & 0xFF;
+        return colors[z * size + x];
     }
 
     /** 退出游戏或关掉界面时清干净，避免拿着上一局的数据画。 */

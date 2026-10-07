@@ -22,6 +22,10 @@ import java.util.List;
  * @param farmSlots   种植格上限，即这座建筑最多能划出多少格农田；非农业建筑为 0。
  *                    与 {@code jobs} 是两回事：{@code jobs} 是岗位数，这里是土地额度，
  *                    农田面板把总额度分配给各块农田，见 {@code FarmPlot}。
+ * @param storageSlots 仓库容量（格数）：这座建筑同时当仓库用时能放多少种物品，0 表示不是仓库。
+ *                    与 {@code farmSlots} 是两套额度：那是土地、这是货物。物品本身存在
+ *                    {@code building_storage} 表里（{@code ItemStackHandler} 的整包 SNBT），
+ *                    这里只是"能开多少格"的元数据，见 {@code BuildingStorageStore}。
  * @param crops       农业建筑能种的作物清单，面板照这份清单把作物列成槽位；非农业建筑为空，
  *                    留空的农业建筑由服务端退回全局默认清单，见 {@link CropSpec}。
  * @param animals     养殖建筑能养的动物清单，每种一栏、各自带上限；非养殖建筑为空。
@@ -38,7 +42,7 @@ import java.util.List;
  * @param nation      归属势力，可空
  */
 public record BuildingMeta(String id, String name, BuildingType type,
-                           List<String> tags, int level, int jobs, int farmSlots,
+                           List<String> tags, int level, int jobs, int farmSlots, int storageSlots,
                            List<CropSpec> crops,
                            List<AnimalSpec> animals, List<RecipeSpec> recipes,
                            String subtype, List<MenuSpec> menu,
@@ -69,7 +73,7 @@ public record BuildingMeta(String id, String name, BuildingType type,
     }
 
     public static BuildingMeta fallback(String id, BuildingType type) {
-        return new BuildingMeta(id, shortName(id), type, List.of(), 1, 0, 0, List.of(),
+        return new BuildingMeta(id, shortName(id), type, List.of(), 1, 0, 0, 0, List.of(),
                 List.of(), List.of(), "", List.of(), List.of(), 0, "");
     }
 

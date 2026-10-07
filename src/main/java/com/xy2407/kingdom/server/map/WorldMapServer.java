@@ -26,7 +26,8 @@ import net.neoforged.neoforge.network.PacketDistributor;
  * （{@code PacketDistributor} 不是线程安全的）。</p>
  *
  * <p><b>按区域缓存</b>。键是 {@code 维度|原点X|原点Z|边长}，LRU 上限 64 条
- * （每条约 145 KB，共约 9 MB）。同一块区域反复看——开界面、拖回来、缩放——都命中缓存。</p>
+ * （每条约 590 KB 的 int 数组，共约 38 MB）。同一块区域反复看——开界面、拖回来、缩放——
+ * 都命中缓存。</p>
  *
  * <p><b>异步读世界的取舍</b>：{@code getHeight} / {@code getBlockState} 严格说不是线程安全的，
  * 但它们只读、且采样前会先过 {@code hasChunk}，碰的都是已加载区块。最坏情况是读到
@@ -66,7 +67,7 @@ public final class WorldMapServer {
     }
 
     /**
-     * 采样以 (centerX, centerZ) 为中心的区域并按 {@link WorldMapDataPacket#CHUNK_BYTES}
+     * 采样以 (centerX, centerZ) 为中心的区域并按 {@link WorldMapDataPacket#CHUNK_INTS}
      * 切片下发。命中缓存就直接发，不重复采样。
      */
     public static void fulfill(ServerPlayer player, int centerX, int centerZ, int radius) {
@@ -90,9 +91,24 @@ public final class WorldMapServer {
 
         MinecraftServer server = player.getServer();
         UUID playerId = player.getUUID();
+        /* 已探索仓库的实例必须在主线程取好——getDataStorage() 不是线程安全的；
+           拿到的那份 Data 内部是并发容器，可以放心交给采样线程去合并。 */
+        ExploredMapStore.Data explored = ExploredMapStore.data(level);
 
         CompletableFuture
-                .supplyAsync(() -> WorldSurfaceSampler.sample(level, centerX, centerZ, radius), POOL)
+                .supplyAsync(() -> {
+                    WorldSurfaceSampler.Snapshot fresh =
+                            WorldSurfaceSampler.sample(level, centerX, centerZ, radius);
+                    /* 把这一片按区块并进已探索仓库：玩家走过、之后卸载的区块，
+                       下次再看地图就能从存档里拼回来，而不是一片空白。 */
+                    ExploredMapStore.record(explored, fresh.colors(),
+                            fresh.originX(), fresh.originZ(), fresh.size());
+                    /* 本次没加载到的格子（走到过、现在卸载了）用仓库里的历史数据补上。
+                       "地图锁死在当前位置附近"的观感，正是这些空白造成的。 */
+                    ExploredMapStore.fillGaps(explored, fresh.colors(),
+                            fresh.originX(), fresh.originZ(), fresh.size());
+                    return fresh;
+                }, POOL)
                 .thenAccept(snapshot -> {
                     if (snapshot == null) {
                         return;
@@ -116,20 +132,20 @@ public final class WorldMapServer {
                 });
     }
 
-    /** 按片下发。即使只探索了一小块也是整块照发——未探索的格子值就是 0，画成黑色。 */
+    /** 按片下发。即使只探索了一小块也是整块照发——未探索的格子值是 -1，客户端画成黑色。 */
     private static void send(ServerPlayer player, WorldSurfaceSampler.Snapshot snapshot) {
-        byte[] colors = snapshot.colors();
-        int chunkTotal = (colors.length + WorldMapDataPacket.CHUNK_BYTES - 1)
-                / WorldMapDataPacket.CHUNK_BYTES;
+        int[] colors = snapshot.colors();
+        int chunkTotal = (colors.length + WorldMapDataPacket.CHUNK_INTS - 1)
+                / WorldMapDataPacket.CHUNK_INTS;
         if (chunkTotal <= 0) {
             chunkTotal = 1;
         }
 
         for (int index = 0; index < chunkTotal; index++) {
-            int from = index * WorldMapDataPacket.CHUNK_BYTES;
-            int to = Math.min(colors.length, from + WorldMapDataPacket.CHUNK_BYTES);
-            /* 最后一片可能为空（colors 长度正好是整数倍时），给个空数组把总数交代清楚 */
-            byte[] slice = from < to ? Arrays.copyOfRange(colors, from, to) : new byte[0];
+            int from = index * WorldMapDataPacket.CHUNK_INTS;
+            int to = Math.min(colors.length, from + WorldMapDataPacket.CHUNK_INTS);
+            /* 最后一片可能为空（长度正好是整数倍时），给个空数组把总数交代清楚 */
+            int[] slice = from < to ? Arrays.copyOfRange(colors, from, to) : new int[0];
             PacketDistributor.sendToPlayer(player, new WorldMapDataPacket(
                     snapshot.originX(), snapshot.originZ(), snapshot.size(), index, chunkTotal, slice));
         }

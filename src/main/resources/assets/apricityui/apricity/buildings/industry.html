@@ -676,8 +676,8 @@ body{
   <!-- ======================= 工业 ======================= -->
   <div class="bp-head" id="im-head">
     <span class="bp-type">工业</span>
-    <span class="bp-title" id="im-title">工业</span>
-    <span class="bp-lv" id="im-lv">Lv.1</span>
+    <span class="bp-title" id="bp-name">工业</span>
+    <span class="bp-lv" id="bp-level">Lv.1</span>
   </div>
 
   <div class="bp-body" id="im-body">
@@ -709,7 +709,13 @@ body{
   </div>
 
   <div class="bp-foot" id="im-foot">
-    <div class="bp-btn" id="im-close">关闭</div>
+    <div class="bp-btn bp-btn-main" id="im-start">开始生产</div>
+    <div class="bp-btn" id="bp-close">关闭</div>
+  </div>
+
+  <!-- 与 farm.html 的 fd-foot 同款：打开仓库独占底栏第二行，不与主操作挤在一起 -->
+  <div class="bp-foot bp-foot-off" id="bp-warehouse-row">
+    <div class="bp-btn bp-btn-main" id="bp-warehouse">打开仓库</div>
   </div>
 
   <div class="bp-hint">Tab / Esc 关闭　·　Ctrl + 滚轮缩放</div>

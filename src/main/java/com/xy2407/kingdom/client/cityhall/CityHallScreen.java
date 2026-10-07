@@ -37,6 +37,13 @@ public final class CityHallScreen extends ApricityScreen {
     private int mapCenterX;
     private int mapCenterZ;
 
+    /** 上一次真正写进 DOM 的地图中心。用来避免每帧把玩家拖出来的视角拽回原位。 */
+    private int appliedCenterX = Integer.MIN_VALUE;
+    private int appliedCenterZ = Integer.MIN_VALUE;
+
+    /** 全屏地图要从缩略图继承的属性：中心与缩放。 */
+    private static final String[] MAP_VIEW_ATTRIBUTES = {"center-x", "center-z", "zoom"};
+
     /** 最近一次收到的城镇数据。开屏包与数据包谁先到都靠它兜住。 */
     private static volatile CityHallDataPacket snapshot = CityHallDataPacket.EMPTY;
 
@@ -143,6 +150,11 @@ public final class CityHallScreen extends ApricityScreen {
         if (document == null || packet == null) {
             return;
         }
+        /* 地图中心的来源：优先这名玩家上次看的位置（服务端存在 player_profile 上），
+           两个都是 0 表示没记过，那时才退回市政厅方块位置。
+           这里只取下来存着，真正写进 DOM 在末尾的 pointMapIfChanged。 */
+        mapCenterX = packet.mapCenterX();
+        mapCenterZ = packet.mapCenterZ();
 
         // ---- 左栏：金库与三条民情 ----
         text(document, "chGoldNow", value(packet.gold()));
@@ -155,8 +167,9 @@ public final class CityHallScreen extends ApricityScreen {
         text(document, "chLoyalNow", percent(packet.loyalty()));
         text(document, "chHappyNow", percent(packet.happiness()));
 
-        /* 地图采样范围：页面里 <world-map radius="192">，直径即 384。
-           这里只是把它标出来，真要改范围两处得一起改（radius 属性 + 这行）。 */
+        /* 地图框右下角那行小字：标出自绘的采样尺寸。
+           页面里是 <world-map radius="192">，直径即 384；真要改范围两处得一起改
+           （radius 属性 + 这行）。 */
         text(document, "chMapMeta", "384 × 384");
 
         // ---- 中栏：城名、三个概况数、领地信息 ----
@@ -183,6 +196,10 @@ public final class CityHallScreen extends ApricityScreen {
         if (openModal != null) {
             showModal(openModal);
         }
+
+        /* 地图视角最后定。这里**只在目标中心变化时**才写属性——applyData 每帧都会被
+           bind() 调到，无条件写会把玩家拖出来的视角每帧拽回原位，拖动等于白拖。 */
+        pointMapIfChanged(document);
     }
 
     // ------------------------------------------------------------ 交互
@@ -206,9 +223,14 @@ public final class CityHallScreen extends ApricityScreen {
         /* 日历图标：开日期选择弹窗 */
         click(document, "chCalBtn", this::showDayModal);
 
-        /* 地图框：开全屏地图 */
+        /* 地图框：开全屏地图。先把当前取景抄给全屏层——它是另一个元素实例。
+           再把缩略图撤下：两个 <world-map> 同时绘制会各自向服务端请求"自己中心那块"，
+           而客户端的地图数据只有一份，会互相把对方冲掉
+           （见 .ch-map.is-hidden 的注释）。 */
         click(document, "chMapBox", () -> {
             mapFullOpen = true;
+            copyMapView(document);
+            toggleClass(document, "chMapBox", "is-hidden", true);
             toggleClass(document, "chMapFull", "is-open", true);
         });
 
@@ -322,6 +344,8 @@ public final class CityHallScreen extends ApricityScreen {
             if (mapFullOpen) {
                 mapFullOpen = false;
                 toggleClass(boundDocument, "chMapFull", "is-open", false);
+                /* 缩略图要放回来，否则关掉全屏后地图框是空的 */
+                toggleClass(boundDocument, "chMapBox", "is-hidden", false);
                 return true;
             }
             if (dayModalOpen) {
@@ -440,11 +464,33 @@ public final class CityHallScreen extends ApricityScreen {
     // ------------------------------------------------------------ DOM 小工具
 
     /**
+     * 按服务端给的中心给两张地图定初始视角。
+     *
+     * <p><b>只在目标中心变了时才写。</b>{@link #applyData} 每帧都会被 {@link #bind()} 调到，
+     * 无条件写会把玩家刚拖出来的视角每帧拽回去，拖动看着就像没生效。</p>
+     *
+     * <p>两张地图都设：全屏层是另一个 {@code <world-map>} 实例，有自己的
+     * {@code center-x / center-z}，漏掉它点开放大时会跳回页面里的占位值。</p>
+     */
+    private void pointMapIfChanged(Document document) {
+        boolean hasSaved = mapCenterX != 0 || mapCenterZ != 0;
+        int targetX = hasSaved ? mapCenterX : hallX;
+        int targetZ = hasSaved ? mapCenterZ : hallZ;
+        if (targetX == appliedCenterX && targetZ == appliedCenterZ) {
+            return;
+        }
+        appliedCenterX = targetX;
+        appliedCenterZ = targetZ;
+        pointMap(document, "chMap");
+        pointMap(document, "chMapFullView");
+    }
+
+    /**
      * 给地图元素填中心点。
      *
      * <p>优先用这名玩家<b>自己</b>上次看的位置（服务端存在 player_profile 上），
      * 没记过才退回市政厅方块位置——不是每个人都想从领地中心看起。
-     * 改这两个属性会触发元素重新采一块新区域，见 {@code WorldMapElement.ensureData}。</p>
+     * 改了中心与半径属性会触发元素重新取一块新区域，见 {@code WorldMapElement.ensureData}。</p>
      */
     private void pointMap(Document document, String id) {
         Element map = document.getElementById(id);
@@ -458,6 +504,27 @@ public final class CityHallScreen extends ApricityScreen {
            它是"我家在哪"的锚，玩家怎么拖地图它都钉在那片地面上。 */
         map.setAttribute("marker-x", String.valueOf(hallX));
         map.setAttribute("marker-z", String.valueOf(hallZ));
+    }
+
+    /**
+     * 把缩略图当前的取景（中心与缩放）抄给全屏那张地图。
+     *
+     * <p>两张地图是两个独立的 {@code <world-map>} 元素实例，各持自己的属性。
+     * 不抄的话，玩家在缩略图上拖到某处再点开放大，全屏那张会跳回初始中心——
+     * 「放大」反而把视角丢了。</p>
+     */
+    private static void copyMapView(Document document) {
+        Element from = document.getElementById("chMap");
+        Element to = document.getElementById("chMapFullView");
+        if (from == null || to == null) {
+            return;
+        }
+        for (String attribute : MAP_VIEW_ATTRIBUTES) {
+            String value = from.getAttribute(attribute);
+            if (value != null && !value.isBlank()) {
+                to.setAttribute(attribute, value);
+            }
+        }
     }
 
     private static void text(Document document, String id, String value) {

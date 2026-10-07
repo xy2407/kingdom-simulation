@@ -4,6 +4,7 @@
   "tags": ["example", "animal"],
   "level": 1,
   "jobs": 1,
+  "storage_slots": 18,
   "animals": [
     { "id": "cow", "name": "牛", "entity": "minecraft:cow", "capacity": 12, "feed": "minecraft:wheat", "mode": "collect", "output": "minecraft:milk_bucket" },
     { "id": "sheep", "name": "绵羊", "entity": "minecraft:sheep", "capacity": 10, "feed": "minecraft:wheat", "mode": "collect", "output": "minecraft:white_wool" },

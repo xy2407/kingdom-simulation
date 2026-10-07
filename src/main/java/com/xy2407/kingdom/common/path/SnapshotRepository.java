@@ -41,6 +41,14 @@ public final class SnapshotRepository {
     private static final int PENDING_QUEUE_CAP = 4096;
     private static final int MAX_TRACKED_CHUNKS = 4096;
     private static final int MAX_SEARCHES_PER_TICK = 20;
+    /**
+     * 通勤批次专用通道的每 tick 上限，**与 {@link #MAX_SEARCHES_PER_TICK} 互不相干**。
+     *
+     * <p>上下班是整城一起动（一批 200 个），要是和 RTS 指令抢那 20 个名额，
+     * 玩家框选部队就会一直排不上队。分开之后两条路各走各的：
+     * 通勤稳态约 5 条/tick（200 ÷ 40），这里给 16 留出窗口初期的积压余量。</p>
+     */
+    private static final int MAX_COMMUTE_SEARCHES_PER_TICK = 16;
     private static final int SEARCH_THREADS = 2;
     private static final long DIRTY_COOLDOWN_TICKS = 4L;
 
@@ -48,6 +56,14 @@ public final class SnapshotRepository {
     private final AtomicInteger threadSeq = new AtomicInteger();
     /** 本 tick 已放行的搜索数，由 {@link #tick} 每 tick 清零，只在主线程读写。 */
     private int searchesThisTick;
+    /**
+     * 本 tick 已放行的**通勤**搜索数。
+     *
+     * <p>刻意不并进 {@link #tick} 的清零里：那个方法受 {@code hasDemand} 门控，
+     * 没需求时整个不跑，计数会跨 tick 累加到卡死。改由
+     * {@link #resetCommuteSearches()} 在通勤调度每 tick 开头显式清零。</p>
+     */
+    private int commuteSearchesThisTick;
     private ExecutorService executor;
 
     private SnapshotRepository() {
@@ -111,6 +127,20 @@ public final class SnapshotRepository {
         return true;
     }
 
+    /** 清空本 tick 的通勤名额。由通勤调度每 tick 开头调用一次。 */
+    public void resetCommuteSearches() {
+        commuteSearchesThisTick = 0;
+    }
+
+    /** 尝试占本 tick 的一个**通勤**名额，与 {@link #tryAcquireSearch()} 各自独立。 */
+    private boolean tryAcquireCommuteSearch() {
+        if (commuteSearchesThisTick >= MAX_COMMUTE_SEARCHES_PER_TICK) {
+            return false;
+        }
+        commuteSearchesThisTick++;
+        return true;
+    }
+
     /** 与 {@link #tryAcquireSearch()} 配对；名额按 tick 重置，这里不再回收。 */
     public void releaseSearch() {
     }
@@ -137,6 +167,35 @@ public final class SnapshotRepository {
             return null;
         }
         if (!tryAcquireSearch()) {
+            return null;
+        }
+        NpcPathfinder.requestChunks(this, dimension, start, end);
+        try {
+            return current.submit(() -> NpcPathfinder.find(this, dimension, start, end));
+        } catch (RejectedExecutionException rejected) {
+            return null;
+        }
+    }
+
+    /**
+     * 通勤批次专用提交：与 {@link #submitSearch} 完全同路，**只有名额来源不同**——
+     * 走 {@link #MAX_COMMUTE_SEARCHES_PER_TICK} 这条独立通道，不占 RTS 指令的
+     * {@link #MAX_SEARCHES_PER_TICK} 名额（反之亦然）。
+     *
+     * <p>调用方（通勤调度）需在每 tick 开头先 {@link #resetCommuteSearches()}。</p>
+     *
+     * @return 搜索任务；名额用尽或起终点不可站时返回 {@code null}
+     */
+    public Future<List<BlockPos>> submitCommuteSearch(ServerLevel level, BlockPos start, BlockPos end) {
+        ExecutorService current = executor;
+        if (current == null || current.isShutdown()) {
+            return null;
+        }
+        ResourceKey<Level> dimension = level.dimension();
+        if (!NpcPathfinder.isViable(this, dimension, start, end)) {
+            return null;
+        }
+        if (!tryAcquireCommuteSearch()) {
             return null;
         }
         NpcPathfinder.requestChunks(this, dimension, start, end);

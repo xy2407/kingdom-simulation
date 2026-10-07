@@ -75,8 +75,28 @@ public final class NpcBrain {
 
     private void mainLoop() {
         applySchedule();
+        correctDrift();
         if (owner.getDetail() == NpcDetail.WANDERING) {
             rollWanderStyle();
+        }
+    }
+
+    /**
+     * 窗口外的状态纠偏：把 detail 拉回"它与当前子状态该有的对应关系"。
+     *
+     * <p>时间驱动的正常推进由 {@link #applySchedule()} 负责（它已经在按当前时刻算该上班、
+     * 该回家还是该休息），这里只兜住"对不上"的情况——detail 空着，或者子状态被别处改过而细节
+     * 还停在旧的一档。受控状态（RTS 指令 / 施工 / 农活 / 养殖）的细节由各自系统指派，
+     * 不在这里纠正，否则会把它们刚设好的行为抹掉。</p>
+     */
+    private void correctDrift() {
+        if (rtsControlled || constructionControlled || farmControlled || ranchControlled) {
+            return;
+        }
+        NpcSubState subState = owner.getSubState();
+        NpcDetail detail = owner.getDetail();
+        if (detail == null || detail.subState() != subState) {
+            setPlan(phase(), subState, rollDetail(subState));
         }
     }
 
@@ -89,11 +109,16 @@ public final class NpcBrain {
             detail = NpcSchedule.moveDetail(shift, dayTime);
             boolean goingWork = detail == NpcDetail.GOING_WORK;
             if ((goingWork && !hasWorkplace()) || (!goingWork && !hasHome())) {
+                /* 该上班却没有工作地点（或该回家却没有住宅）：**统一降级为闲逛**。
+                   不能留在这里不动，也不能放回 rollDetail——那对"有家"的人会掷出 SLEEPING，
+                   把"没有工作地点的人"显示成在家睡觉。分配系统落地前这是常态而非异常。 */
                 subState = NpcSubState.RESTING;
-                detail = null;
+                detail = NpcDetail.WANDERING;
             }
         } else if (subState == NpcSubState.WORKING && !hasWorkplace()) {
+            /* 同上：该干活却没有工作地点 → 闲逛 */
             subState = NpcSubState.RESTING;
+            detail = NpcDetail.WANDERING;
         }
         if (detail == null) {
             NpcDetail current = owner.getDetail();

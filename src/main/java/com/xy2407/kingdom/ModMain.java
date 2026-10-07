@@ -4,6 +4,7 @@ import com.xy2407.kingdom.common.block.ModBlocks;
 import com.xy2407.kingdom.common.block.ModCreativeTabs;
 import com.xy2407.kingdom.common.entity.ModEntities;
 import com.xy2407.kingdom.common.persistence.BuildingSchema;
+import com.xy2407.kingdom.common.persistence.BuildingStorageSchema;
 import com.xy2407.kingdom.common.persistence.FarmLandSchema;
 import com.xy2407.kingdom.common.persistence.FarmPlotSchema;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
@@ -17,6 +18,7 @@ import com.xy2407.kingdom.server.ServerLifecycle;
 import com.xy2407.kingdom.server.building.BuildingServerTick;
 import com.xy2407.kingdom.server.date.DateServerTick;
 import com.xy2407.kingdom.server.npc.NpcJoinWorldHandler;
+import com.xy2407.kingdom.server.map.ExploredMapEvents;
 import com.xy2407.kingdom.server.npc.NpcServerTick;
 import com.xy2407.kingdom.server.path.SnapshotEvents;
 
@@ -48,11 +50,14 @@ public final class ModMain {
         KingdomPersistence.registerMigration(new PlayerProfileSchema());
         /* 领地民心（凝聚力/忠诚度/幸福度）单独一张表，接在 15 之后 */
         KingdomPersistence.registerMigration(new TerritoryVitalsSchema());
+        /* 建筑仓库：一座建筑一行、物品整包存 SNBT，接在 16 之后 */
+        KingdomPersistence.registerMigration(new BuildingStorageSchema());
         NeoForge.EVENT_BUS.register(ServerLifecycle.class);
         NeoForge.EVENT_BUS.register(DateServerTick.class);
         NeoForge.EVENT_BUS.register(NpcJoinWorldHandler.class);
         NeoForge.EVENT_BUS.register(NpcServerTick.class);
         NeoForge.EVENT_BUS.register(SnapshotEvents.class);
+        NeoForge.EVENT_BUS.register(ExploredMapEvents.class);
         ModEntities.ENTITY_TYPES.register(modEventBus);
         ModBlocks.BLOCKS.register(modEventBus);
         ModBlocks.ITEMS.register(modEventBus);

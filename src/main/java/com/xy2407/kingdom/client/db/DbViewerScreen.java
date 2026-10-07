@@ -23,6 +23,11 @@ public final class DbViewerScreen extends Screen {
     private static final int COLUMN_WIDTH = 130;
     private static final int REFRESH_INTERVAL = 60;
     private static final int SLIDER_WIDTH = 8;
+    private static final int TAB_MARGIN = 8;
+    private static final int TAB_GAP = 6;
+    private static final int TAB_HEIGHT = 20;
+    private static final int TAB_ROW_STEP = 26;
+    private static final int TAB_RESERVED = 50;
 
     private static final Map<String, DbViewerDataPacket> CACHE = new HashMap<>();
     private static final Map<String, List<List<String>>> PENDING_ROWS = new HashMap<>();
@@ -39,7 +44,6 @@ public final class DbViewerScreen extends Screen {
     private int tableY;
     private int tableWidth;
     private int tableHeight;
-    private int refreshButtonX;
     private double maxScrollX;
     private double maxScrollY;
 
@@ -88,10 +92,32 @@ public final class DbViewerScreen extends Screen {
     }
 
     private void layout() {
-        tableX = 8;
-        tableY = 46;
+        tableX = TAB_MARGIN;
+        tableY = 20 + tabRowCount() * TAB_ROW_STEP + 10;
         tableWidth = Math.max(120, this.width - 30);
         tableHeight = Math.max(60, this.height - tableY - 26);
+    }
+
+    private int tabRowCount() {
+        int rows = 1;
+        int x = TAB_MARGIN;
+        for (String name : tables) {
+            int width = tabWidth(name);
+            if (wrapsBefore(x, width)) {
+                rows++;
+                x = TAB_MARGIN;
+            }
+            x += width + TAB_GAP;
+        }
+        return rows;
+    }
+
+    private int tabWidth(String name) {
+        return this.font.width(name) + 20;
+    }
+
+    private boolean wrapsBefore(int x, int width) {
+        return x > TAB_MARGIN && x + width > this.width - TAB_MARGIN - TAB_RESERVED;
     }
 
     private DbViewerDataPacket snapshot() {
@@ -130,19 +156,24 @@ public final class DbViewerScreen extends Screen {
     }
 
     private void renderTabs(GuiGraphics graphics) {
-        int x = tableX;
+        int x = TAB_MARGIN;
+        int y = 20;
         for (String name : tables) {
-            int width = this.font.width(name) + 20;
+            int width = tabWidth(name);
+            if (wrapsBefore(x, width)) {
+                x = TAB_MARGIN;
+                y += TAB_ROW_STEP;
+            }
             boolean active = name.equals(table);
-            graphics.fill(x, 20, x + width, 40, active ? 0xFF33502F : 0xFF333333);
-            graphics.renderOutline(x, 20, width, 20, active ? 0xFF8FBF6F : 0xFF666666);
-            graphics.drawCenteredString(this.font, name, x + width / 2, 27, active ? 0xFFFFFF80 : 0xFFCCCCCC);
-            x += width + 6;
+            graphics.fill(x, y, x + width, y + TAB_HEIGHT, active ? 0xFF33502F : 0xFF333333);
+            graphics.renderOutline(x, y, width, TAB_HEIGHT, active ? 0xFF8FBF6F : 0xFF666666);
+            graphics.drawCenteredString(this.font, name, x + width / 2, y + 7,
+                    active ? 0xFFFFFF80 : 0xFFCCCCCC);
+            x += width + TAB_GAP;
         }
-        refreshButtonX = x;
-        graphics.fill(x, 20, x + 44, 40, 0xFF333333);
-        graphics.renderOutline(x, 20, 44, 20, 0xFF666666);
-        graphics.drawCenteredString(this.font, "刷新", x + 22, 27, 0xFFCCCCCC);
+        graphics.fill(x, y, x + 44, y + TAB_HEIGHT, 0xFF333333);
+        graphics.renderOutline(x, y, 44, TAB_HEIGHT, 0xFF666666);
+        graphics.drawCenteredString(this.font, "刷新", x + 22, y + 7, 0xFFCCCCCC);
     }
 
     private void renderTable(GuiGraphics graphics, DbViewerDataPacket snapshot) {
@@ -248,13 +279,15 @@ public final class DbViewerScreen extends Screen {
     }
 
     private boolean handleTopBar(double mouseX, double mouseY) {
-        if (mouseY < 20 || mouseY > 40) {
-            return false;
-        }
-        int x = tableX;
+        int x = TAB_MARGIN;
+        int y = 20;
         for (String name : tables) {
-            int width = this.font.width(name) + 20;
-            if (mouseX >= x && mouseX <= x + width) {
+            int width = tabWidth(name);
+            if (wrapsBefore(x, width)) {
+                x = TAB_MARGIN;
+                y += TAB_ROW_STEP;
+            }
+            if (inBox(mouseX, mouseY, x, y, width)) {
                 if (!name.equals(table)) {
                     table = name;
                     scrollX = 0;
@@ -263,13 +296,17 @@ public final class DbViewerScreen extends Screen {
                 }
                 return true;
             }
-            x += width + 6;
+            x += width + TAB_GAP;
         }
-        if (mouseX >= refreshButtonX && mouseX <= refreshButtonX + 44) {
+        if (inBox(mouseX, mouseY, x, y, 44)) {
             request();
             return true;
         }
         return false;
+    }
+
+    private static boolean inBox(double mouseX, double mouseY, int x, int y, int width) {
+        return mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + TAB_HEIGHT;
     }
 
     @Override

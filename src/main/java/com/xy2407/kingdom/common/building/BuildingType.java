@@ -5,7 +5,7 @@ import java.util.Locale;
 /**
  * 建筑类型。
  *
- * <p>六个类型各自对应 {@code structures} 下的一个子目录（见 {@link #folder()}）。目录名与
+ * <p>七个类型各自对应 {@code structures} 下的一个子目录（见 {@link #folder()}）。目录名与
  * 蓝图同名的 json 里的 {@code type} 字段共用这套标识，两者互为兜底：写了 json 就听 json，
  * 没写就按所在目录推断。</p>
  */
@@ -22,7 +22,9 @@ public enum BuildingType {
     /** 商业：交易与服务。 */
     COMMERCIAL("商业", "commercial", "commerce", "shop", "market", "store"),
     /** 军事：防御与驻军。 */
-    MILITARY("军事", "military", "army", "barracks", "defense");
+    MILITARY("军事", "military", "army", "barracks", "defense"),
+    /** 仓库：与其它建筑建立运输关系，集中存货。 */
+    STORAGE("仓库", "storage", "warehouse", "depot", "logistics");
 
     private final String label;
     private final String[] aliases;

@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<!-- 容器屏整稿，照 backpack.html 的定标思路（《AUI使用总结》§13.3）：
+     mode=fixed 把文档逻辑尺寸钉死，scale 是固定倍率。
+     620×760 × 0.4864 ≈ 302×370 GUI px —— 只有背包页整稿（≈583×575）的一半多一点，
+     而背包页是已验证能正常显示的基准，所以这页一定装得下。
+     0.4864 = 2×18/74 是背包页算好的值：48px 槽位在游戏里 ≈ 23 GUI px。
+     高度 760 这个数不是估的：面板 520 宽 / 内容实测 ≈715 高（6 行仓库 + 4 行行囊
+     + 两处标签 + 标题），再算上 body 的 20px 内边距——文档尺寸给不够就是整页被裁。
+     本页**故意不写** aui-mouse-events=intercept（§0 铁律 5）：
+     它会吃掉原生点击 → 槽位全部点不动。本页没有 DOM 点击元素，裸奔即可。 -->
+<meta name="aui-viewport" content="mode=fixed,width=620,height=760,scale=0.4864,zoom=1,min-zoom=0.5,max-zoom=2,zoom-step=0.1,user-scalable=true">
+<title>建筑仓库</title>
+<style>
+@font-face{
+  font-family:'Zpix';
+  src:url('/font/zpix.ttf') format('truetype');
+  font-display:block;
+}
+
+:root{
+  --parchment:#c8ac7c;
+  --parchment-lo:#b89868;
+  --parchment-hi:#d6bb8c;
+  --border-mid:#6a4a20;
+  --border-dark:#4a3218;
+  --border-deep:#3a2814;
+  --border-light:#8a6e3c;
+  --border-hi:#d8bc8c;
+  --ink:#1a0e04;
+  --ink-2:#4a3218;
+  --gold:#c9a227;
+  --gold-l:#f5e08a;
+}
+
+*{box-sizing:border-box;margin:0;padding:0;
+  -webkit-font-smoothing:none;-moz-osx-font-smoothing:unset;font-smooth:never;
+  text-rendering:geometricPrecision;
+  font-feature-settings:"kern" 0,"liga" 0,"calt" 0;font-variant-ligatures:none;}
+
+html,body{overflow-x:hidden;overflow-y:hidden;}
+
+body{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  padding:20px;
+  /* 原稿的深色底是给浏览器看的；游戏里容器屏自带压暗，透明让世界透出来，
+     否则文档矩形整块发黑（§13.7） */
+  background-color:transparent;
+  font-family:'Zpix',monospace;
+  font-size:13px;
+  color:var(--ink);
+  image-rendering:pixelated;
+  image-rendering:-moz-crisp-edges;
+  image-rendering:crisp-edges;
+}
+
+canvas,img{
+  image-rendering:pixelated;
+  image-rendering:-moz-crisp-edges;
+  image-rendering:crisp-edges;
+}
+
+/* ============================================================
+   面板：pane 贴图 + 四色环边框（与背包页同一套视觉语言，§13.2）
+   ============================================================ */
+.storage-panel{
+  width:520px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  padding:12px 12px 14px;
+  background-color:var(--parchment);
+  background-image:url('/tex/pane_gen.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  border:3px solid var(--border-dark);
+  box-shadow:
+    0 0 0 1px var(--border-mid),
+    inset 0 0 0 1px var(--border-light),
+    inset 2px 2px 0 0 var(--border-hi),
+    inset -2px -2px 0 0 var(--border-mid),
+    4px 4px 0 0 rgba(0,0,0,.45);
+}
+
+.panel-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:1px 2px 6px;
+  border-bottom:2px solid var(--border-mid);
+  box-shadow:0 1px 0 rgba(255,240,200,.38);
+}
+
+.panel-title{
+  font-size:14px;
+  line-height:18px;
+  letter-spacing:2px;
+  color:var(--gold);
+  text-stroke:1px var(--border-deep);
+}
+
+.panel-meta{
+  font-size:12px;
+  line-height:18px;
+  color:var(--ink-2);
+}
+
+.section-label{
+  font-size:12px;
+  line-height:14px;
+  letter-spacing:1px;
+  color:var(--ink-2);
+  padding-left:2px;
+}
+
+/* ============================================================
+   槽位阵列：**直接照抄背包页 #player 的写法**（§13.8）
+   · grid-template-columns 写**整数 = 列数**，不是标准的 repeat(9,48px)——
+     AUI 的 grid 只认前者（ContainerExpander 自己注入的也是整数形式）。
+     写成 repeat() 会让行高塌陷，只剩几个格子渲染。
+   · 槽位必须是 <container> 的**直接子元素**（官方文档明写"手写 slot 也必须是直接子元素"）。
+   · 间距交给 grid 的 gap（AUI 的 grid gap 可用，§13.5 的例外）；
+     槽位自身的 margin 必须清零，否则会被算进列宽/行高。
+   ============================================================ */
+.slot-grid{
+  display:grid;
+  grid-template-columns:9;
+  gap:8px;
+  width:496px;
+}
+
+.slot{
+  position:relative;
+  flex:0 0 auto;
+  width:48px;
+  height:48px;
+  /* AUI 的 UA 样式表给所有 slot 默认 --aui-slot-size:18（原版槽位尺寸），
+     而它是**热区判定的第一优先级**，不覆盖会把点击热区压成 18px（§11 坑 28） */
+  --aui-slot-size:48;
+  /* 图标缩放：slot_gen.png 是 32×32、四边各 3px 边框，48px 槽位内框约 39px；
+     16×2.25 = 36px 正好落在内框里（§11 坑 31） */
+  --aui-slot-icon-scale:2.25;
+  margin-right:0;
+  margin-bottom:0;
+  background-color:#d8c090;
+  background-image:url('/tex/slot_gen.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  cursor:pointer;
+}
+
+/* 超出本建筑可用容量的格子：由 Java 在打开时按 capacity 打上这个类。
+   用 visibility 而不是 display:none —— 格子仍占位，网格不会被抽掉几格而错行。 */
+.slot.is-off{
+  visibility:hidden;
+}
+
+/* 槽位里的 <item> 必须自己铺满槽位盒子：AUI 的物品居中用的是 <item> 自身矩形，
+   而 UA 样式表把它定死 16×16 且定位在 slot 的 left/top:1px——
+   不铺满的话，放大后的图标会以"格子左上角"为中心撑出去（§11 坑 31）。
+   position:absolute 显式写，不依赖 UA 的 slot > item 标签选择器。 */
+.slot-icon{
+  position:absolute;
+  left:0;
+  top:0;
+  width:48px;
+  height:48px;
+}
+
+.divider{
+  height:0;
+  border-top:2px solid var(--border-mid);
+  box-shadow:0 1px 0 rgba(255,240,200,.30);
+}
+</style>
+</head>
+<body>
+
+<div class="storage-panel" id="storageRoot">
+
+  <header class="panel-head">
+    <h2 class="panel-title" id="storageTitle">仓 库</h2>
+    <span class="panel-meta" id="storageCapacity">54 / 54 格</span>
+  </header>
+
+  <div class="section-label">存 货</div>
+  <!-- 建筑仓库：绑 AUI 的 saveddata 容器，容量恒定（= BuildingStorageMenu.MAX_SLOTS）。
+       蓝图声明的 storage_slots 决定"能用几格"，由 Java 打开时给多余槽位加 .is-off 隐藏。 -->
+  <container id="saved_data" class="slot-grid" bind="saved_data" size="54" primary="true">
+    <slot id="bslot0" class="slot" slot-index="0" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot1" class="slot" slot-index="1" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot2" class="slot" slot-index="2" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot3" class="slot" slot-index="3" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot4" class="slot" slot-index="4" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot5" class="slot" slot-index="5" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot6" class="slot" slot-index="6" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot7" class="slot" slot-index="7" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot8" class="slot" slot-index="8" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot9" class="slot" slot-index="9" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot10" class="slot" slot-index="10" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot11" class="slot" slot-index="11" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot12" class="slot" slot-index="12" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot13" class="slot" slot-index="13" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot14" class="slot" slot-index="14" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot15" class="slot" slot-index="15" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot16" class="slot" slot-index="16" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot17" class="slot" slot-index="17" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot18" class="slot" slot-index="18" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot19" class="slot" slot-index="19" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot20" class="slot" slot-index="20" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot21" class="slot" slot-index="21" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot22" class="slot" slot-index="22" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot23" class="slot" slot-index="23" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot24" class="slot" slot-index="24" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot25" class="slot" slot-index="25" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot26" class="slot" slot-index="26" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot27" class="slot" slot-index="27" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot28" class="slot" slot-index="28" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot29" class="slot" slot-index="29" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot30" class="slot" slot-index="30" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot31" class="slot" slot-index="31" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot32" class="slot" slot-index="32" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot33" class="slot" slot-index="33" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot34" class="slot" slot-index="34" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot35" class="slot" slot-index="35" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot36" class="slot" slot-index="36" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot37" class="slot" slot-index="37" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot38" class="slot" slot-index="38" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot39" class="slot" slot-index="39" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot40" class="slot" slot-index="40" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot41" class="slot" slot-index="41" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot42" class="slot" slot-index="42" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot43" class="slot" slot-index="43" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot44" class="slot" slot-index="44" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot45" class="slot" slot-index="45" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot46" class="slot" slot-index="46" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot47" class="slot" slot-index="47" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot48" class="slot" slot-index="48" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot49" class="slot" slot-index="49" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot50" class="slot" slot-index="50" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot51" class="slot" slot-index="51" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot52" class="slot" slot-index="52" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot53" class="slot" slot-index="53" slot-size="48"><item class="slot-icon"></item></slot>
+  </container>
+
+  <div class="divider"></div>
+
+  <div class="section-label">行 囊</div>
+  <!-- 玩家背包：36 格。DOM 顺序 = 显示顺序，按原版习惯排：
+       背包 9..35 三行在上、快捷栏 0..8 一行在底（AUI 的 PlayerInventorySlotOrder 也把 0..8
+       当玩家池的最后 9 个，官方文档点名"别按自然顺序排网格"）。
+       slot-index 始终是该槽在玩家背包里的逻辑索引，与排版顺序无关。 -->
+  <container id="player" class="slot-grid" bind="player" size="36">
+    <slot id="pslot9" class="slot" slot-index="9" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot10" class="slot" slot-index="10" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot11" class="slot" slot-index="11" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot12" class="slot" slot-index="12" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot13" class="slot" slot-index="13" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot14" class="slot" slot-index="14" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot15" class="slot" slot-index="15" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot16" class="slot" slot-index="16" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot17" class="slot" slot-index="17" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot18" class="slot" slot-index="18" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot19" class="slot" slot-index="19" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot20" class="slot" slot-index="20" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot21" class="slot" slot-index="21" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot22" class="slot" slot-index="22" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot23" class="slot" slot-index="23" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot24" class="slot" slot-index="24" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot25" class="slot" slot-index="25" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot26" class="slot" slot-index="26" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot27" class="slot" slot-index="27" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot28" class="slot" slot-index="28" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot29" class="slot" slot-index="29" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot30" class="slot" slot-index="30" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot31" class="slot" slot-index="31" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot32" class="slot" slot-index="32" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot33" class="slot" slot-index="33" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot34" class="slot" slot-index="34" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot35" class="slot" slot-index="35" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot0" class="slot" slot-index="0" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot1" class="slot" slot-index="1" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot2" class="slot" slot-index="2" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot3" class="slot" slot-index="3" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot4" class="slot" slot-index="4" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot5" class="slot" slot-index="5" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot6" class="slot" slot-index="6" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot7" class="slot" slot-index="7" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot8" class="slot" slot-index="8" slot-size="48"><item class="slot-icon"></item></slot>
+  </container>
+
+</div>
+
+</body>
+</html>

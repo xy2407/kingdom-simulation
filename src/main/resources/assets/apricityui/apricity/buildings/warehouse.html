@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<!-- mode=gui：跟着逻辑视口走，宽度 25% 才是"屏幕的四分之一"。
+     允许 Ctrl + 滚轮缩放，元素整体等比缩放（贴图靠最近邻采样保像素）。 -->
+<meta name="aui-viewport" content="mode=gui,min-zoom=0.5,max-zoom=3,user-scalable=true">
+<!-- 纯 DOM 页面，输入框与按钮都要能点，必须声明 intercept -->
+<meta name="aui-mouse-events" content="intercept">
+<title>养殖操作界面</title>
+<style>
+@font-face{
+  font-family:'Zpix';
+  src:url('/font/zpix.ttf') format('truetype');
+  font-display:block;
+}
+
+*{
+  box-sizing:border-box;
+  margin:0;
+  padding:0;
+}
+
+/* 空流文档的根元素不要写 overflow：AUI 里根元素盒子高度为 0，
+   在它上面写 overflow 会生成一条零尺寸裁剪遮罩，整页节点被静默剔掉。
+   需要裁剪的只有下面那几个有确定尺寸的列表。 */
+html,body{
+  background:transparent;
+}
+
+:root{
+  --parchment:#c8ac7c;
+  --parchment-lo:#b89868;
+  --parchment-hi:#d6bb94;
+  --pane:#d6bc94;
+  --border-mid:#6a4a20;
+  --border-dark:#4a3218;
+  --border-deep:#2a1a08;
+  --border-light:#8a6e3c;
+  --border-hi:#d8bc8c;
+  --ink:#1a0e04;
+  --ink-2:#4a3218;
+  --gold:#c9a227;
+  --gold-l:#f5e08a;
+}
+
+body{
+  font-family:'Zpix',monospace;
+  font-size:12px;
+  color:var(--ink);
+}
+
+/* ============================================================
+   侧边栏：贴左边，宽度固定为屏幕 1/4，上下各留 10% 边距
+   （与住宅操作界面同一套骨架，换的只是内容）
+   ------------------------------------------------------------
+   边框不靠贴图：pane_gen.png 是"无边框"的面板底纹，边框由外层
+   四色环 box-shadow 一圈圈叠出来（原稿同款），四边才连得起来。
+   ============================================================ */
+.bp-bar{
+  position:fixed;
+  left:0;
+  top:10%;
+  height:80%;
+  width:25%;
+  display:flex;
+  flex-direction:column;
+
+  background-color:var(--pane);
+  background-image:url('/tex/pane_gen.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  /* 关键：没有这三行，浏览器会把羊皮纸噪声纹理插值糊掉，像素质感全失 */
+  image-rendering:pixelated;
+  image-rendering:-moz-crisp-edges;
+  image-rendering:crisp-edges;
+
+  box-shadow:
+    0 0 0 2px var(--border-deep),
+    0 0 0 4px var(--border-dark),
+    0 0 0 6px var(--border-mid),
+    0 0 0 8px var(--border-deep),
+    inset 2px 2px 0 0 var(--border-hi),
+    inset -2px -2px 0 0 var(--border-mid),
+    4px 4px 0 0 rgba(0,0,0,.45);
+}
+
+/* ---------- 标题条：沿用身份卡那张状态栏纹理 ---------- */
+.bp-head{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:6px 10px;
+  background-color:var(--parchment-lo);
+  background-image:url('/tex/parchment_status.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  border-bottom:2px solid var(--border-mid);
+  box-shadow:0 1px 0 rgba(255,240,200,.38);
+}
+
+.bp-type{
+  flex:0 0 auto;
+  padding:0 3px;
+  font-size:10px;
+  line-height:15px;
+  color:var(--parchment-hi);
+  background:var(--border-deep);
+  box-shadow:inset 1px 1px 0 0 var(--border-mid);
+}
+
+.bp-title{
+  flex:1 1 auto;
+  min-width:0;
+  font-size:14px;
+  line-height:16px;
+  letter-spacing:1px;
+  /* 羊皮纸底上金色只有 1.34:1 对比度，等于看不见；正文一律用深墨色（约 10:1） */
+  color:var(--ink);
+  overflow:hidden;
+  white-space:nowrap;
+}
+
+.bp-lv{
+  flex:0 0 auto;
+  font-size:11px;
+  line-height:16px;
+  color:var(--ink-2);
+}
+
+/* 二级页的返回：与 .bp-btn-quiet 同一套配方，只是位置在标题条上 */
+.bp-back{
+  flex:0 0 auto;
+  padding:0 4px;
+  font-size:10px;
+  line-height:16px;
+  color:var(--ink-2);
+  background-color:var(--parchment-hi);
+  box-shadow:
+    0 0 0 1px var(--border-dark),
+    inset 1px 1px 0 0 var(--border-hi);
+  cursor:pointer;
+}
+
+.bp-back:hover{
+  box-shadow:
+    0 0 0 2px var(--gold),
+    inset 1px 1px 0 0 var(--gold-l),
+    inset -1px -1px 0 0 var(--border-mid);
+}
+
+/* ============================================================
+   主体：三段固定区 + 弹性区（弹性区各自滚动）
+   ============================================================ */
+.bp-body{
+  flex:1 1 auto;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  padding:7px 8px 8px;
+}
+
+/* 二级页与一级页共用同一套排版，靠这三个 off 类决定显示哪一级。
+   标题条 / 主体 / 底栏三段的 display 各不相同，所以不能用一个类统一关掉。 */
+.bp-head-off{
+  display:none;
+}
+
+.bp-body-off{
+  display:none;
+}
+
+.bp-foot-off{
+  display:none;
+}
+
+/* ---------- 建筑信息：完整字段，只读 ---------- */
+.bp-info{
+  flex:0 0 auto;
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  padding:5px 6px;
+  background-color:var(--parchment-hi);
+  background-image:url('/tex/pane_gen.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  box-shadow:
+    0 0 0 2px var(--border-deep),
+    inset 1px 1px 0 0 var(--border-hi),
+    inset -1px -1px 0 0 var(--border-mid);
+}
+
+.bp-info-row{
+  display:flex;
+  align-items:baseline;
+  gap:6px;
+  line-height:15px;
+}
+
+.bp-k{
+  flex:0 0 30px;
+  color:var(--ink-2);
+  font-size:11px;
+}
+
+.bp-v{
+  flex:1 1 auto;
+  min-width:0;
+  color:var(--ink);
+  overflow:hidden;
+  white-space:nowrap;
+}
+
+/* ---------- 头数配额：一格一头的像素方块 + 一格上限的说明 ---------- */
+.bp-quota{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:4px;
+  padding:0 2px;
+}
+
+.bp-slot{
+  width:11px;
+  height:11px;
+  background-color:var(--border-mid);
+  box-shadow:
+    inset 1px 1px 0 0 var(--border-light),
+    inset -1px -1px 0 0 var(--border-deep);
+}
+
+/* 已分配给畜栏的头数点亮成金色（与住宅"有人的床位"同一套语汇） */
+.bp-slot.on{
+  background-color:var(--gold);
+  box-shadow:
+    inset 1px 1px 0 0 var(--gold-l),
+    inset -1px -1px 0 0 var(--border-light);
+}
+
+/* 配额超过方块能画的粒度时，改用数字说明 */
+.bp-quota-note{
+  margin-left:2px;
+  color:var(--ink-2);
+  font-size:11px;
+  line-height:15px;
+}
+
+/* ---------- 搜索框 ---------- */
+.bp-search{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:4px;
+  padding:3px 5px;
+  background-color:var(--parchment-hi);
+  box-shadow:
+    0 0 0 2px var(--border-deep),
+    inset 1px 1px 0 0 var(--border-mid),
+    inset -1px -1px 0 0 var(--parchment-hi);
+}
+
+.bp-search-icon{
+  flex:0 0 auto;
+  color:var(--border-mid);
+  line-height:16px;
+}
+
+.bp-search input{
+  flex:1 1 auto;
+  min-width:0;
+  height:16px;
+  padding:0;
+  border:none;
+  outline:none;
+  background:transparent;
+  font-family:'Zpix',monospace;
+  font-size:12px;
+  line-height:16px;
+  color:var(--ink);
+}
+
+.bp-search input::placeholder{
+  color:var(--border-mid);
+}
+
+.bp-search-clear{
+  flex:0 0 auto;
+  width:14px;
+  line-height:14px;
+  text-align:center;
+  color:var(--border-mid);
+  cursor:pointer;
+}
+
+.bp-search-clear:hover{
+  color:var(--ink-2);
+}
+
+/* ============================================================
+   弹性区块：各占剩余高度，各自独立滚动
+   ============================================================ */
+.bp-block{
+  flex:1 1 0;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+
+/* 区块之间一条淡分割线：只提示"这里换了一类内容"，不用太重。
+   用 border-top 而不是伪元素，AUI 对 ::before/::after 支持不确定。 */
+.bp-block + .bp-block{
+  margin-top:6px;
+  padding-top:6px;
+  border-top:1px solid rgba(74,50,24,.28);
+}
+
+.bp-sec{
+  flex:0 0 auto;
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:6px;
+  padding:0 2px 2px;
+  border-bottom:2px solid var(--border-mid);
+  box-shadow:0 1px 0 rgba(255,240,200,.28);
+}
+
+.bp-sec-title{
+  color:var(--border-deep);
+  letter-spacing:1px;
+}
+
+.bp-sec-actions{
+  display:flex;
+  align-items:baseline;
+  gap:6px;
+}
+
+.bp-sec-note{
+  color:var(--ink-2);
+  font-size:10px;
+}
+
+/* 分节上的文字按钮：不占整行，靠 hover 提示可点 */
+.bp-sec-btn{
+  font-size:10px;
+  color:var(--border-mid);
+  cursor:pointer;
+}
+
+.bp-sec-btn:hover{
+  color:var(--ink);
+}
+
+/* 滚动区：唯一允许滚动的地方，靠 flex 拿到确定高度 */
+.bp-list{
+  flex:1 1 auto;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  overflow-y:auto;
+  padding-right:2px;
+}
+
+/* 竖向滚动条：木色，不做圆角，和像素风格一致 */
+.bp-list::-webkit-scrollbar{
+  width:7px;
+}
+
+.bp-list::-webkit-scrollbar-track{
+  background:rgba(58,40,20,.30);
+}
+
+.bp-list::-webkit-scrollbar-thumb{
+  background:var(--border-mid);
+  border:1px solid var(--border-deep);
+}
+
+/* ---------- 畜栏行 ---------- */
+.bp-item{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:3px 4px;
+  background-color:var(--parchment-hi);
+  box-shadow:
+    0 0 0 1px var(--border-mid),
+    inset 1px 1px 0 0 rgba(255,240,200,.5),
+    inset -1px -1px 0 0 rgba(74,50,24,.3);
+  cursor:pointer;
+}
+
+/* 悬停：整行提亮并描金边，一眼能看出点到的是哪一行 */
+.bp-item:hover{
+  background-color:var(--parchment);
+  box-shadow:
+    0 0 0 2px var(--gold),
+    inset 1px 1px 0 0 var(--gold-l),
+    inset -1px -1px 0 0 var(--border-mid);
+}
+
+/* 畜栏行里的动物格子：尺寸取 .bp-face 的 24×24。
+   里面塞一个铺满的 <item> —— <item> 的居中按它自己的矩形算，
+   不铺满的话图标会以格子左上角为中心撑出去。 */
+.bp-animal{
+  position:relative;
+  flex:0 0 auto;
+  width:24px;
+  height:24px;
+  background-color:var(--parchment-lo);
+  box-shadow:
+    inset 1px 1px 0 0 var(--border-mid),
+    0 0 0 2px var(--border-dark);
+}
+
+.bp-animal-icon{
+  position:absolute;
+  left:0;
+  top:0;
+  width:24px;
+  height:24px;
+}
+
+.bp-name{
+  flex:1 1 auto;
+  min-width:0;
+  line-height:15px;
+  overflow:hidden;
+  white-space:nowrap;
+}
+
+/* 行内小字（额度、占地这类次要信息） */
+.bp-sub{
+  flex:0 0 auto;
+  color:var(--ink-2);
+  font-size:10px;
+  line-height:15px;
+}
+
+.bp-tag{
+  flex:0 0 auto;
+  padding:0 3px;
+  font-size:10px;
+  line-height:14px;
+  color:var(--parchment-hi);
+  background:var(--border-deep);
+}
+
+/* ---------- 空状态 ---------- */
+.bp-empty{
+  flex:1 1 auto;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:8px 4px;
+  text-align:center;
+  color:var(--ink-2);
+  font-size:11px;
+  line-height:15px;
+  border:1px dashed var(--border-light);
+}
+
+/* ---------- 行内按钮 ---------- */
+.bp-btn{
+  flex:0 0 auto;
+  padding:0 5px;
+  font-size:11px;
+  line-height:18px;
+  text-align:center;
+  color:var(--ink);
+  background-color:var(--parchment-hi);
+  box-shadow:
+    0 0 0 2px var(--border-dark),
+    inset 1px 1px 0 0 var(--border-hi),
+    inset -1px -1px 0 0 var(--border-mid);
+  cursor:pointer;
+}
+
+.bp-btn:hover{
+  box-shadow:
+    0 0 0 2px var(--gold),
+    inset 1px 1px 0 0 var(--gold-l),
+    inset -1px -1px 0 0 var(--border-mid);
+}
+
+.bp-btn-quiet{
+  font-size:10px;
+  line-height:16px;
+  padding:0 4px;
+  color:var(--ink-2);
+}
+
+/* 只有符号的按钮（加减号）：定宽才能让两个按钮等宽 */
+.bp-btn-icon{
+  width:22px;
+  padding:0;
+  text-align:center;
+}
+
+.bp-btn-main{
+  flex:1 1 auto;
+  font-size:12px;
+  line-height:22px;
+  color:var(--gold-l);
+  background-color:var(--border-mid);
+  text-stroke:1px var(--border-deep);
+  box-shadow:
+    0 0 0 2px var(--border-deep),
+    inset 1px 1px 0 0 var(--border-light),
+    inset -1px -1px 0 0 var(--border-deep);
+}
+
+.bp-btn-main:hover{
+  background-color:var(--border-mid);
+  box-shadow:
+    0 0 0 2px var(--gold),
+    inset 1px 1px 0 0 var(--gold-l),
+    inset -1px -1px 0 0 var(--border-deep);
+}
+
+/* ============================================================
+   格数分配：减号按钮 / 数值框 / 加号按钮。
+   两个按钮直接用 .bp-btn 的配方，不另创一套尺寸。
+   ============================================================ */
+.bp-steps{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:0 2px;
+}
+
+.bp-steps-value{
+  flex:0 0 48px;
+  text-align:center;
+  font-size:12px;
+  line-height:18px;
+  color:var(--ink);
+  background-color:var(--parchment-hi);
+  box-shadow:
+    0 0 0 2px var(--border-dark),
+    inset 1px 1px 0 0 var(--border-mid);
+}
+
+/* ============================================================
+   动物槽位：显式行，每行 4 个，尺寸沿用 .bp-slot 体系里的 48。
+   不用 flex-wrap，也不用 grid 自动换行——
+   行由 Java 按清单分组注入（同 backpack.html 的 .slot-row 做法）。
+   ============================================================ */
+.bp-animal-row{
+  flex:0 0 auto;
+  display:flex;
+  gap:4px;
+  padding:0 2px;
+}
+
+.bp-animal-cell{
+  position:relative;
+  flex:0 0 auto;
+  width:48px;
+  height:48px;
+  background-color:var(--parchment-hi);
+  box-shadow:
+    inset 1px 1px 0 0 var(--border-mid),
+    inset -1px -1px 0 0 var(--border-deep),
+    0 0 0 2px var(--border-dark);
+  cursor:pointer;
+}
+
+.bp-animal-cell:hover{
+  box-shadow:
+    0 0 0 2px var(--gold),
+    inset 1px 1px 0 0 var(--gold-l),
+    inset -1px -1px 0 0 var(--border-deep);
+}
+
+/* 选中的动物：与 .bp-item.on 同一套语汇（金边 + 压深），不一致会显得是两套界面 */
+.bp-animal-cell.on{
+  background-color:var(--border-mid);
+  box-shadow:
+    0 0 0 2px var(--gold),
+    inset 1px 1px 0 0 var(--gold-l),
+    inset -1px -1px 0 0 var(--border-deep);
+}
+
+.bp-animal-cell-icon{
+  position:absolute;
+  left:0;
+  top:0;
+  width:48px;
+  height:48px;
+}
+
+/* 动物名的底衬：与 .bp-tag 同色，不用半透明黑 */
+.bp-animal-cell-name{
+  position:absolute;
+  left:0;
+  bottom:0;
+  width:48px;
+  text-align:center;
+  font-size:9px;
+  line-height:11px;
+  color:var(--parchment-hi);
+  background:var(--border-deep);
+}
+
+/* 卡片右下角的「当前 / 上限」：黑描边保证在任何底色上都能读 */
+.bp-animal-cell-count{
+  position:absolute;
+  right:2px;
+  bottom:12px;
+  font-size:10px;
+  line-height:12px;
+  color:#fff;
+  text-shadow:
+    1px 1px 0 #000,
+   -1px 1px 0 #000,
+    1px -1px 0 #000,
+   -1px -1px 0 #000;
+}
+
+/* ---------- 饲养员：与住宅的可入住行同一套 ---------- */
+.bp-worker-face{
+  display:block;
+  flex:0 0 auto;
+  width:24px;
+  height:24px;
+  background-color:var(--parchment-lo);
+  box-shadow:0 0 0 2px var(--border-dark);
+}
+
+/* 已选中的饲养员：压深底色 + 金边，与悬停（底色变亮）区分开 */
+.bp-item.on{
+  background-color:var(--parchment-lo);
+  box-shadow:
+    0 0 0 2px var(--gold),
+    inset 1px 1px 0 0 var(--gold-l),
+    inset -1px -1px 0 0 var(--border-mid);
+}
+
+.bp-item.on .bp-sub{
+  color:var(--border-dark);
+}
+
+/* ============================================================
+   底部：固定不滚动
+   ============================================================ */
+.bp-foot{
+  flex:0 0 auto;
+  display:flex;
+  gap:6px;
+  padding:7px 8px 8px;
+  background-color:var(--parchment-lo);
+  background-image:url('/tex/parchment_status.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  image-rendering:pixelated;
+  border-top:2px solid var(--border-mid);
+  box-shadow:0 -1px 0 rgba(255,240,200,.32);
+}
+
+.bp-foot-off{
+  display:none;
+}
+
+.bp-hint{
+  flex:0 0 auto;
+  padding:0 8px 6px;
+  color:var(--ink-2);
+  font-size:10px;
+  line-height:13px;
+  background-color:var(--parchment-lo);
+}
+</style>
+</head>
+<body>
+
+<div class="bp-bar">
+
+  <!-- ======================= 养殖 ======================= -->
+  <div class="bp-head" id="wh-head">
+    <span class="bp-type">仓库</span>
+    <span class="bp-title" id="bp-name">仓库</span>
+    <span class="bp-lv" id="bp-level">Lv.1</span>
+  </div>
+
+  <div class="bp-body" id="wh-body">
+
+    <!-- 建筑信息：只读，字段由 Java 在打开界面时填充 -->
+    <div class="bp-info">
+      <div class="bp-info-row"><span class="bp-k">位置</span><span class="bp-v" id="wh-pos">—</span></div>
+      <div class="bp-info-row"><span class="bp-k">蓝图</span><span class="bp-v" id="wh-blueprint">—</span></div>
+      <div class="bp-info-row"><span class="bp-k">容量</span><span class="bp-v" id="wh-capacity">0 格</span></div>
+      <div class="bp-info-row"><span class="bp-k">运输关系</span><span class="bp-v" id="wh-count">0 条</span></div>
+    </div>
+
+    <!-- 运输关系卡片：每行一条"与某建筑已建立运输关系"，行由 Java 注入 -->
+    <div class="bp-block">
+      <div class="bp-sec">
+        <span class="bp-sec-title">运输关系</span>
+        <span class="bp-sec-actions">
+          <span class="bp-sec-note" id="wh-links-note">0 条</span>
+        </span>
+      </div>
+      <div class="bp-list" id="wh-links"></div>
+      <div class="bp-empty" id="wh-links-empty">这座仓库还没有与任何建筑建立运输关系</div>
+    </div>
+
+  </div>
+
+  <div class="bp-foot" id="wh-foot">
+    <div class="bp-btn bp-btn-main" id="wh-link">创建链接</div>
+  </div>
+
+  <!-- 与 farm.html 的 fd-foot 同款：打开仓库独占底栏第二行，不与主操作挤在一起 -->
+  <div class="bp-foot bp-foot-off" id="bp-warehouse-row">
+    <div class="bp-btn bp-btn-main" id="bp-warehouse">打开核心仓库</div>
+  </div>
+
+  <div class="bp-hint">Tab / Esc 关闭　·　Ctrl + 滚轮缩放</div>
+
+</div>
+
+</body>
+</html>

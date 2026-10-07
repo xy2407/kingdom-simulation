@@ -33,6 +33,7 @@ public final class NpcFarmService {
 
     /** 一格目标最多重发几次寻路，之后丢弃等下一轮巡检，免得死盯走不到的格。 */
     private static final int MAX_RESUME_RETRIES = 3;
+    private static final int ACTION_INTERVAL_TICKS = 20;
     private static final double ARRIVE_SQR = 6.25D;
     private static final int AREA_LIMIT = 4096;
 
@@ -53,6 +54,7 @@ public final class NpcFarmService {
         private BlockPos target;
         private Action action = Action.PLANT;
         private int retries;
+        private int cooldown;
     }
 
     private NpcFarmService() {
@@ -244,11 +246,16 @@ public final class NpcFarmService {
         }
         NpcBrain brain = data.getBrain();
         Work work = WORKS.computeIfAbsent(data.getId(), id -> new Work());
+        if (work.cooldown > 0) {
+            work.cooldown--;
+            return;
+        }
         if (work.target != null) {
             if (near(npc, work.target)) {
                 apply(level, plot, work, npc);
                 work.target = null;
                 work.retries = 0;
+                work.cooldown = ACTION_INTERVAL_TICKS;
             } else if (!npc.getNavigation().isInProgress()) {
                 resumeOrDrop(npc, work);
             }
@@ -284,16 +291,41 @@ public final class NpcFarmService {
             if (!isMature(cropState)) {
                 return;
             }
-            List<ItemStack> drops = Block.getDrops(cropState, level, cropPos, null, npc, ItemStack.EMPTY);
-            level.setBlock(cropPos, Blocks.AIR.defaultBlockState(), Block.UPDATE_CLIENTS);
-            markSnapshot(level, cropPos);
-            for (ItemStack drop : drops) {
-                if (drop != null && !drop.isEmpty()) {
-                    Block.popResource(level, cropPos, drop);
-                }
-            }
+            harvest(level, plot, npc, soil, cropPos, cropState);
             return;
         }
+        plant(level, plot, soil, cropPos, cropState);
+    }
+
+    private static void harvest(ServerLevel level, FarmPlot plot, NpcEntity npc,
+                                BlockPos soil, BlockPos cropPos, BlockState cropState) {
+        List<ItemStack> drops = Block.getDrops(cropState, level, cropPos, null, npc, ItemStack.EMPTY);
+        level.setBlock(cropPos, Blocks.AIR.defaultBlockState(), Block.UPDATE_CLIENTS);
+        markSnapshot(level, cropPos);
+        hold(level, cropPos, npc, drops);
+        plant(level, plot, soil, cropPos, level.getBlockState(cropPos));
+    }
+
+    private static void hold(ServerLevel level, BlockPos pos, NpcEntity npc, List<ItemStack> drops) {
+        NpcInventory inventory = npc == null ? null : npc.getNpcInventory();
+        for (ItemStack drop : drops) {
+            if (drop == null || drop.isEmpty()) {
+                continue;
+            }
+            ItemStack remaining = drop.copy();
+            if (inventory != null) {
+                for (int slot = 0; slot < inventory.getSlots() && !remaining.isEmpty(); slot++) {
+                    remaining = inventory.insertItem(slot, remaining, false);
+                }
+            }
+            if (!remaining.isEmpty()) {
+                Block.popResource(level, pos, remaining);
+            }
+        }
+    }
+
+    private static void plant(ServerLevel level, FarmPlot plot, BlockPos soil, BlockPos cropPos,
+                              BlockState cropState) {
         if (!cropState.isAir()) {
             return;
         }

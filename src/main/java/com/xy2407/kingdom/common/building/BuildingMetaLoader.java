@@ -66,6 +66,7 @@ public final class BuildingMetaLoader {
                 integer(root, "level", 1),
                 integer(root, "jobs", 0),
                 Math.max(0, integer(root, "farm_slots", 0)),
+                Math.max(0, integer(root, "storage_slots", 0)),
                 crops(root),
                 animals(root),
                 recipes(root),

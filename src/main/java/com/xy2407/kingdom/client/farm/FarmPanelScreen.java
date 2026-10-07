@@ -74,9 +74,10 @@ public final class FarmPanelScreen extends ApricityScreen {
     private Element cropsHost;
     private Element workersHost;
     private Element workerSearchInput;
-    private Element detailDelete;
     private Element detailSave;
     private Element detailCancel;
+    /** 点了卡片上的 ✕、正等确认弹窗答复的那块农田；null 表示没有待确认的删除。 */
+    private UUID pendingDeleteId;
 
     private FarmPanelStatePacket latest = FarmPanelStatePacket.outside();
     private UUID selectedPlotId;
@@ -136,7 +137,6 @@ public final class FarmPanelScreen extends ApricityScreen {
         cropsHost = document.getElementById("fd-crops");
         workersHost = document.getElementById("fd-workers");
         workerSearchInput = document.getElementById("fd-worker-search");
-        detailDelete = document.getElementById("fd-delete");
         detailSave = document.getElementById("fd-save");
         detailCancel = document.getElementById("fd-cancel");
 
@@ -148,7 +148,9 @@ public final class FarmPanelScreen extends ApricityScreen {
         on("fd-cancel", this::cancelDraft);
         on("fd-minus", () -> stepSlots(-1));
         on("fd-plus", () -> stepSlots(1));
-        on("fd-delete", this::deletePlot);
+        on("fd-warehouse", this::openWarehouse);
+        on("fm-confirm-no", this::closeConfirm);
+        on("fm-confirm-yes", this::confirmDelete);
         on("fd-clear-workers", this::clearWorkers);
         on("fd-worker-search-clear", () -> setWorkerFilter(""));
         on("fd-draw", () -> {
@@ -298,6 +300,9 @@ public final class FarmPanelScreen extends ApricityScreen {
                     .append(plot.hasArea() ? areaText(plot) : "未划地")
                     .append("</span>")
                     .append("<span class=\"bp-sub\">").append(plot.workers().size()).append(" 人</span>")
+                    /* 删除按钮贴在卡片最右侧。点它只弹确认、不直接删——
+                       整块农田连同格数与打理人安排一起没，手一抖代价太大。 */
+                    .append("<span class=\"bp-row-del\" id=\"fm-row-del-").append(row).append("\">✕</span>")
                     .append("</div>");
         }
         listHost.setInnerHTML(html.toString());
@@ -314,6 +319,10 @@ public final class FarmPanelScreen extends ApricityScreen {
             Element element = boundDocument.getElementById("fm-row-" + row);
             if (element != null) {
                 element.addEventListener("click", event -> openDetail(plot.id()));
+            }
+            Element remove = boundDocument.getElementById("fm-row-del-" + row);
+            if (remove != null) {
+                remove.addEventListener("click", event -> askDelete(plot.id(), plot.name()));
             }
             applyIcon(boundDocument.getElementById("fm-row-icon-" + row), plot.cropId());
         }
@@ -408,10 +417,15 @@ public final class FarmPanelScreen extends ApricityScreen {
         }
     }
 
-    /** 待定态底部只留「取消 / 保存」；已建农田保留「删除 / 框选范围 / 完成」。 */
+    /**
+     * 底栏常驻「打开仓库」；只有**待定农田**（还没落库）才额外多出「保存 / 取消」。
+     *
+     * <p>已建农田不再有「完成」：格数、作物、打理人本来就是改动即发到服务端，
+     * 那个按钮当年其实只是"关闭详情页"，留着反而让人以为不点就不保存。</p>
+     */
     private void showDetailButtons(boolean draft) {
-        setVisible(detailDelete, !draft);
-        setText(detailSave, draft ? "保存" : "完成");
+        setText(detailSave, "保存");
+        setVisible(detailSave, draft);
         setVisible(detailCancel, draft);
     }
 
@@ -682,12 +696,48 @@ public final class FarmPanelScreen extends ApricityScreen {
         hint("已放弃这块待定农田");
     }
 
-    private void deletePlot() {
-        if (selectedPlotId == null) {
+    /** 点卡片最右侧的 ✕：先把要删的那块记下来并弹确认，不立刻删。 */
+    private void askDelete(UUID plotId, String name) {
+        if (boundDocument == null || plotId == null) {
             return;
         }
-        send(FarmPanelActionPacket.delete(selectedPlotId));
-        closeDetail();
+        pendingDeleteId = plotId;
+        setText(boundDocument.getElementById("fm-confirm-text"),
+                "确定删除「" + (name == null || name.isBlank() ? "这块农田" : name)
+                        + "」？它的格数与打理人安排会一并清掉。");
+        Element modal = boundDocument.getElementById("fm-confirm");
+        if (modal != null) {
+            modal.getClassList().toggle(ON, true);
+        }
+    }
+
+    private void closeConfirm() {
+        pendingDeleteId = null;
+        if (boundDocument == null) {
+            return;
+        }
+        Element modal = boundDocument.getElementById("fm-confirm");
+        if (modal != null) {
+            modal.getClassList().toggle(ON, false);
+        }
+    }
+
+    /** 确认删除。删的是**卡片上那一块**，不一定是详情页里选中的那块。 */
+    private void confirmDelete() {
+        UUID plotId = pendingDeleteId;
+        closeConfirm();
+        if (plotId == null) {
+            return;
+        }
+        send(FarmPanelActionPacket.delete(plotId));
+        if (plotId.equals(selectedPlotId)) {
+            closeDetail();
+        }
+    }
+
+    /** 底栏的「打开仓库」：界面由服务端换（建筑按玩家位置判定，不采信客户端）。 */
+    private void openWarehouse() {
+        send(FarmPanelActionPacket.openStorage());
     }
 
     private void setFilter(String value) {

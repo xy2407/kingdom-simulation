@@ -934,6 +934,13 @@ npc-bar,kingdom-entity-avatar,world-map,img{
 
 .map-full.is-open{display:flex;}
 
+/* 全屏地图打开时把缩略图撤下。
+   两张地图是两个独立的 <world-map> 元素实例，各自会向服务端请求"自己中心那块区域"，
+   而客户端的地图数据只有一份；同时开着就互相把对方的数据冲掉，画面来回闪。
+   撤掉一个，剩下的那个才是唯一的数据来源。（被覆盖层遮住不算撤掉：
+   元素还在绘制，就还在请求。） */
+.ch-map.is-hidden{display:none;}
+
 .map-full-box{
   position:relative;
   flex:1 1 auto;
