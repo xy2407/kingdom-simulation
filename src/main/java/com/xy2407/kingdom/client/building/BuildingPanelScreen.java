@@ -39,7 +39,7 @@ public final class BuildingPanelScreen extends ApricityScreen {
 
     private static final Map<String, String> MAIN_BUTTONS = Map.of(
             "industry", "im-start",
-            "ranch", "rm-take",
+            "ranch", "rm-start",
             "restaurant", "rs-pick",
             "shop", "sh-shelve",
             "military", "mt-army",

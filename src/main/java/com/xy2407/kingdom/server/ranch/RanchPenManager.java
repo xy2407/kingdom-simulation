@@ -155,7 +155,7 @@ public final class RanchPenManager {
                     continue;
                 }
                 RanchPen pen = new RanchPen(UUID.randomUUID(), building.id(), building.name(), spec.id(),
-                        building.dimension(), building.min(), building.max(), List.of(), true, "", 0L);
+                        building.dimension(), building.min(), building.max(), List.of(), false, "", 0L);
                 pens.put(pen.id(), pen);
                 persist(pen);
                 ModMain.LOGGER.info("已为 {} 补出一栏养殖：{}", building.name(), spec.name());

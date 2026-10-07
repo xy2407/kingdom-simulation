@@ -698,6 +698,7 @@ body{
     <div class="bp-info">
       <div class="bp-info-row"><span class="bp-k">位置</span><span class="bp-v" id="rm-pos">—</span></div>
       <div class="bp-info-row"><span class="bp-k">蓝图</span><span class="bp-v" id="rm-blueprint">—</span></div>
+      <div class="bp-info-row"><span class="bp-k">配方</span><span class="bp-v" id="rm-recipe">—</span></div>
       <div class="bp-info-row"><span class="bp-k">饲养员</span><span class="bp-v" id="rm-keeper">未指派</span></div>
     </div>
 
@@ -721,8 +722,48 @@ body{
   </div>
 
   <div class="bp-foot" id="rm-foot">
-    <div class="bp-btn bp-btn-main" id="rm-take">取出动物</div>
+    <div class="bp-btn bp-btn-main" id="rm-start">开始养殖</div>
     <div class="bp-btn" id="bp-close">关闭</div>
+  </div>
+
+  <!-- ======================= 二级：单条配方详情（选配方 + 雇饲养员） ======================= -->
+  <div class="bp-head bp-head-off" id="rc-head">
+    <span class="bp-type">养殖</span>
+    <span class="bp-title" id="rc-name">—</span>
+    <span class="bp-back" id="rc-back">返回</span>
+  </div>
+
+  <div class="bp-body bp-body-off" id="rc-body">
+
+    <div class="bp-info">
+      <div class="bp-info-row"><span class="bp-k">动物</span><span class="bp-v" id="rc-animal">—</span></div>
+      <div class="bp-info-row"><span class="bp-k">配方</span><span class="bp-v" id="rc-recipe">—</span></div>
+      <div class="bp-info-row"><span class="bp-k">存栏</span><span class="bp-v" id="rc-stock">0 / 0 头</span></div>
+      <div class="bp-info-row"><span class="bp-k">状态</span><span class="bp-v" id="rc-status">未开始</span></div>
+    </div>
+
+    <!-- 饲养员名册：点一行即指派/解雇，改动立刻生效（不需要保存） -->
+    <div class="bp-block">
+      <div class="bp-sec">
+        <span class="bp-sec-title">饲养员</span>
+        <span class="bp-sec-actions">
+          <span class="bp-sec-btn" id="rc-clear-workers">全部解雇</span>
+          <span class="bp-sec-note" id="rc-workers-note">0 人</span>
+        </span>
+      </div>
+      <div class="bp-search">
+        <span class="bp-search-icon">⌕</span>
+        <input type="text" id="rc-worker-search" maxlength="16" placeholder="搜索附近居民…">
+        <span class="bp-search-clear" id="rc-worker-search-clear">✕</span>
+      </div>
+      <div class="bp-list" id="rc-workers"></div>
+      <div class="bp-empty" id="rc-workers-empty">城里还没有可雇的市民</div>
+    </div>
+
+  </div>
+
+  <div class="bp-foot bp-foot-off" id="rc-foot">
+    <div class="bp-btn" id="rc-close">返回</div>
   </div>
 
   <!-- 与 farm.html 的 fd-foot 同款：打开仓库独占底栏第二行，不与主操作挤在一起 -->

@@ -37,9 +37,8 @@ public final class CityHallScreen extends ApricityScreen {
     private int mapCenterX;
     private int mapCenterZ;
 
-    /** 上一次真正写进 DOM 的地图中心。用来避免每帧把玩家拖出来的视角拽回原位。 */
-    private int appliedCenterX = Integer.MIN_VALUE;
-    private int appliedCenterZ = Integer.MIN_VALUE;
+    /** 本次会话是否已经给地图定过初始视角；定过之后视角就完全归玩家，不再被覆盖。 */
+    private boolean viewInitialized;
 
     /** 全屏地图要从缩略图继承的属性：中心与缩放。 */
     private static final String[] MAP_VIEW_ATTRIBUTES = {"center-x", "center-z", "zoom"};
@@ -464,23 +463,22 @@ public final class CityHallScreen extends ApricityScreen {
     // ------------------------------------------------------------ DOM 小工具
 
     /**
-     * 按服务端给的中心给两张地图定初始视角。
+     * 按服务端给的中心给两张地图定<b>初始</b>视角。
      *
-     * <p><b>只在目标中心变了时才写。</b>{@link #applyData} 每帧都会被 {@link #bind()} 调到，
-     * 无条件写会把玩家刚拖出来的视角每帧拽回去，拖动看着就像没生效。</p>
+     * <p><b>整个会话只定这一次，之后视角完全归玩家。</b>早先写的是"目标中心变了就重设"，
+     * 本意是躲开"每帧覆盖玩家拖动"——但那不够：服务端记的"上次看的位置"就是玩家最后一次
+     * 请求的中心，而数据包是定时下发的，包里那个值常常比玩家手上的视角<b>旧一档</b>。
+     * 于是刚拖到某处，下一份包一到就把中心拽回去，接着因为区域变了又去请求旧区域，来回震荡
+     * ——表现就是"每隔几秒地图中心自己变"。</p>
      *
      * <p>两张地图都设：全屏层是另一个 {@code <world-map>} 实例，有自己的
      * {@code center-x / center-z}，漏掉它点开放大时会跳回页面里的占位值。</p>
      */
     private void pointMapIfChanged(Document document) {
-        boolean hasSaved = mapCenterX != 0 || mapCenterZ != 0;
-        int targetX = hasSaved ? mapCenterX : hallX;
-        int targetZ = hasSaved ? mapCenterZ : hallZ;
-        if (targetX == appliedCenterX && targetZ == appliedCenterZ) {
+        if (viewInitialized) {
             return;
         }
-        appliedCenterX = targetX;
-        appliedCenterZ = targetZ;
+        viewInitialized = true;
         pointMap(document, "chMap");
         pointMap(document, "chMapFullView");
     }

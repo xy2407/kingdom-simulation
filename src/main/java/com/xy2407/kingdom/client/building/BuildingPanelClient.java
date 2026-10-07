@@ -1,6 +1,7 @@
 package com.xy2407.kingdom.client.building;
 
 import com.xy2407.kingdom.client.farm.FarmPanelScreen;
+import com.xy2407.kingdom.client.ranch.RanchPanelScreen;
 import com.xy2407.kingdom.common.network.building.BuildingPanelRequestPacket;
 import com.xy2407.kingdom.common.network.building.BuildingPanelStatePacket;
 
@@ -41,6 +42,12 @@ public final class BuildingPanelClient {
                它有专属的 Screen 与一套 action 包，交给通用宿主会把这些功能全丢掉。 */
             if (FarmPanelScreen.PAGE.equals(packet.page())) {
                 minecraft.setScreen(new FarmPanelScreen());
+                return;
+            }
+            /* 养殖同样有专属面板：蓝图 json 的配方清单、点选开跑、取出与存栏刷新都在它手里，
+               交给通用宿主只会剩下"该功能尚未接入"。 */
+            if (RanchPanelScreen.PAGE.equals(packet.page())) {
+                minecraft.setScreen(new RanchPanelScreen());
                 return;
             }
             minecraft.setScreen(new BuildingPanelScreen(packet.page(), packet.name(), packet.level(),

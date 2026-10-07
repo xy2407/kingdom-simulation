@@ -70,7 +70,8 @@ public final class WorldMapServer {
      * 采样以 (centerX, centerZ) 为中心的区域并按 {@link WorldMapDataPacket#CHUNK_INTS}
      * 切片下发。命中缓存就直接发，不重复采样。
      */
-    public static void fulfill(ServerPlayer player, int centerX, int centerZ, int radius) {
+    public static void fulfill(ServerPlayer player, int centerX, int centerZ, int radius,
+                               int knownRevision) {
         ServerLevel level = player.serverLevel();
         /* 请求里带的中心就是这名玩家正在看的地方——顺手记进他的档案，每人一份。
            客户端只在拖动松手后发请求，所以存下来的正是"他上次看到哪"，
@@ -83,9 +84,30 @@ public final class WorldMapServer {
         int originZ = centerZ - radius;
         String key = dimension + "|" + originX + "|" + originZ + "|" + size;
 
+        /* 先比一句"你手上那份是不是这一版"。一致就回个空片：这一片自上次下发之后没动过，
+           重发整块只是把同样几百 KB 的内容再走一遍网。
+           客户端换了看的地方时会把版本号清成负值，所以"区域变了、内容没变"不会被误判。 */
+        /* 版本按玩家分：每个人的地图不同，比的自然是<b>他自己那份</b>的版本。 */
+        ExploredMapStore.Data data = ExploredMapStore.data(level);
+        int serverRevision = data.revision(player.getUUID());
+        /* 诊断用，默认不输出——客户端改为"只补缺口"后会请求得比较勤，INFO 会刷屏。
+           排查时把日志级别开到 DEBUG 即可：已记录区块数为 0 说明服务端的扫描还没把
+           玩家周围的地面记进来。 */
+        ModMain.LOGGER.debug("[地图] 请求 center=({}, {}) 半径={} 客户端版本={} 服务端版本={} 已记录区块={}",
+                centerX, centerZ, radius, knownRevision, serverRevision,
+                data.chunkCount(player.getUUID()));
+        if (knownRevision >= 0 && knownRevision == serverRevision) {
+            sendUnchanged(player);
+            return;
+        }
+
         WorldSurfaceSampler.Snapshot hit = cached(key);
         if (hit != null) {
-            send(player, hit);
+            /* 命中缓存也不能直接发。缓存里存的是"上一次当场采到的地面"，而玩家走过、
+               之后卸载的区块是记在<b>他自己</b>的已探索档案里的——档案一直在长。直接发缓存
+               就等于把地图冻在第一次打开的那一刻，这正是"内容不跟着探索变"的直接原因。
+               所以补全这一步每次都要现做。 */
+            send(player, level, withExplored(player.getUUID(), level, hit));
             return;
         }
 
@@ -99,13 +121,9 @@ public final class WorldMapServer {
                 .supplyAsync(() -> {
                     WorldSurfaceSampler.Snapshot fresh =
                             WorldSurfaceSampler.sample(level, centerX, centerZ, radius);
-                    /* 把这一片按区块并进已探索仓库：玩家走过、之后卸载的区块，
-                       下次再看地图就能从存档里拼回来，而不是一片空白。 */
-                    ExploredMapStore.record(explored, fresh.colors(),
-                            fresh.originX(), fresh.originZ(), fresh.size());
-                    /* 本次没加载到的格子（走到过、现在卸载了）用仓库里的历史数据补上。
-                       "地图锁死在当前位置附近"的观感，正是这些空白造成的。 */
-                    ExploredMapStore.fillGaps(explored, fresh.colors(),
+                    /* 把这一片按区块并进<b>请求者自己</b>的已探索仓库：他走过、之后卸载的
+                       区块，下次再看地图就能从他那份档案里拼回来，而不是一片空白。 */
+                    ExploredMapStore.record(playerId, explored, fresh.colors(),
                             fresh.originX(), fresh.originZ(), fresh.size());
                     return fresh;
                 }, POOL)
@@ -113,16 +131,22 @@ public final class WorldMapServer {
                     if (snapshot == null) {
                         return;
                     }
+                    /* 缓存"纯采样"：补全留到发送前现做。要是把补全结果一起缓存了，
+                       下一次命中缓存又会把当时那份结果直接发出去，等于没修。 */
                     cache(key, snapshot);
                     if (server == null) {
                         return;
                     }
-                    /* 回主线程发包：PacketDistributor 不是线程安全的，
-                       而且玩家可能在这一瞬间掉线，得重新取一次。 */
+                    /* 回主线程发包：PacketDistributor 不是线程安全的，玩家也可能在这一瞬间
+                       掉线得重新取一次；withExplored 同样必须在主线程（要碰 getDataStorage）。 */
                     server.execute(() -> {
+                        /* 采样的 record() 跑在采样线程上，而 SavedData 的"脏"标记不是 volatile——
+                           在那儿设可能延迟到主线程都看不见，那一轮自动保存就把这份改动漏掉了。
+                           回主线程再标一次，确保它一定进得去下一次落盘。 */
+                        explored.setDirty();
                         ServerPlayer online = server.getPlayerList().getPlayer(playerId);
                         if (online != null) {
-                            send(online, snapshot);
+                            send(online, level, withExplored(playerId, level, snapshot));
                         }
                     });
                 })
@@ -132,8 +156,39 @@ public final class WorldMapServer {
                 });
     }
 
+    /**
+     * 复制一份采样，用已探索档案补上这次没加载到的格子。
+     *
+     * <p><b>必须复制再补。</b>缓存里那一份要留给下一次请求继续用，而
+     * {@link ExploredMapStore#fillGaps} 是就地改数组的——不复制就把缓存污染了，
+     * 下次命中缓存发出去的就成了"上次补全过的样子"，又回到陈旧数据。</p>
+     *
+     * <p>只能在主线程调用：里面要取 {@code getDataStorage()}。</p>
+     */
+    private static WorldSurfaceSampler.Snapshot withExplored(UUID owner, ServerLevel level,
+                                                             WorldSurfaceSampler.Snapshot snapshot) {
+        int[] colors = snapshot.colors().clone();
+        ExploredMapStore.fillGaps(owner, ExploredMapStore.data(level), colors,
+                snapshot.originX(), snapshot.originZ(), snapshot.size());
+        return new WorldSurfaceSampler.Snapshot(
+                snapshot.originX(), snapshot.originZ(), snapshot.size(), colors);
+    }
+
+    /**
+     * 回一个"没有变化"的空片。
+     *
+     * <p>客户端收到 {@code size = 0} 的片会直接忽略，手上那份数据原样保留
+     * （见 {@code WorldMapClientData.accept}）。</p>
+     */
+    private static void sendUnchanged(ServerPlayer player) {
+        PacketDistributor.sendToPlayer(player, new WorldMapDataPacket(
+                0, 0, WorldMapDataPacket.NO_CHANGE, 0, 1, 0, new int[0]));
+    }
+
     /** 按片下发。即使只探索了一小块也是整块照发——未探索的格子值是 -1，客户端画成黑色。 */
-    private static void send(ServerPlayer player, WorldSurfaceSampler.Snapshot snapshot) {
+    private static void send(ServerPlayer player, ServerLevel level,
+                             WorldSurfaceSampler.Snapshot snapshot) {
+        int revision = ExploredMapStore.data(level).revision(player.getUUID());
         int[] colors = snapshot.colors();
         int chunkTotal = (colors.length + WorldMapDataPacket.CHUNK_INTS - 1)
                 / WorldMapDataPacket.CHUNK_INTS;
@@ -147,7 +202,8 @@ public final class WorldMapServer {
             /* 最后一片可能为空（长度正好是整数倍时），给个空数组把总数交代清楚 */
             int[] slice = from < to ? Arrays.copyOfRange(colors, from, to) : new int[0];
             PacketDistributor.sendToPlayer(player, new WorldMapDataPacket(
-                    snapshot.originX(), snapshot.originZ(), snapshot.size(), index, chunkTotal, slice));
+                    snapshot.originX(), snapshot.originZ(), snapshot.size(),
+                    index, chunkTotal, revision, slice));
         }
     }
 

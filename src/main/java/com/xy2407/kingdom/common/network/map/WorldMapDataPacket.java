@@ -29,10 +29,19 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
  * @param colors     该分片的调色板打包 id 数据
  */
 public record WorldMapDataPacket(int originX, int originZ, int size,
-                                 int chunkIndex, int chunkTotal, int[] colors) implements CustomPacketPayload {
+                                 int chunkIndex, int chunkTotal, int revision,
+                                 int[] colors) implements CustomPacketPayload {
 
     /** 每片的格数。4096 格最多约 20KB，包体不至于过大，片数也不至于太多。 */
     public static final int CHUNK_INTS = 4096;
+
+    /**
+     * {@code size} 取这个值表示"没有变化"，不是一个真块图。
+     *
+     * <p>服务端比对内容版本后，若客户端手上那份已经是最新的，就只回这么一片，
+     * 客户端收到后原样保留手上的数据。整个来回几十字节。</p>
+     */
+    public static final int NO_CHANGE = 0;
 
     public static final CustomPacketPayload.Type<WorldMapDataPacket> TYPE =
             new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath(ModMain.MOD_ID, "world_map_data"));
@@ -51,6 +60,7 @@ public record WorldMapDataPacket(int originX, int originZ, int size,
         buf.writeVarInt(packet.size());
         buf.writeVarInt(packet.chunkIndex());
         buf.writeVarInt(Math.max(1, packet.chunkTotal()));
+        buf.writeVarInt(packet.revision());
         int[] colors = packet.colors();
         buf.writeVarInt(colors == null ? 0 : colors.length);
         if (colors != null) {
@@ -66,12 +76,13 @@ public record WorldMapDataPacket(int originX, int originZ, int size,
         int size = buf.readVarInt();
         int chunkIndex = buf.readVarInt();
         int chunkTotal = buf.readVarInt();
+        int revision = buf.readVarInt();
         int length = buf.readVarInt();
         int[] colors = new int[Math.max(0, Math.min(CHUNK_INTS * 2, length))];
         for (int i = 0; i < colors.length; i++) {
             colors[i] = buf.readVarInt();
         }
-        return new WorldMapDataPacket(originX, originZ, size, chunkIndex, chunkTotal, colors);
+        return new WorldMapDataPacket(originX, originZ, size, chunkIndex, chunkTotal, revision, colors);
     }
 
     public static void handle(WorldMapDataPacket packet, IPayloadContext context) {

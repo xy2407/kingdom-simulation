@@ -19,6 +19,10 @@ package com.xy2407.kingdom.common.building;
 public record AnimalSpec(String id, String name, String entity, int capacity,
                          String feed, String mode, String output) {
 
+    /** 蓝图没写 {@code capacity} 时的存栏上限。 */
+    public static final int DEFAULT_CAPACITY = 24;
+
+
     public AnimalSpec {
         id = id == null ? "" : id;
         name = name == null || name.isBlank() ? id : name;
@@ -32,4 +36,10 @@ public record AnimalSpec(String id, String name, String entity, int capacity,
     public boolean collecting() {
         return !"slaughter".equalsIgnoreCase(mode);
     }
+
+    /** 存栏上限：蓝图 json 的 {@code capacity} 说了算，只有没写（0）才回落到这个值。 */
+    public int limit() {
+        return capacity > 0 ? capacity : DEFAULT_CAPACITY;
+    }
 }
+

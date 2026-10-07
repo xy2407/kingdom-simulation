@@ -44,7 +44,7 @@ public final class RanchWorkService {
     private static final long ENTITY_SCAN_INTERVAL = 40L;
     private static final long FEED_INTERVAL = 2400L;
     private static final long COLLECT_INTERVAL = 600L;
-    private static final int MAX_COLUMN = 24;
+    private static final double KEEPER_REACH = 3.0D;
 
     public static final String STATUS_NO_BUILDING = "no_building";
     public static final String STATUS_NO_ANIMAL = "no_animal";
@@ -93,7 +93,29 @@ public final class RanchWorkService {
             tickPen(level, pen, runtime, keeper, gameTime);
         }
         RUNTIMES.keySet().retainAll(activePens);
-        releaseUnusedKeepers(activeKeepers);
+        releaseUnusedKeepers(server, activeKeepers);
+    }
+
+    /** 只读清点这一栏的家底，返回 {总数, 成年数}：面板展示与"取出"判定都用它，不改任何状态。 */
+    public static int[] headcount(ServerLevel level, RanchPen pen) {
+        int[] heads = new int[]{0, 0};
+        if (level == null || pen == null) {
+            return heads;
+        }
+        AnimalSpec spec = RanchPenManager.INSTANCE.animalOf(pen);
+        BuildingRecord building = BuildingRegistry.INSTANCE.byId(pen.buildingId());
+        EntityType<?> type = spec == null ? null : entityType(spec.entity());
+        if (building == null || type == null) {
+            return heads;
+        }
+        String key = penKey(pen);
+        for (Mob mob : level.getEntitiesOfClass(Mob.class, RanchBounds.box(building),
+                candidate -> candidate.getType() == type && candidate.isAlive()
+                        && key.equals(RanchAnimals.penOf(candidate)))) {
+            heads[0] += Math.max(1, RanchAnimals.count(mob));
+            heads[1] += RanchAnimals.adults(mob);
+        }
+        return heads;
     }
 
     private static void tickPen(ServerLevel level, RanchPen pen, PenRuntime runtime,
@@ -151,12 +173,12 @@ public final class RanchWorkService {
 
     /** 栏内动物按容量补齐：同类合并到一个基座实体，数量存在它的虚拟条目里。 */
     private static void ensureAnimals(ServerLevel level, RanchPen pen, PenRuntime runtime) {
-        int capacity = Math.max(1, Math.min(MAX_COLUMN, runtime.spec.capacity()));
+        int capacity = runtime.spec.limit();
         Mob base = RanchAnimals.consolidate(level, runtime.bounds, penKey(pen), runtime.type);
         if (base == null) {
             List<BlockPos> points = RanchBounds.standablePoints(level, runtime.building);
             base = RanchAnimals.spawnBase(level, points.get(0), runtime.type, penKey(pen), capacity);
-        } else if (RanchAnimals.count(base) < capacity) {
+        } else if (RanchAnimals.count(base) <= 0) {
             RanchAnimals.keep(base, capacity);
         }
         runtime.base = base;
@@ -214,9 +236,20 @@ public final class RanchWorkService {
             return;
         }
         BlockPos target = nearest(RanchBounds.standablePoints(level, runtime.building), keeper.position());
-        if (target != null) {
-            keeper.setRanchTarget(target);
+        if (target == null) {
+            return;
         }
+        keeper.setRanchTarget(target);
+        if (keeper.blockPosition().distSqr(target) <= KEEPER_REACH * KEEPER_REACH) {
+            keeper.setHeldItem(feedOf(runtime.spec));
+            keeper.playSwing();
+        }
+    }
+
+    private static ItemStack feedOf(AnimalSpec spec) {
+        ResourceLocation id = spec == null ? null : ResourceLocation.tryParse(spec.feed());
+        Item item = id == null ? null : BuiltInRegistries.ITEM.get(id);
+        return item == null || item == Items.AIR ? ItemStack.EMPTY : new ItemStack(item);
     }
 
     private static BlockPos nearest(List<BlockPos> points, Vec3 origin) {
@@ -333,15 +366,21 @@ public final class RanchWorkService {
         CONTROLLED_KEEPERS.add(keeper.getId());
     }
 
-    private static void releaseUnusedKeepers(Set<UUID> activeKeepers) {
+    private static void releaseUnusedKeepers(MinecraftServer server, Set<UUID> activeKeepers) {
         for (UUID id : new HashSet<>(CONTROLLED_KEEPERS)) {
             if (activeKeepers.contains(id)) {
                 continue;
             }
             CONTROLLED_KEEPERS.remove(id);
             NpcData npc = NpcManager.INSTANCE.getNpc(id);
-            if (npc != null) {
-                npc.getBrain().setRanchControlled(false);
+            if (npc == null) {
+                continue;
+            }
+            npc.getBrain().setRanchControlled(false);
+            ServerLevel level = levelOf(server, npc.getDimension());
+            NpcEntity entity = level == null ? null : entityOf(level, npc);
+            if (entity != null) {
+                entity.setHeldItem(ItemStack.EMPTY);
             }
         }
     }

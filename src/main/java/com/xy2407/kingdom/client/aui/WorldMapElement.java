@@ -67,14 +67,25 @@ public class WorldMapElement extends Element {
     /**
      * 标记用的原版地图图标。
      *
-     * <p>{@code textures/map/decorations/} 下的原版贴图。想换外观就改这一行——
-     * 同目录还有 {@code red_x} / {@code banner_white} / {@code village_plains} /
-     * {@code mansion} 等，都是 8×8 的像素图。</p>
+     * <p>{@code textures/map/decorations/} 下的原版贴图。想换外观就改这一行：同目录还有
+     * {@code banner_white} / {@code village_plains} / {@code mansion} 等，都是像素图。</p>
+     *
+     * <p>用 {@code target_x} 是因为它在各版本都稳定存在；旗帜那几张在有些版本里读不出来，
+     * 而读不到就只是一个标记不显示，界面上没有别的提示，很难查。</p>
      */
     private static final String MARKER_TEXTURE = "textures/map/decorations/target_x.png";
 
-    /** 标记在屏幕上的边长（GUI 像素）。跟原版一样固定大小，不随地图缩放变。 */
-    private static final int MARKER_SIZE = 16;
+    /**
+     * 标记在屏幕上的边长（GUI 像素）。跟原版一样固定大小，不随地图缩放变。
+     *
+     * <p>原版这些图标只有 8×8，贴到 16 是两倍最近邻。这里放到 32 是为了在缩略图上也能
+     * 一眼认出领地在哪——代价是像素颗粒更明显。页面上的 {@code image-rendering:pixelated}
+     * 保证它是硬边放大，不会糊成一团。</p>
+     */
+    private static final int MARKER_SIZE = 32;
+
+    /** 读不到标记图标时的重试间隔。见 {@link #markerPixels()}。 */
+    private static final long MARKER_RETRY_NANOS = 5_000_000_000L;
 
     private static final int DEFAULT_RADIUS = 192;
     private static final double MIN_ZOOM = 0.25;
@@ -94,13 +105,31 @@ public class WorldMapElement extends Element {
     private static final double MIN_CHUNK_GRID_PIXELS = 10.0;
 
     /**
-     * 区块边框的颜色：四分之一白。
+     * 区块边框的线宽（画布像素）。
+     *
+     * <p>一像素在缩略图上是勉强可见，而地形是<b>按整数像素块铺</b>的：线一旦与铺法错开
+     * 半格，就会被相邻色块挤掉一部分，看着像某条线消失或断成几截。两像素起能保证它在
+     * 任何缩放下都连成一条。</p>
+     */
+    private static final int CHUNK_GRID_THICKNESS = 2;
+
+    /**
+     * 区块边框的颜色：三分之一白。
      *
      * <p>要"较浅"就得靠 alpha——它和底下的地形做 source-over 混合，压在任何颜色上都只是
-     * 提亮一点，不会盖住地形。嫌不明显就把 alpha 往上调（{@code 0x60} 更清楚，
+     * 提亮一点，不会盖住地形。嫌不明显就把 alpha 往上调（{@code 0x70} 更清楚，
      * {@code 0x20} 几乎看不见）。</p>
      */
-    private static final int CHUNK_GRID_COLOR = 0x40FFFFFF;
+    private static final int CHUNK_GRID_COLOR = 0x55FFFFFF;
+
+    /**
+     * 两次"算缺口并请求"之间至少隔这么久（纳秒）。
+     *
+     * <p>算缺口要遍历视口里所有区块（几千次查表），不必每帧做。四分之一秒足够快——补数
+     * 在拖动时肉眼无感——又远高于帧率。注意它是"多久<b>检查一次缺口</b>"，不是"多久重下
+     * 一遍"：已经有数据的区块永远不用再要。</p>
+     */
+    private static final long REQUEST_GAP_NANOS = 250_000_000L;
 
     private static final long STALE_DRAG_NANOS = 500_000_000L;
 
@@ -108,10 +137,7 @@ public class WorldMapElement extends Element {
     private double panX;
     private double panZ;
 
-    /** 上次发出请求的区域（原点 + 边长）。手上缓存跟它对不上就该重新要。 */
-    private int requestedOriginX = Integer.MIN_VALUE;
-    private int requestedOriginZ = Integer.MIN_VALUE;
-    private int requestedSize = -1;
+    /** 上次画进像素表的数据版本，用来判断要不要重建。 */
     private long drawnRevision = -1;
 
     private SpanSheet sheet;
@@ -120,9 +146,12 @@ public class WorldMapElement extends Element {
     /** 取色探针只打一次，避免刷屏。 */
     private static boolean colorProbed;
 
-    /** 原版标记图标的像素（ARGB 行优先）。读一次就缓存，读不到则保持 null。 */
+    /** 原版标记图标的像素（ARGB 行优先）。读到就缓存；读不到保持 null、过一会儿再试。 */
     private static int[][] markerPixels;
-    private static boolean markerAttempted;
+    /** 上次尝试读图标的时间。失败不能就此放弃——启动早期资源管理器可能还没就绪。 */
+    private static long markerLastTryNanos;
+    /** 读不到图标的日志只留一条，免得每几秒刷一次。 */
+    private static boolean markerFailureLogged;
 
     private boolean dragging;
     private double lastX;
@@ -160,37 +189,54 @@ public class WorldMapElement extends Element {
     /* ------------------------------------------------------------------ 数据 */
 
     /**
-     * 手上没有"当前中心点这块区域"的数据，就向服务端要一份。
+     * 看看视口里还有没有<b>手上没攒下的区块</b>，有就补一次。
      *
-     * <p>判断依据是<b>区域是否吻合</b>（原点 + 边长），不是"收齐了没有"。
-     * 早先只看 {@code isComplete()}，而那个标志一旦收齐就永远为真，
-     * 于是同一局里换了中心点也不会重采——拖动只是拿旧快照做视觉偏移，
-     * 拖出已加载范围就是一片黑。</p>
+     * <p>判据不再是"当前这块区域换没换"。那是单块缓存时代的写法：只有区域不吻合才要数据，
+     * 于是拖到某处、再拖回来就得整个重拉，而拉回来的内容其实一模一样——白走一遍网，
+     * 还把地图范围锁死在"当前请求的那一块"上。</p>
+     *
+     * <p>现在只补缺口（{@link WorldMapClientData#missingRect}），已经画过的地方永远不会再
+     * 请求。缺的区块通常就是拖动新露出来的那条边，取它的外接矩形与它几乎重合。</p>
      */
     private void ensureData() {
         int radius = radius();
         int size = radius * 2 + 1;
         int originX = (int) Math.round(centerX()) - radius;
         int originZ = (int) Math.round(centerZ()) - radius;
+        long now = System.nanoTime();
 
-        if (!WorldMapClientData.hasRegion(originX, originZ, size)) {
-            /* 同一块区域只请求一次，免得每帧轰炸服务端 */
-            if (requestedOriginX != originX || requestedOriginZ != originZ || requestedSize != size) {
-                requestedOriginX = originX;
-                requestedOriginZ = originZ;
-                requestedSize = size;
-                WorldMapClientData.markPending();
-                PacketDistributor.sendToServer(
-                        new WorldMapRequestPacket((int) Math.round(centerX()),
-                                (int) Math.round(centerZ()), radius));
+        /* 上一块还在路上就先别发（服务端按整块回，连发只会互相盖掉） */
+        if (!WorldMapClientData.isPending() && now - lastRequestNanos >= REQUEST_GAP_NANOS) {
+            /* 只问"视口里我确实没有的区块"——已经攒下来的部分一个字节都不会再走网 */
+            int[] missing = WorldMapClientData.missingRect(originX, originZ, size);
+            if (missing != null) {
+                lastRequestNanos = now;
+                int half = Math.max(1, missing[2] / 2);
+                requestMap(missing[0] + half, missing[1] + half, half);
             }
-            return;
         }
+
         if (WorldMapClientData.revision() != drawnRevision) {
             drawnRevision = WorldMapClientData.revision();
             sheet = null;
         }
     }
+
+    /**
+     * 要一块区域。
+     *
+     * <p>一律报 {@link WorldMapRequestPacket#NO_REVISION}（"我手上没有这一块"）：客户端已经
+     * 按区块攒着，每次要的都是它<b>确实缺</b>的那部分，服务端照发即可——那套"内容没变就回
+     * 空片"的比对在这里派不上用场（字段留着是为了不动协议）。</p>
+     */
+    private void requestMap(int centerX, int centerZ, int radius) {
+        WorldMapClientData.markPending();
+        PacketDistributor.sendToServer(new WorldMapRequestPacket(
+                centerX, centerZ, radius, WorldMapRequestPacket.NO_REVISION));
+    }
+
+    /** 上次检查缺口的时刻。见 {@link #REQUEST_GAP_NANOS}。 */
+    private long lastRequestNanos;
 
     /** 属性变化（比如打开界面时 Java 填的坐标）要重铺。 */
     private void applyAttributeOverrides() {
@@ -262,7 +308,7 @@ public class WorldMapElement extends Element {
      * 打一行就能分开。只打一次，不刷屏。</p>
      */
     private static void probeColorOnce(int centerX, int centerZ) {
-        if (colorProbed || !WorldMapClientData.isComplete()) {
+        if (colorProbed || !WorldMapClientData.hasAnyChunk()) {
             return;
         }
         colorProbed = true;
@@ -319,7 +365,7 @@ public class WorldMapElement extends Element {
             return result;
         }
 
-        if (WorldMapClientData.isComplete()) {
+        if (WorldMapClientData.hasAnyChunk()) {
             int px = Math.max(1, (int) Math.ceil(scale * step));
             int unexplored = WorldSurfaceSampler.UNEXPLORED;
 
@@ -368,7 +414,9 @@ public class WorldMapElement extends Element {
         if (scale <= 0.0 || scale * CHUNK_SIZE < MIN_CHUNK_GRID_PIXELS) {
             return;
         }
-        int thickness = Math.max(1, step);
+        /* 拖动时地图按 DRAG_STEP 降采样，地形块变粗，线也得跟着变粗——否则一像素宽的线
+           会被降采样整条抹掉，看着就像拖动时边框消失了。静态时用 CHUNK_GRID_THICKNESS。 */
+        int thickness = Math.max(CHUNK_GRID_THICKNESS, step);
 
         /* 竖线：世界 X 是 CHUNK_SIZE 的倍数 */
         int leftWorld = centerX + (int) Math.floor(-width / 2.0 / scale);
@@ -457,11 +505,28 @@ public class WorldMapElement extends Element {
         }
     }
 
-    /** 原版标记图标，读一次缓存。读不到就返回 null——界面上只是没有标记，不影响其它部分。 */
+    /**
+     * 原版标记图标。读到就缓存下来，之后直接返回。
+     *
+     * <p><b>读不到必须留着重试的机会。</b>早先用一个"只试一次"的开关把它锁死了：首次调用
+     * 若恰好撞上资源管理器还没就绪，{@code markerPixels} 就永远是 {@code null}，此后无论
+     * 怎么开界面都不再尝试——表现就是"标记从来不显示"，而且没有任何提示。现在改成失败后
+     * 隔 {@link #MARKER_RETRY_NANOS} 再试，首次失败还会留一条日志说明是哪个图标没读到。</p>
+     */
     private static int[][] markerPixels() {
-        if (!markerAttempted) {
-            markerAttempted = true;
-            markerPixels = loadMarker();
+        if (markerPixels != null) {
+            return markerPixels;
+        }
+        long now = System.nanoTime();
+        if (now - markerLastTryNanos < MARKER_RETRY_NANOS) {
+            return null;
+        }
+        markerLastTryNanos = now;
+        markerPixels = loadMarker();
+        if (markerPixels == null && !markerFailureLogged) {
+            markerFailureLogged = true;
+            ModMain.LOGGER.warn("[地图] 读不到标记图标 {}，地图上不会画标记",
+                    MARKER_TEXTURE);
         }
         return markerPixels;
     }
