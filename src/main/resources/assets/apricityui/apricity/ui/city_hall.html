@@ -934,11 +934,8 @@ npc-bar,kingdom-entity-avatar,world-map,img{
 
 .map-full.is-open{display:flex;}
 
-/* 全屏地图打开时把缩略图撤下。
-   两张地图是两个独立的 <world-map> 元素实例，各自会向服务端请求"自己中心那块区域"，
-   而客户端的地图数据只有一份；同时开着就互相把对方的数据冲掉，画面来回闪。
-   撤掉一个，剩下的那个才是唯一的数据来源。（被覆盖层遮住不算撤掉：
-   元素还在绘制，就还在请求。） */
+/* 全屏地图打开时把缩略图撤下：两张图铺的是同一份客户端本地数据，
+   同时开着就是把同一块区域画两遍，撤掉一张省一次整屏铺像素。 */
 .ch-map.is-hidden{display:none;}
 
 .map-full-box{
@@ -1003,8 +1000,9 @@ npc-bar,kingdom-entity-avatar,world-map,img{
           <span class="pane-meta" id="chMapMeta">32 × 32</span>
         </header>
 
-        <!-- 世界地图：真实世界数据由 <world-map> 向服务端请求后绘制。
-             center-x / center-z 是占位，打开界面时由 CityHallScreen 按市政厅方块位置覆盖。 -->
+        <!-- 世界地图：像素来自客户端本地缓存（区块加载时逐帧采、落盘在 gameDir/kingdom-client-map），
+             Java 侧不发任何地图包。center-x / center-z 是占位，
+             打开界面时由 CityHallScreen 填入上次看的位置，没记过就用市政厅方块位置。 -->
         <div class="model-box ch-map" id="chMapBox">
           <world-map id="chMap" center-x="0" center-z="0" radius="192" marker-x="0" marker-z="0"></world-map>
           <span class="map-zoom-hint">点 击 放 大</span>

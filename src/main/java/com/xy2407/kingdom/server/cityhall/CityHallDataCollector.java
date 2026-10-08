@@ -3,12 +3,10 @@ package com.xy2407.kingdom.server.cityhall;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.UUID;
 
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.date.DateSystem;
 import com.xy2407.kingdom.common.faction.Nation;
-import com.xy2407.kingdom.common.faction.PlayerProfile;
 import com.xy2407.kingdom.common.faction.Territory;
 import com.xy2407.kingdom.common.faction.TerritoryVitals;
 import com.xy2407.kingdom.common.network.cityhall.CityHallDataPacket;
@@ -16,7 +14,6 @@ import com.xy2407.kingdom.common.npc.NpcData;
 import com.xy2407.kingdom.common.npc.NpcManager;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
 import com.xy2407.kingdom.server.faction.NationRegistry;
-import com.xy2407.kingdom.server.faction.PlayerProfileStore;
 import com.xy2407.kingdom.server.faction.TerritoryRegistry;
 import com.xy2407.kingdom.server.faction.TerritoryVitalsStore;
 
@@ -34,7 +31,7 @@ public final class CityHallDataCollector {
     private CityHallDataCollector() {
     }
 
-    public static CityHallDataPacket collect(ServerLevel level, BlockPos hallPos, UUID viewer) {
+    public static CityHallDataPacket collect(ServerLevel level, BlockPos hallPos) {
         Collection<NpcData> npcs = NpcManager.INSTANCE.allNpcs();
         if (npcs == null) {
             npcs = List.of();
@@ -62,14 +59,6 @@ public final class CityHallDataCollector {
                     record.name(), record.dimension(), min.getX(), min.getY(), min.getZ()));
         }
 
-
-        int mapCenterX = 0;
-        int mapCenterZ = 0;
-        PlayerProfile viewerProfile = PlayerProfileStore.INSTANCE.byUuid(viewer);
-        if (viewerProfile != null && viewerProfile.hasMapCenter()) {
-            mapCenterX = viewerProfile.mapCenterX();
-            mapCenterZ = viewerProfile.mapCenterZ();
-        }
 
         Territory territory = TerritoryRegistry.INSTANCE.byChunk(
                 level.dimension().location().toString(),
@@ -104,8 +93,7 @@ public final class CityHallDataCollector {
                 unity, loyalty, happiness,
                 nationLabel, "", "", "",
                 citizens, structures,
-                List.of(), List.of(), List.of(),
-                mapCenterX, mapCenterZ);
+                List.of(), List.of(), List.of());
     }
 
     private static String describe(NpcData npc) {

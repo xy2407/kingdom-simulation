@@ -118,20 +118,6 @@ public final class PlayerProfileStore {
         return updated;
     }
 
-    public PlayerProfile setMapCenter(UUID uuid, int x, int z) {
-        PlayerProfile profile = byId.get(uuid);
-        if (profile == null) {
-            return null;
-        }
-        if (profile.mapCenterX() == x && profile.mapCenterZ() == z) {
-            return profile;
-        }
-        PlayerProfile updated = profile.withMapCenter(x, z);
-        byId.put(uuid, updated);
-        persist(updated);
-        return updated;
-    }
-
     public PlayerProfile setTerritory(UUID uuid, String territoryId) {
         PlayerProfile profile = byId.get(uuid);
         if (profile == null) {
@@ -154,9 +140,7 @@ public final class PlayerProfileStore {
                 rs.getString(PlayerProfileSchema.COL_NATION_ID),
                 rs.getString(PlayerProfileSchema.COL_TERRITORY_ID),
                 rs.getInt(PlayerProfileSchema.COL_ONBOARDED) != 0,
-                rs.getInt(PlayerProfileSchema.COL_FIRST_JOIN_DAY),
-                rs.getInt(PlayerProfileSchema.COL_MAP_CENTER_X),
-                rs.getInt(PlayerProfileSchema.COL_MAP_CENTER_Z));
+                rs.getInt(PlayerProfileSchema.COL_FIRST_JOIN_DAY));
     }
 
     private static Map<String, Object> toValues(PlayerProfile profile) {
@@ -165,8 +149,6 @@ public final class PlayerProfileStore {
         values.put(PlayerProfileSchema.COL_TERRITORY_ID, profile.territoryId());
         values.put(PlayerProfileSchema.COL_ONBOARDED, profile.onboarded() ? 1 : 0);
         values.put(PlayerProfileSchema.COL_FIRST_JOIN_DAY, profile.firstJoinDay());
-        values.put(PlayerProfileSchema.COL_MAP_CENTER_X, profile.mapCenterX());
-        values.put(PlayerProfileSchema.COL_MAP_CENTER_Z, profile.mapCenterZ());
         values.put(PlayerProfileSchema.COL_UPDATED_AT, System.currentTimeMillis());
         return values;
     }

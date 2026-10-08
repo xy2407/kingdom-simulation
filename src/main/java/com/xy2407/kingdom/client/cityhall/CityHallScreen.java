@@ -6,6 +6,7 @@ import com.sighs.apricityui.element.Input;
 import com.sighs.apricityui.init.Document;
 import com.sighs.apricityui.init.Element;
 import com.sighs.apricityui.screen.ApricityScreen;
+import com.xy2407.kingdom.client.aui.WorldMapElement;
 import com.xy2407.kingdom.common.network.cityhall.CityHallDataPacket;
 
 import net.minecraft.client.Minecraft;
@@ -24,9 +25,6 @@ public final class CityHallScreen extends ApricityScreen {
 
     private static int hallX;
     private static int hallZ;
-
-    private int mapCenterX;
-    private int mapCenterZ;
 
     private boolean viewInitialized;
 
@@ -103,9 +101,6 @@ public final class CityHallScreen extends ApricityScreen {
         if (document == null || packet == null) {
             return;
         }
-        mapCenterX = packet.mapCenterX();
-        mapCenterZ = packet.mapCenterZ();
-
         text(document, "chGoldNow", value(packet.gold()));
         text(document, "chGoldMax", limit(packet.goldMax()));
         bar(document, "chGoldBar", packet.gold(), packet.goldMax());
@@ -158,11 +153,19 @@ public final class CityHallScreen extends ApricityScreen {
         click(document, "chCalBtn", this::showDayModal);
 
         click(document, "chMapBox", () -> {
+            if (WorldMapElement.draggedRecently()) {
+                return;
+            }
             mapFullOpen = true;
             copyMapView(document);
             toggleClass(document, "chMapBox", "is-hidden", true);
             toggleClass(document, "chMapFull", "is-open", true);
         });
+
+        Element fullMap = document.getElementById("chMapFull");
+        if (fullMap != null) {
+            fullMap.addEventListener("wheel", event -> event.preventDefault());
+        }
 
         click(document, "chModalClose", () -> closeModal(document));
         click(document, "chModalDayClose", () -> {
@@ -387,11 +390,13 @@ public final class CityHallScreen extends ApricityScreen {
         if (map == null) {
             return;
         }
-        boolean hasSaved = mapCenterX != 0 || mapCenterZ != 0;
-        map.setAttribute("center-x", String.valueOf(hasSaved ? mapCenterX : hallX));
-        map.setAttribute("center-z", String.valueOf(hasSaved ? mapCenterZ : hallZ));
+        map.setAttribute("center-x", String.valueOf(hallX));
+        map.setAttribute("center-z", String.valueOf(hallZ));
         map.setAttribute("marker-x", String.valueOf(hallX));
         map.setAttribute("marker-z", String.valueOf(hallZ));
+        if (map instanceof WorldMapElement worldMap) {
+            worldMap.resetView();
+        }
     }
 
     private static void copyMapView(Document document) {

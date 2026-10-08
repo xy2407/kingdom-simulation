@@ -5,12 +5,10 @@ import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.client.cityhall.CityHallScreen;
 import com.xy2407.kingdom.client.farm.FarmPanelScreen;
 import com.xy2407.kingdom.client.ranch.RanchPanelScreen;
-import com.xy2407.kingdom.client.map.WorldMapClientData;
 import com.xy2407.kingdom.common.network.building.BuildingPanelHooks;
 import com.xy2407.kingdom.common.network.building.BuildingSiteHooks;
 import com.xy2407.kingdom.common.network.cityhall.CityHallHooks;
 import com.xy2407.kingdom.common.network.farm.FarmPanelHooks;
-import com.xy2407.kingdom.common.network.map.WorldMapHooks;
 import com.xy2407.kingdom.common.network.ranch.RanchPanelHooks;
 
 import net.minecraft.client.KeyMapping;
@@ -51,13 +49,11 @@ public final class BuildingClientSetup {
         RanchPanelHooks.stateSink = RanchPanelScreen::accept;
         CityHallHooks.openSink = CityHallScreen::open;
         CityHallHooks.dataSink = CityHallScreen::accept;
-        WorldMapHooks.dataSink = WorldMapClientData::accept;
     }
 
     @SubscribeEvent
     public static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         BuildingSiteManager.clear();
-        WorldMapClientData.clear();
     }
 
     @SubscribeEvent

@@ -1,18 +1,19 @@
 package com.xy2407.kingdom.client.aui;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.sighs.apricityui.element.Canvas;
 import com.sighs.apricityui.event.Event;
 import com.sighs.apricityui.event.MouseEvent;
 import com.sighs.apricityui.init.Document;
-import com.sighs.apricityui.init.Element;
 import com.sighs.apricityui.layout.Size;
 import com.sighs.apricityui.registry.annotation.ElementRegister;
 import com.sighs.apricityui.render.Base;
+import com.sighs.apricityui.render.ImageDrawer;
 import com.sighs.apricityui.render.Rect;
 import com.xy2407.kingdom.ModMain;
-import com.xy2407.kingdom.client.map.WorldMapClientData;
+import com.xy2407.kingdom.client.map.ClientMapScanner;
+import com.xy2407.kingdom.client.map.ClientMapStore;
 import com.xy2407.kingdom.common.map.WorldSurfaceSampler;
-import com.xy2407.kingdom.common.network.map.WorldMapRequestPacket;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceLocation;
@@ -20,20 +21,23 @@ import net.minecraft.util.FastColor;
 import net.minecraft.world.level.material.MapColor;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
-import net.neoforged.neoforge.network.PacketDistributor;
 
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.InputStream;
+import java.util.Arrays;
 import java.util.Locale;
 
 import javax.imageio.ImageIO;
 
 /**
- * {@code <world-map>}：AUI 页面里的世界地图元素，负责取数、铺像素表、拖动缩放与标记。
+ * {@code <world-map>}：AUI 页面里的世界地图元素，把本地地图像素画进位图表面一次提交。
  */
 @OnlyIn(Dist.CLIENT)
 @ElementRegister(WorldMapElement.TAG_NAME)
-public class WorldMapElement extends Element {
+public class WorldMapElement extends Canvas {
 
     public static final String TAG_NAME = "WORLD-MAP";
 
@@ -57,6 +61,8 @@ public class WorldMapElement extends Element {
 
     private static final int DRAG_STEP = 3;
 
+    private static final int MAX_RADIUS = 512;
+
     private static final int UNEXPLORED_COLOR = 0xFF000000;
 
     private static final int CHUNK_SIZE = 16;
@@ -67,32 +73,49 @@ public class WorldMapElement extends Element {
 
     private static final int CHUNK_GRID_COLOR = 0x55FFFFFF;
 
-    private static final long REQUEST_GAP_NANOS = 250_000_000L;
+    private static final int MAX_SAMPLES = 400_000;
+
+    private static final long CONTENT_REPAINT_NANOS = 300_000_000L;
 
     private static final long STALE_DRAG_NANOS = 500_000_000L;
+
+    private static final long DRAG_SUPPRESS_NANOS = 250_000_000L;
+
+    private static final double DRAG_PIXELS = 4.0;
+
+    private static final int[] PALETTE = new int[256];
+    private static boolean paletteReady;
+
+    private int[] rasterBuffer;
+    private BufferedImage rasterImage;
 
     private double zoom = 1.0;
     private double panX;
     private double panZ;
 
-    private long drawnRevision = -1;
-
-    private SpanSheet sheet;
-    private String signature;
+    private double layoutWidth;
+    private double layoutHeight;
+    private String paintedSignature;
+    private long paintedRevision = -1;
+    private long nextContentNanos;
 
     private static boolean colorProbed;
 
-    private static int[][] markerPixels;
+    private static BufferedImage markerImage;
     private static long markerLastTryNanos;
     private static boolean markerFailureLogged;
 
+    private static long lastDragEndNanos;
+
     private boolean dragging;
+    private double dragPixels;
     private double lastX;
     private double lastY;
     private long lastDragNanos;
 
     public WorldMapElement(Document document) {
-        super(document, TAG_NAME);
+        super(document);
+        this.tagName = TAG_NAME;
         addInternalEventListener("mousedown", this::onMouseDown);
         addInternalEventListener("mousemove", this::onMouseMove);
         addInternalEventListener("mouseup", this::onMouseUp);
@@ -113,41 +136,222 @@ public class WorldMapElement extends Element {
                 applyAttributeOverrides();
                 ensureData();
                 probeColorOnce((int) Math.round(centerX()), (int) Math.round(centerZ()));
-                SpanSheet.draw(poseStack, rect.getBodyRectPosition(), size, sheet(size));
+                repaintIfNeeded(size);
+                drawCanvas(poseStack, rect);
             }
             case BORDER -> rect.drawBorder(poseStack);
         }
     }
 
-    private void ensureData() {
-        int radius = radius();
-        int size = radius * 2 + 1;
-        int originX = (int) Math.round(centerX()) - radius;
-        int originZ = (int) Math.round(centerZ()) - radius;
-        long now = System.nanoTime();
+    @Override
+    protected void drawCanvas(PoseStack poseStack, Rect rectRenderer) {
+        if (textureLocation == null) {
+            syncTexture();
+        }
+        if (textureLocation == null || layoutWidth <= 0 || layoutHeight <= 0) {
+            return;
+        }
+        ImageDrawer.draw(poseStack, textureLocation,
+                (float) rectRenderer.getContentPosition().x,
+                (float) rectRenderer.getContentPosition().y,
+                (float) layoutWidth, (float) layoutHeight, true);
+    }
 
-        if (!WorldMapClientData.isPending() && now - lastRequestNanos >= REQUEST_GAP_NANOS) {
-            int[] missing = WorldMapClientData.missingRect(originX, originZ, size);
-            if (missing != null) {
-                lastRequestNanos = now;
-                int half = Math.max(1, missing[2] / 2);
-                requestMap(missing[0] + half, missing[1] + half, half);
+    private void ensureData() {
+        int viewX = (int) Math.round(centerX() + panX);
+        int viewZ = (int) Math.round(centerZ() + panZ);
+        int half = (int) Math.ceil((radius() * 2.0 + 1.0) / zoom / 2.0);
+        ClientMapScanner.requestVisible(viewX - half, viewZ - half, viewX + half, viewZ + half);
+    }
+
+    private void repaintIfNeeded(Size size) {
+        int surfaceWidth = Math.max(16, (int) Math.round(size.width()));
+        int surfaceHeight = Math.max(16, (int) Math.round(size.height()));
+        int viewX = (int) Math.round(centerX() + panX);
+        int viewZ = (int) Math.round(centerZ() + panZ);
+        double blocksX = (radius() * 2.0 + 1.0) / zoom;
+        double pixelsPerBlock = surfaceWidth / blocksX;
+        int step = sampleStep(surfaceWidth, surfaceHeight, pixelsPerBlock);
+        if (dragging) {
+            step *= DRAG_STEP;
+        }
+        int renderStep = step;
+
+        long now = System.nanoTime();
+        String signature = surfaceWidth + "|" + surfaceHeight + "|" + viewX + "|" + viewZ
+                + "|" + blocksX + "|" + step;
+        boolean geometry = !signature.equals(paintedSignature);
+        long revision = ClientMapStore.revision();
+        if (!geometry && (revision == paintedRevision || now < nextContentNanos)) {
+            return;
+        }
+
+        paintedSignature = signature;
+        paintedRevision = revision;
+        nextContentNanos = now + CONTENT_REPAINT_NANOS;
+        layoutWidth = surfaceWidth;
+        layoutHeight = surfaceHeight;
+        if (surfaceWidth != getWidth() || surfaceHeight != getHeight()) {
+            resizeSurface(surfaceWidth, surfaceHeight, false);
+        }
+
+        double blocksY = surfaceHeight / pixelsPerBlock;
+        int originX = viewX - (int) Math.round(blocksX / 2.0);
+        int originZ = viewZ - (int) Math.round(blocksY / 2.0);
+        renderOperation(graphics -> paint(graphics, surfaceWidth, surfaceHeight,
+                originX, originZ, pixelsPerBlock, renderStep));
+        syncTexture();
+    }
+
+    private static int sampleStep(int surfaceWidth, int surfaceHeight, double pixelsPerBlock) {
+        int step = Math.max(1, (int) Math.ceil(1.0 / Math.max(1e-6, pixelsPerBlock)));
+        double samples = (double) (surfaceWidth / step) * (surfaceHeight / step);
+        if (samples > MAX_SAMPLES) {
+            step = (int) Math.ceil(step * Math.sqrt(samples / MAX_SAMPLES));
+        }
+        return step;
+    }
+
+    private void paint(Graphics2D graphics, int surfaceWidth, int surfaceHeight,
+                       int originX, int originZ, double pixelsPerBlock, int step) {
+        int[] raster = rasterOf(surfaceWidth, surfaceHeight, originX, originZ, pixelsPerBlock, step);
+        if (rasterImage == null || rasterImage.getWidth() != surfaceWidth
+                || rasterImage.getHeight() != surfaceHeight) {
+            rasterImage = new BufferedImage(surfaceWidth, surfaceHeight, BufferedImage.TYPE_INT_ARGB);
+        }
+        rasterImage.setRGB(0, 0, surfaceWidth, surfaceHeight, raster, 0, surfaceWidth);
+        graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+        graphics.drawImage(rasterImage, 0, 0, null);
+        drawChunkGrid(graphics, surfaceWidth, surfaceHeight, originX, originZ, pixelsPerBlock);
+        drawMarker(graphics, surfaceWidth, surfaceHeight, originX, originZ, pixelsPerBlock);
+    }
+
+    private int[] rasterOf(int surfaceWidth, int surfaceHeight, int originX, int originZ,
+                           double pixelsPerBlock, int step) {
+        int cells = surfaceWidth * surfaceHeight;
+        if (rasterBuffer == null || rasterBuffer.length < cells) {
+            rasterBuffer = new int[cells];
+        }
+        int[] raster = rasterBuffer;
+        Arrays.fill(raster, 0, cells, UNEXPLORED_COLOR);
+        if (!ClientMapStore.hasAnyChunk()) {
+            return raster;
+        }
+        for (int py = 0; py < surfaceHeight; py += step) {
+            int worldZ = originZ + (int) Math.round(py / pixelsPerBlock);
+            int chunkZ = worldZ >> 4;
+            int offsetInChunk = (worldZ & 15) * CHUNK_SIZE;
+            int rowEnd = Math.min(surfaceHeight, py + step);
+            byte[] cell = null;
+            int loadedChunkX = Integer.MIN_VALUE;
+            for (int px = 0; px < surfaceWidth; px += step) {
+                int worldX = originX + (int) Math.round(px / pixelsPerBlock);
+                int chunkX = worldX >> 4;
+                if (chunkX != loadedChunkX) {
+                    loadedChunkX = chunkX;
+                    cell = ClientMapStore.chunk(chunkX, chunkZ);
+                }
+                if (cell == null) {
+                    continue;
+                }
+                int packed = cell[offsetInChunk + (worldX & 15)] & 0xFF;
+                if (packed == 0) {
+                    continue;
+                }
+                int color = mapArgb(packed);
+                int columnEnd = Math.min(surfaceWidth, px + step);
+                for (int y = py; y < rowEnd; y++) {
+                    int row = y * surfaceWidth;
+                    Arrays.fill(raster, row + px, row + columnEnd, color);
+                }
             }
         }
+        return raster;
+    }
 
-        if (WorldMapClientData.revision() != drawnRevision) {
-            drawnRevision = WorldMapClientData.revision();
-            sheet = null;
+    private static void drawChunkGrid(Graphics2D graphics, int surfaceWidth, int surfaceHeight,
+                                      int originX, int originZ, double pixelsPerBlock) {
+        if (pixelsPerBlock * CHUNK_SIZE < MIN_CHUNK_GRID_PIXELS) {
+            return;
+        }
+        graphics.setColor(new Color(CHUNK_GRID_COLOR, true));
+        int rightWorld = originX + (int) Math.ceil(surfaceWidth / pixelsPerBlock);
+        for (int worldX = Math.floorDiv(originX, CHUNK_SIZE) * CHUNK_SIZE;
+             worldX <= rightWorld; worldX += CHUNK_SIZE) {
+            int px = (int) Math.round((worldX - originX) * pixelsPerBlock);
+            graphics.fillRect(px, 0, CHUNK_GRID_THICKNESS, surfaceHeight);
+        }
+        int bottomWorld = originZ + (int) Math.ceil(surfaceHeight / pixelsPerBlock);
+        for (int worldZ = Math.floorDiv(originZ, CHUNK_SIZE) * CHUNK_SIZE;
+             worldZ <= bottomWorld; worldZ += CHUNK_SIZE) {
+            int py = (int) Math.round((worldZ - originZ) * pixelsPerBlock);
+            graphics.fillRect(0, py, surfaceWidth, CHUNK_GRID_THICKNESS);
         }
     }
 
-    private void requestMap(int centerX, int centerZ, int radius) {
-        WorldMapClientData.markPending();
-        PacketDistributor.sendToServer(new WorldMapRequestPacket(
-                centerX, centerZ, radius, WorldMapRequestPacket.NO_REVISION));
+    private void drawMarker(Graphics2D graphics, int surfaceWidth, int surfaceHeight,
+                            int originX, int originZ, double pixelsPerBlock) {
+        BufferedImage marker = markerImage();
+        if (marker == null) {
+            return;
+        }
+        String rawX = getAttribute(ATTR_MARKER_X);
+        String rawZ = getAttribute(ATTR_MARKER_Z);
+        if (rawX == null || rawX.isBlank() || rawZ == null || rawZ.isBlank()) {
+            return;
+        }
+        int markerX;
+        int markerZ;
+        try {
+            markerX = (int) Math.round(Double.parseDouble(rawX.trim()));
+            markerZ = (int) Math.round(Double.parseDouble(rawZ.trim()));
+        } catch (NumberFormatException invalid) {
+            return;
+        }
+        int left = (int) Math.round((markerX - originX) * pixelsPerBlock) - MARKER_SIZE / 2;
+        int top = (int) Math.round((markerZ - originZ) * pixelsPerBlock) - MARKER_SIZE / 2;
+        if (left + MARKER_SIZE < 0 || top + MARKER_SIZE < 0
+                || left >= surfaceWidth || top >= surfaceHeight) {
+            return;
+        }
+        graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+        graphics.drawImage(marker, left, top, MARKER_SIZE, MARKER_SIZE, null);
     }
 
-    private long lastRequestNanos;
+    private static BufferedImage markerImage() {
+        if (markerImage != null) {
+            return markerImage;
+        }
+        long now = System.nanoTime();
+        if (now - markerLastTryNanos < MARKER_RETRY_NANOS) {
+            return null;
+        }
+        markerLastTryNanos = now;
+        markerImage = loadMarker();
+        if (markerImage == null && !markerFailureLogged) {
+            markerFailureLogged = true;
+            ModMain.LOGGER.warn("[地图] 读不到标记图标 {}，地图上不会画标记",
+                    MARKER_TEXTURE);
+        }
+        return markerImage;
+    }
+
+    private static BufferedImage loadMarker() {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null || minecraft.getResourceManager() == null) {
+            return null;
+        }
+        ResourceLocation location = ResourceLocation.fromNamespaceAndPath(
+                "minecraft", MARKER_TEXTURE);
+        try (InputStream stream = minecraft.getResourceManager()
+                .getResourceOrThrow(location).open()) {
+            return ImageIO.read(stream);
+        } catch (Exception missing) {
+            return null;
+        }
+    }
 
     private void applyAttributeOverrides() {
         double attributeZoom = number(ATTR_ZOOM, zoom);
@@ -166,7 +370,7 @@ public class WorldMapElement extends Element {
 
     private int radius() {
         int value = (int) Math.round(number(ATTR_RADIUS, DEFAULT_RADIUS));
-        return Math.max(16, Math.min(WorldMapRequestPacket.MAX_RADIUS, value));
+        return Math.max(16, Math.min(MAX_RADIUS, value));
     }
 
     private double number(String attribute, double fallback) {
@@ -186,23 +390,29 @@ public class WorldMapElement extends Element {
     }
 
     private static int mapArgb(int packed) {
-        if (packed == WorldSurfaceSampler.UNEXPLORED) {
+        if (packed < 0 || packed > 255) {
             return 0;
         }
-        int abgr = MapColor.getColorFromPackedId(packed);
-        return FastColor.ARGB32.color(
-                FastColor.ARGB32.alpha(abgr),
-                FastColor.ARGB32.blue(abgr),
-                FastColor.ARGB32.green(abgr),
-                FastColor.ARGB32.red(abgr));
+        if (!paletteReady) {
+            for (int index = 0; index < PALETTE.length; index++) {
+                int abgr = MapColor.getColorFromPackedId(index);
+                PALETTE[index] = FastColor.ARGB32.color(
+                        FastColor.ARGB32.alpha(abgr),
+                        FastColor.ARGB32.blue(abgr),
+                        FastColor.ARGB32.green(abgr),
+                        FastColor.ARGB32.red(abgr));
+            }
+            paletteReady = true;
+        }
+        return PALETTE[packed];
     }
 
     private static void probeColorOnce(int centerX, int centerZ) {
-        if (colorProbed || !WorldMapClientData.hasAnyChunk()) {
+        if (colorProbed || !ClientMapStore.hasAnyChunk()) {
             return;
         }
         colorProbed = true;
-        int packed = WorldMapClientData.packedAt(centerX, centerZ);
+        int packed = ClientMapStore.packedAt(centerX, centerZ);
         int colorId = (packed & 0xFF) >> 2;
         int brightness = packed & 3;
         int argb = mapArgb(packed);
@@ -215,185 +425,9 @@ public class WorldMapElement extends Element {
                 Integer.toHexString(mapArgb(woodPacked) & 0xFFFFFF));
     }
 
-    private SpanSheet sheet(Size size) {
-        int width = Math.max(24, (int) Math.round(size.width()));
-        int height = Math.max(24, (int) Math.round(size.height()));
-        int step = dragging ? DRAG_STEP : 1;
-        int cx = (int) Math.round(centerX() + panX);
-        int cz = (int) Math.round(centerZ() + panZ);
-        String current = width + "|" + height + "|" + cx + "|" + cz + "|"
-                + zoom + "|" + step + "|" + radius() + "|" + WorldMapClientData.revision();
-        if (sheet != null && current.equals(signature)) {
-            return sheet;
-        }
-        signature = current;
-        sheet = build(width, height, cx, cz, step);
-        return sheet;
-    }
-
-    private SpanSheet build(int width, int height, int centerX, int centerZ, int step) {
-        SpanSheet result = new SpanSheet(width, height);
-
-        result.fill(0, 0, width, height, UNEXPLORED_COLOR);
-
-        double blocksAcross = radius() * 2.0 + 1.0;
-        double scale = width / blocksAcross / zoom;
-        if (scale <= 0.0) {
-            return result;
-        }
-
-        if (WorldMapClientData.hasAnyChunk()) {
-            int px = Math.max(1, (int) Math.ceil(scale * step));
-            int unexplored = WorldSurfaceSampler.UNEXPLORED;
-
-            for (int py = 0; py < height; py += px) {
-                int wz = centerZ + (int) Math.round((py + px / 2.0 - height / 2.0) / scale);
-                for (int pxi = 0; pxi < width; pxi += px) {
-                    int wx = centerX + (int) Math.round((pxi + px / 2.0 - width / 2.0) / scale);
-                    int packed = WorldMapClientData.packedAt(wx, wz);
-                    if (packed == unexplored) {
-                        continue;
-                    }
-                    result.fill(pxi, py,
-                            Math.min(width, pxi + px), Math.min(height, py + px),
-                            mapArgb(packed));
-                }
-            }
-
-            drawChunkGrid(result, width, height, centerX, centerZ, scale, step);
-        }
-
-        drawMarker(result, width, height, centerX, centerZ, scale, step);
-
-        return result;
-    }
-
-    private static void drawChunkGrid(SpanSheet sheet, int width, int height,
-                                      int centerX, int centerZ, double scale, int step) {
-        if (scale <= 0.0 || scale * CHUNK_SIZE < MIN_CHUNK_GRID_PIXELS) {
-            return;
-        }
-        int thickness = Math.max(CHUNK_GRID_THICKNESS, step);
-
-        int leftWorld = centerX + (int) Math.floor(-width / 2.0 / scale);
-        int rightWorld = centerX + (int) Math.ceil(width / 2.0 / scale);
-        for (int worldX = Math.floorDiv(leftWorld, CHUNK_SIZE) * CHUNK_SIZE;
-             worldX <= rightWorld; worldX += CHUNK_SIZE) {
-            int px = (int) Math.round(width / 2.0 + (worldX - centerX) * scale);
-            sheet.fill(px, 0, px + thickness, height, CHUNK_GRID_COLOR);
-        }
-
-        int topWorld = centerZ + (int) Math.floor(-height / 2.0 / scale);
-        int bottomWorld = centerZ + (int) Math.ceil(height / 2.0 / scale);
-        for (int worldZ = Math.floorDiv(topWorld, CHUNK_SIZE) * CHUNK_SIZE;
-             worldZ <= bottomWorld; worldZ += CHUNK_SIZE) {
-            int py = (int) Math.round(height / 2.0 + (worldZ - centerZ) * scale);
-            sheet.fill(0, py, width, py + thickness, CHUNK_GRID_COLOR);
-        }
-    }
-
-    private void drawMarker(SpanSheet sheet, int width, int height,
-                            int centerX, int centerZ, double scale, int step) {
-        int[][] marker = markerPixels();
-        if (marker == null || marker.length == 0 || marker[0].length == 0) {
-            return;
-        }
-
-        int markerX;
-        int markerZ;
-        try {
-            String rawX = getAttribute(ATTR_MARKER_X);
-            String rawZ = getAttribute(ATTR_MARKER_Z);
-            if (rawX == null || rawX.isBlank() || rawZ == null || rawZ.isBlank()) {
-                return;
-            }
-            markerX = (int) Math.round(Double.parseDouble(rawX.trim()));
-            markerZ = (int) Math.round(Double.parseDouble(rawZ.trim()));
-        } catch (NumberFormatException invalid) {
-            return;
-        }
-
-        int centerPx = width / 2 + (int) Math.round((markerX - centerX) * scale);
-        int centerPy = height / 2 + (int) Math.round((markerZ - centerZ) * scale);
-        int left = centerPx - MARKER_SIZE / 2;
-        int top = centerPy - MARKER_SIZE / 2;
-
-        if (left + MARKER_SIZE < 0 || top + MARKER_SIZE < 0
-                || left >= width || top >= height) {
-            return;
-        }
-
-        int rows = marker.length;
-        int cols = marker[0].length;
-        int stride = Math.max(1, step);
-        for (int y = 0; y < MARKER_SIZE; y += stride) {
-            int srcY = y * rows / MARKER_SIZE;
-            if (srcY < 0 || srcY >= rows) {
-                continue;
-            }
-            for (int x = 0; x < MARKER_SIZE; x += stride) {
-                int srcX = x * cols / MARKER_SIZE;
-                if (srcX < 0 || srcX >= cols) {
-                    continue;
-                }
-                int argb = marker[srcY][srcX];
-                if ((argb >>> 24) == 0) {
-                    continue;
-                }
-                sheet.fill(left + x, top + y,
-                        Math.min(left + x + stride, left + MARKER_SIZE),
-                        Math.min(top + y + stride, top + MARKER_SIZE), argb);
-            }
-        }
-    }
-
-    private static int[][] markerPixels() {
-        if (markerPixels != null) {
-            return markerPixels;
-        }
-        long now = System.nanoTime();
-        if (now - markerLastTryNanos < MARKER_RETRY_NANOS) {
-            return null;
-        }
-        markerLastTryNanos = now;
-        markerPixels = loadMarker();
-        if (markerPixels == null && !markerFailureLogged) {
-            markerFailureLogged = true;
-            ModMain.LOGGER.warn("[地图] 读不到标记图标 {}，地图上不会画标记",
-                    MARKER_TEXTURE);
-        }
-        return markerPixels;
-    }
-
-    private static int[][] loadMarker() {
-        Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft == null || minecraft.getResourceManager() == null) {
-            return null;
-        }
-        ResourceLocation location = ResourceLocation.fromNamespaceAndPath(
-                "minecraft", MARKER_TEXTURE);
-        try (InputStream stream = minecraft.getResourceManager()
-                .getResourceOrThrow(location).open()) {
-            BufferedImage image = ImageIO.read(stream);
-            if (image == null) {
-                return null;
-            }
-            int width = image.getWidth();
-            int height = image.getHeight();
-            int[][] pixels = new int[height][width];
-            for (int y = 0; y < height; y++) {
-                for (int x = 0; x < width; x++) {
-                    pixels[y][x] = image.getRGB(x, y);
-                }
-            }
-            return pixels;
-        } catch (Exception missing) {
-            return null;
-        }
-    }
-
     private void onMouseDown(Event event) {
         dragging = true;
+        dragPixels = 0.0;
         MouseEvent e = (MouseEvent) event;
         lastX = e.offsetX;
         lastY = e.offsetY;
@@ -410,10 +444,11 @@ public class WorldMapElement extends Element {
         double dy = e.offsetY - lastY;
         lastX = e.offsetX;
         lastY = e.offsetY;
+        dragPixels += Math.abs(dx) + Math.abs(dy);
 
         int width = Math.max(24, (int) Math.round(Rect.of(this).getBodyRectSize().width()));
-        double blocksAcross = radius() * 2.0 + 1.0;
-        double scale = Math.max(1e-6, width / blocksAcross / zoom);
+        double blocksAcross = (radius() * 2.0 + 1.0) / zoom;
+        double scale = Math.max(1e-6, width / blocksAcross);
 
         panX -= dx / scale;
         panZ -= dy / scale;
@@ -422,7 +457,14 @@ public class WorldMapElement extends Element {
 
     private void onMouseUp(Event event) {
         dragging = false;
+        if (dragPixels > DRAG_PIXELS) {
+            lastDragEndNanos = System.nanoTime();
+        }
         commitPan();
+    }
+
+    public static boolean draggedRecently() {
+        return System.nanoTime() - lastDragEndNanos < DRAG_SUPPRESS_NANOS;
     }
 
     private void commitPan() {
@@ -431,11 +473,13 @@ public class WorldMapElement extends Element {
             panZ = 0.0d;
             return;
         }
-        setAttribute(ATTR_CENTER_X, String.valueOf((int) Math.round(centerX() + panX)));
-        setAttribute(ATTR_CENTER_Z, String.valueOf((int) Math.round(centerZ() + panZ)));
+        int nextX = (int) Math.round(centerX() + panX);
+        int nextZ = (int) Math.round(centerZ() + panZ);
+        setAttribute(ATTR_CENTER_X, String.valueOf(nextX));
+        setAttribute(ATTR_CENTER_Z, String.valueOf(nextZ));
+        ClientMapStore.setFocusedCenter(nextX, nextZ);
         panX = 0.0d;
         panZ = 0.0d;
-        sheet = null;
     }
 
     private void onWheel(Event event) {
@@ -443,11 +487,11 @@ public class WorldMapElement extends Element {
         if (e.scrollDelta == 0.0) {
             return;
         }
+        event.preventDefault();
         double next = clampZoom(zoom * (e.scrollDelta > 0.0 ? ZOOM_PER_NOTCH : 1.0 / ZOOM_PER_NOTCH));
         if (Math.abs(next - zoom) > 1e-6) {
             zoom = next;
             setAttribute(ATTR_ZOOM, String.valueOf(next));
-            sheet = null;
         }
     }
 
@@ -455,6 +499,13 @@ public class WorldMapElement extends Element {
         if (dragging && System.nanoTime() - lastDragNanos > STALE_DRAG_NANOS) {
             dragging = false;
         }
+    }
+
+    public void resetView() {
+        panX = 0.0d;
+        panZ = 0.0d;
+        zoom = 1.0;
+        setAttribute(ATTR_ZOOM, "1");
     }
 
     public double zoom() {

@@ -49,7 +49,7 @@ public class CityHallBlock extends Block {
                     new CityHallOpenPacket(pos.getX(), pos.getZ()));
             CityHallDataPacket data;
             try {
-                data = CityHallDataCollector.collect(serverLevel, pos, serverPlayer.getUUID());
+                data = CityHallDataCollector.collect(serverLevel, pos);
             } catch (RuntimeException failure) {
                 ModMain.LOGGER.warn("[市政厅] 数据收集失败，界面按空数据打开", failure);
                 data = CityHallDataPacket.EMPTY;

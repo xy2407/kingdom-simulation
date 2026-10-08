@@ -21,8 +21,6 @@ public final class PlayerProfileSchema implements Migration {
     public static final String COL_TERRITORY_ID = "territory_id";
     public static final String COL_ONBOARDED = "onboarded";
     public static final String COL_FIRST_JOIN_DAY = "first_join_day";
-    public static final String COL_MAP_CENTER_X = "map_center_x";
-    public static final String COL_MAP_CENTER_Z = "map_center_z";
     public static final String COL_UPDATED_AT = "updated_at";
 
     @Override
@@ -90,8 +88,6 @@ public final class PlayerProfileSchema implements Migration {
         defs.put(COL_TERRITORY_ID, "TEXT NOT NULL DEFAULT ''");
         defs.put(COL_ONBOARDED, "INTEGER NOT NULL DEFAULT 0");
         defs.put(COL_FIRST_JOIN_DAY, "INTEGER NOT NULL DEFAULT 0");
-        defs.put(COL_MAP_CENTER_X, "INTEGER NOT NULL DEFAULT 0");
-        defs.put(COL_MAP_CENTER_Z, "INTEGER NOT NULL DEFAULT 0");
         defs.put(COL_UPDATED_AT, "INTEGER NOT NULL DEFAULT 0");
         return defs;
     }
@@ -99,7 +95,7 @@ public final class PlayerProfileSchema implements Migration {
     public static String columns() {
         return String.join(", ", new String[] {
                 COL_UUID, COL_NATION_ID, COL_TERRITORY_ID, COL_ONBOARDED,
-                COL_FIRST_JOIN_DAY, COL_MAP_CENTER_X, COL_MAP_CENTER_Z, COL_UPDATED_AT
+                COL_FIRST_JOIN_DAY, COL_UPDATED_AT
         });
     }
 }

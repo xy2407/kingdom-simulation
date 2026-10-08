@@ -12,12 +12,9 @@ import com.xy2407.kingdom.server.faction.TerritoryRegistry;
 import com.xy2407.kingdom.server.faction.TerritoryVitalsService;
 import com.xy2407.kingdom.server.faction.TerritoryVitalsStore;
 import com.xy2407.kingdom.server.farm.FarmPlotManager;
-import com.xy2407.kingdom.server.map.ExploredMapStore;
-import com.xy2407.kingdom.server.map.WorldMapServer;
 import com.xy2407.kingdom.server.ranch.RanchPenManager;
 import com.xy2407.kingdom.server.ranch.RanchWorkService;
 
-import net.minecraft.server.level.ServerLevel;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
@@ -47,10 +44,6 @@ public final class ServerLifecycle {
         /* 建筑仓库的会话缓存与"上次写库的 SNBT"同理：换存档必须清，
            否则会把上一个世界某个建筑的库存当成这个世界的（建筑 UUID 不会重复，但缓存会串） */
         BuildingStorageStore.INSTANCE.reset();
-        /* 地图采样缓存同理：维度名一样但地形不同，留着会画出上一个世界的图 */
-        WorldMapServer.reset();
-        /* 已探索地图的待采队列里装的是上一个世界的区块坐标，同样要清 */
-        ExploredMapStore.reset();
         SnapshotRepository snapshotRepository = SnapshotRepository.get(event.getServer());
         if (snapshotRepository != null) {
             snapshotRepository.onServerStarting();
@@ -77,11 +70,6 @@ public final class ServerLifecycle {
         BuildingStorageStore.INSTANCE.tick(event.getServer());
         /* 档案读完后再驱动首登：未 onboarded 的玩家会收到一次择旗状态包 */
         FactionService.tick(event.getServer());
-        /* 已探索地图：把区块加载时入队的那些块按预算分帧采进存档。
-           每个维度各有一份队列，所以这里遍历全部维度；队列空时几乎零开销。 */
-        for (ServerLevel level : event.getServer().getAllLevels()) {
-            ExploredMapStore.tick(level);
-        }
     }
 
     @SubscribeEvent

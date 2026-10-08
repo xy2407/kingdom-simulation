@@ -39,9 +39,7 @@ public record CityHallDataPacket(
         List<Structure> structures,
         List<Line> events,
         List<Line> todos,
-        List<Line> ledger,
-        int mapCenterX,
-        int mapCenterZ
+        List<Line> ledger
 ) implements CustomPacketPayload {
 
     public static final CustomPacketPayload.Type<CityHallDataPacket> TYPE =
@@ -54,8 +52,7 @@ public record CityHallDataPacket(
     public static final CityHallDataPacket EMPTY = new CityHallDataPacket(
             "", 0, 0, 0, 0, 0, 0, 0, 0L, 0L, 0, 0, 0,
             "", "", "", "",
-            List.of(), List.of(), List.of(), List.of(), List.of(),
-            0, 0);
+            List.of(), List.of(), List.of(), List.of(), List.of());
 
     public CityHallDataPacket {
         citizens = citizens == null ? List.of() : List.copyOf(citizens);
@@ -134,8 +131,6 @@ public record CityHallDataPacket(
         root.put("events", linesToTag(events));
         root.put("todos", linesToTag(todos));
         root.put("ledger", linesToTag(ledger));
-        root.putInt("mapCenterX", mapCenterX);
-        root.putInt("mapCenterZ", mapCenterZ);
         return root;
     }
 
@@ -197,9 +192,7 @@ public record CityHallDataPacket(
                 structures,
                 linesFromTag(root.getList("events", Tag.TAG_COMPOUND)),
                 linesFromTag(root.getList("todos", Tag.TAG_COMPOUND)),
-                linesFromTag(root.getList("ledger", Tag.TAG_COMPOUND)),
-                root.getInt("mapCenterX"),
-                root.getInt("mapCenterZ"));
+                linesFromTag(root.getList("ledger", Tag.TAG_COMPOUND)));
     }
 
     private static List<Line> linesFromTag(ListTag tags) {

@@ -1,8 +1,8 @@
 package com.xy2407.kingdom.common.map;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.material.MapColor;
@@ -46,7 +46,7 @@ public final class WorldSurfaceSampler {
         }
     }
 
-    public static Snapshot sample(ServerLevel level, int centerX, int centerZ, int radius) {
+    public static Snapshot sample(Level level, int centerX, int centerZ, int radius) {
         int size = radius * 2 + 1;
         int originX = centerX - radius;
         int originZ = centerZ - radius;
@@ -96,7 +96,7 @@ public final class WorldSurfaceSampler {
         return new Snapshot(originX, originZ, size, colors);
     }
 
-    public static int[] sampleChunk(ServerLevel level, int chunkX, int chunkZ) {
+    public static int[] sampleChunk(Level level, int chunkX, int chunkZ) {
         int[] colors = new int[CHUNK_CELLS];
         Arrays.fill(colors, UNEXPLORED);
         if (!level.getChunkSource().hasChunk(chunkX, chunkZ)) {
@@ -174,7 +174,7 @@ public final class WorldSurfaceSampler {
         return MapColor.Brightness.NORMAL;
     }
 
-    private static int surfaceY(ServerLevel level, BlockPos.MutableBlockPos cursor,
+    private static int surfaceY(Level level, BlockPos.MutableBlockPos cursor,
                                 int worldX, int worldZ) {
         int top = level.getMaxBuildHeight() - 1;
         int bottom = level.getMinBuildHeight();
