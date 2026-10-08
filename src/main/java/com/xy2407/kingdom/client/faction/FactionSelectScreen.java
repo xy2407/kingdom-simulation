@@ -404,9 +404,6 @@ public final class FactionSelectScreen extends ApricityScreen {
             return;
         }
 
-        /* 真流程：把决定交给服务端落库。
-           自建国的 id 只是这一侧的临时编号（realm-1、realm-2……），发出去时留空，
-           由服务端统一分配、避免两个客户端撞号。 */
         boolean custom = choice.custom();
         PacketDistributor.sendToServer(new FactionSelectPacket(
                 custom,

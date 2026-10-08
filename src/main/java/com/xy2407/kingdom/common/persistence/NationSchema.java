@@ -10,17 +10,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 国家表迁移：建 nation 表、幂等补列。
- *
- * <p>国家分两种，用 {@code permanent} 区分：</p>
- * <ul>
- *   <li><b>预置国</b>（瓦拉里安等）：{@code permanent=0}，{@code founder_uuid} 为空串。
- *       它们由代码内置，不落库也可以，落库只是为了统一查询。</li>
- *   <li><b>自建国</b>：{@code permanent=1}，记下 {@code founder_uuid}。
- *       <b>这类国家在该存档永久存在、不提供任何删除入口</b>——
- *       {@code NationRegistry} 里连删除方法都不放，避免以后有人顺手接一个上去。
- *       其它新玩家首登时能选到它。</li>
- * </ul>
+ * 国家表迁移：建 nation 表并幂等补列，预置国与自建国共用这一张表。
  */
 public final class NationSchema implements Migration {
     private static final Map<String, String> COLUMN_DEFS = buildColumnDefs();

@@ -7,7 +7,7 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 /**
- * 日期同步包的网络注册点
+ * 日期同步包的网络注册点：把服务端总天数下发给客户端的这一个载荷登记好。
  */
 @EventBusSubscriber(modid = ModMain.MOD_ID)
 public final class DatePayloadRegistration {

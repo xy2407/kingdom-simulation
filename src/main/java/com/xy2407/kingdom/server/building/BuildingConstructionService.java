@@ -37,7 +37,7 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.item.ItemStack;
 
 /**
- * 建筑施工调度，建筑师沿脚手架分段施工并在完成后拆除脚手架
+ * 建筑施工调度，建筑师沿脚手架分段施工并在完成后拆除脚手架。
  */
 public final class BuildingConstructionService {
     public static final BuildingConstructionService INSTANCE = new BuildingConstructionService();
@@ -73,9 +73,6 @@ public final class BuildingConstructionService {
         return task;
     }
 
-    /**
-     * 开工入口（带玩家反馈）：失败时把原因直接发给玩家，别再静默什么都不发生。
-     */
     public void startWithFeedback(ServerLevel level, ServerPlayer player, String blueprintName,
                                   BlockPos origin, int rotationDegrees) {
         if (start(level, blueprintName, origin, rotationDegrees) != null) {
@@ -87,7 +84,6 @@ public final class BuildingConstructionService {
         ModMain.LOGGER.warn("{}（蓝图 {} 落点 {}）", message, blueprintName, origin);
     }
 
-    /** 开工失败的具体原因，能给玩家一句能照着做的提示。 */
     public static String failureReason(ServerLevel level, String blueprintName, BlockPos origin) {
         if (origin == null) {
             return "落点无效";
@@ -111,10 +107,6 @@ public final class BuildingConstructionService {
         return anyCitizen ? "市民都饿着或已在施工中" : "这个维度还没有市民（/kingdom npc spawn 3）";
     }
 
-    /**
-     * 工步序列：每个 4 层段 = 底圈（仅首段）→ 柱（每柱自下而上）→ 顶圈（沿圈顶挪）→ 段内建筑层。
-     * 站位规则：铺圈时站上一块圈顶，铺柱时站柱旁圈顶，铺建筑时站 z=-1 侧边框顶随 x 进度推进。
-     */
     private static List<BuildingTask.Step> workSequence(BuildPlan plan) {
         Vec3i size = plan.size();
         int height = plan.layerCount();
@@ -158,7 +150,6 @@ public final class BuildingConstructionService {
         return out;
     }
 
-    /** 沿 walk 序生成整圈工步，每块站位 = 上一块圈顶；首块站位由调用方给定 */
     private static void appendRing(List<BuildingTask.Step> out, List<BlockPos> walk, int y,
                                    int section, BlockPos firstStand) {
         BlockPos prev = null;
@@ -172,14 +163,12 @@ public final class BuildingConstructionService {
         }
     }
 
-    /** 柱位在圈上的前一个相邻格（角柱取圈末尾格），铺柱时站它的圈顶 */
     private static BlockPos ringNeighborOf(List<BlockPos> walk, BlockPos pillar) {
         int index = walk.indexOf(pillar);
         int prev = index <= 0 ? walk.size() - 1 : index - 1;
         return walk.get(prev);
     }
 
-    /** 选取离落点最近的空闲市民作为建筑师；必须同维度，否则施工会永远等不到人。 */
     private NpcData pickArchitect(ServerLevel level, BlockPos origin) {
         NpcData best = null;
         double bestDist = Double.MAX_VALUE;
@@ -217,7 +206,6 @@ public final class BuildingConstructionService {
         }
     }
 
-    /** NPC 驱动放置：到站位才放，放置与 NPC 到方块的距离无关 */
     private void tickTask(ServerLevel level, BuildingTask task) {
         NpcData architect = task.architectId() == null ? null : NpcManager.INSTANCE.getNpc(task.architectId());
         if (architect == null || architect.isDead()) {
@@ -269,14 +257,6 @@ public final class BuildingConstructionService {
         }
     }
 
-    /**
-     * 只扫描已施工过的脚手架缺失，破坏的先修复再继续建造。
-     *
-     * <p>每 {@code REPAIR_SCAN_INTERVAL}（80 tick）跑一次，扫的是"上一段起点 → 当前游标"，
-     * 大型建筑一段就有上千个工步。这里用可复用的 {@link BlockPos.MutableBlockPos} 代替
-     * {@code offset(...)}：后者每步都会新建一个 BlockPos，一轮扫描就是上千次小对象分配，
-     * 正好落在每几秒一次的周期里，表现为帧/刻时间规律性抖一下。</p>
-     */
     private void scanRepairs(ServerLevel level, BuildingTask task) {
         int section = task.next().section();
         List<BuildingTask.Step> sequence = task.sequence();
@@ -302,26 +282,12 @@ public final class BuildingConstructionService {
         markSnapshotDirty(level, pos);
     }
 
-    /**
-     * 拆除脚手架，且不产生任何掉落物。
-     *
-     * <p>细节有两处：</p>
-     * <ol>
-     *   <li>只用 {@code UPDATE_CLIENTS} 标志逐格清除，<b>不带 {@code UPDATE_NEIGHBORS}</b>。
-     *       {@code ScaffoldingBlock} 的稳定性是邻居驱动的——每移除一格，相邻脚手架都会重算
-     *       {@code DISTANCE}，算出来大于 6 就自己排一个 tick 变成掉落实体。掉的根本不是被移除的
-     *       那一格，而是它的邻居。</li>
-     *   <li>清空之后再统一补一次邻居更新，让周围方块的形状/光照回到正常状态。此时场地上已经没有
-     *       脚手架，不会再触发掉落判定。</li>
-     * </ol>
-     */
     private void removeScaffold(ServerLevel level, BuildingTask task) {
         List<BlockPos> removed = new ArrayList<>();
         BlockState air = Blocks.AIR.defaultBlockState();
         for (BlockPos relative : task.scaffold()) {
             BlockPos pos = task.origin().offset(relative.getX(), relative.getY(), relative.getZ());
             if (!level.isLoaded(pos) || !(level.getBlockState(pos).getBlock() instanceof ScaffoldingBlock)) {
-                // 该位置可能已经被建筑方块占用（或本来就是空的），只清真正的脚手架
                 continue;
             }
             level.setBlock(pos, air, Block.UPDATE_CLIENTS);
@@ -333,7 +299,6 @@ public final class BuildingConstructionService {
         }
     }
 
-    /** 施工改动了方块，寻路快照必须重建，否则 A* 永远看不到新脚手架 */
     private void markSnapshotDirty(ServerLevel level, BlockPos pos) {
         SnapshotRepository repository = SnapshotRepository.get(level.getServer());
         if (repository != null) {
@@ -374,7 +339,6 @@ public final class BuildingConstructionService {
         broadcastSite(level, task, true);
     }
 
-    /** 施工点增删广播给所有在线玩家，客户端据此渲染或清理施工虚影。 */
     private static void broadcastSite(ServerLevel level, BuildingTask task, boolean remove) {
         MinecraftServer server = level.getServer();
         if (server == null) {
@@ -387,7 +351,6 @@ public final class BuildingConstructionService {
         }
     }
 
-    /** 玩家加入时补推进行中的施工点，重进世界后虚影不会丢。 */
     public void syncTo(ServerPlayer player) {
         for (BuildingTask task : tasks.values()) {
             PacketDistributor.sendToPlayer(player, new BuildingSitePacket(task.id(), false,

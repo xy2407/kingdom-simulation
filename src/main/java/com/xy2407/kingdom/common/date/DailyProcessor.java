@@ -11,7 +11,7 @@ import com.mojang.logging.LogUtils;
 import net.minecraft.server.level.ServerLevel;
 
 /**
- * 日结回调注册与跨天欠账补齐驱动
+ * 日结回调注册与跨天欠账补齐驱动：每 20 刻检查一次，把漏掉的每一天补跑一遍。
  */
 public final class DailyProcessor {
     private static final long TICK_INTERVAL = 20L;

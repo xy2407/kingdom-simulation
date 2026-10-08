@@ -192,7 +192,6 @@ public final class KingdomPersistence {
     }
 
     private <T> T doQuerySync(SqlQuery<T> query) throws SQLException {
-        // 仅启动LOAD/维护用，业务运行期查询走内存
         if (db == null) {
             throw new IllegalStateException("数据库尚未打开");
         }

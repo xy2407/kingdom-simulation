@@ -9,11 +9,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 /**
- * 服务端 → 客户端：打开行装界面所需的展示数据（该看谁、档案与状态各是多少）。
- *
- * <p>界面本身由 AUI 的容器菜单打开，这个包只负责"填内容"——包括左侧模型框要渲染哪个实体
- * （{@link #entityId()} 是服务端实体 id，客户端按它到本地世界取实体）。文案全部在服务端
- * 拼好，客户端只做展示，避免两端各写一套格式化逻辑。</p>
+ * 服务端 → 客户端：打开行装界面所需的展示数据，文案全部在服务端拼好。
  */
 public record NpcBackpackOpenPacket(int entityId,
                                     String no,

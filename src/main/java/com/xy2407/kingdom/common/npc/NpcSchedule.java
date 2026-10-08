@@ -1,7 +1,7 @@
 package com.xy2407.kingdom.common.npc;
 
 /**
- * 昼夜排班表，按班次与时刻查询目标子状态
+ * 昼夜排班表，按班次与时刻查询市民的目标子状态。
  */
 public final class NpcSchedule {
     public static final int DAY_LENGTH = 24000;

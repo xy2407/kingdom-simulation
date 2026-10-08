@@ -6,12 +6,7 @@ import net.neoforged.api.distmarker.OnlyIn;
 import org.joml.Matrix4f;
 
 /**
- * 建筑预览的轨道相机。
- *
- * <p>顶点已经相对建筑中心存储，所以相机只需绕原点旋转并向后拉开距离；
- * 平移量作用在视图空间，视觉上就是拖着建筑走。</p>
- *
- * <p>任何参数变化都会置脏，离屏画面只在真正变化时重绘。</p>
+ * 建筑预览的轨道相机：绕原点旋转、平移与缩放，参数变化才重绘。
  */
 @OnlyIn(Dist.CLIENT)
 public final class StructureCamera {
@@ -32,7 +27,6 @@ public final class StructureCamera {
     private double baseDistance = 32.0;
     private boolean dirty = true;
 
-    /** 按建筑尺寸设定取景距离。 */
     public void frame(StructureModel model) {
         baseDistance = Math.max(8.0, model.maxDimension() * 1.9);
         dirty = true;
@@ -44,7 +38,6 @@ public final class StructureCamera {
         dirty = true;
     }
 
-    /** factor 大于 1 拉近（滚轮向上）。 */
     public void zoomBy(double factor) {
         double next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom * factor));
         if (next != zoom) {
@@ -68,7 +61,6 @@ public final class StructureCamera {
         dirty = true;
     }
 
-    /** 供页面属性直接驱动视角。 */
     public void setFromAttributes(double yaw, double pitch, double zoom) {
         this.yaw = Double.isFinite(yaw) ? yaw : DEFAULT_YAW;
         this.pitch = Math.max(MIN_PITCH, Math.min(MAX_PITCH, Double.isFinite(pitch) ? pitch : DEFAULT_PITCH));
@@ -88,7 +80,6 @@ public final class StructureCamera {
         return zoom;
     }
 
-    /** 取走脏标记；返回 true 表示这一帧需要重绘。 */
     public boolean consumeDirty() {
         boolean wasDirty = dirty;
         dirty = false;

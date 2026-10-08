@@ -7,7 +7,9 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 
-/** 客户端渲染器注册(仅在客户端加载)。 */
+/**
+ * 客户端渲染器注册：登记市民与 RTS 假人两种实体的渲染器。
+ */
 @EventBusSubscriber(modid = ModMain.MOD_ID, value = Dist.CLIENT)
 public final class NpcClientRegistries {
 

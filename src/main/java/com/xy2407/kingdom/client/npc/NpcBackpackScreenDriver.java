@@ -23,17 +23,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * 行装页面的 Java 驱动：等 AUI 的容器屏把 Document 建好后，把服务端发来的档案与状态填进去。
- *
- * <p><b>不管版式</b>：页面是原始稿（原始html/backpack.html）的 1:1 还原，
- * 固定 1080×810 设计稿，全部尺寸写死在页面 CSS 里。Java 只做两件事——
- * 填档案文本、填生命/饥饿数值。任何"按视口重算尺寸"的逻辑都属于历史遗留事故，不要再加回来。</p>
+ * 行装页面的 Java 驱动：等 AUI 建好 Document 后填入档案文本与生命/饥饿数值。
  */
 @EventBusSubscriber(modid = ModMain.MOD_ID, value = Dist.CLIENT)
 @OnlyIn(Dist.CLIENT)
 public final class NpcBackpackScreenDriver {
 
-    /** 页面根节点 id，用来确认"这一份 Document 是行装页"（原稿根节点就是 idCard）。 */
     private static final String CARD_ID = "idCard";
 
     private static final String ID_BAG_META = "bagMeta";
@@ -72,12 +67,6 @@ public final class NpcBackpackScreenDriver {
     private NpcBackpackScreenDriver() {
     }
 
-    /**
-     * 屏幕一初始化就立刻填一次。
-     *
-     * <p>只靠 tick 认领的话，第一帧画的是页面里的占位文本，会出现闪变。
-     * 在 {@code Init.Post} 里补一次就没有这一帧。</p>
-     */
     @SubscribeEvent
     public static void onScreenInit(ScreenEvent.Init.Post event) {
         if (!(event.getScreen() instanceof ApricityContainerScreen screen)) {
@@ -111,7 +100,6 @@ public final class NpcBackpackScreenDriver {
             return;
         }
         if (document.getElementById(CARD_ID) == null) {
-            // 是别的容器页，不认领
             return;
         }
         if (document != boundDocument || snapshot != appliedSnapshot) {
@@ -151,7 +139,6 @@ public final class NpcBackpackScreenDriver {
     }
 
     private static void apply(Document document, NpcBackpackOpenPacket data) {
-        // 面包屑：万一接下来卡死，看门狗报告里能看到"卡住前正在填的是哪个市民的行装"。
         ClientWatchdog.crumb("bag-apply", "entity=" + data.entityId() + " doc=" + document.getPath());
         text(document, ID_BIO_NO, data.no());
         text(document, ID_BIO_NAME, data.name());
@@ -163,7 +150,6 @@ public final class NpcBackpackScreenDriver {
         text(document, ID_BIO_NATION, data.nation());
         text(document, ID_BIO_WEALTH, data.wealth());
         text(document, ID_BIO_DESC, data.desc());
-        // 格数由绑定容量给出
         text(document, ID_BAG_META, NpcInventory.SLOT_COUNT + " 格");
 
         bar(document, ID_HP_BAR, ID_HP_NOW, ID_HP_MAX, data.health(), data.healthMax());

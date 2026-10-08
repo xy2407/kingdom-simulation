@@ -27,7 +27,7 @@ import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
- * 农业操作界面的驱动：两级页显隐、农田列表与作物槽位填充、操作发包
+ * 农业操作界面的驱动：两级页显隐、农田列表与作物槽位填充、操作发包。
  */
 @OnlyIn(Dist.CLIENT)
 public final class FarmPanelScreen extends ApricityScreen {
@@ -76,7 +76,6 @@ public final class FarmPanelScreen extends ApricityScreen {
     private Element workerSearchInput;
     private Element detailSave;
     private Element detailCancel;
-    /** 点了卡片上的 ✕、正等确认弹窗答复的那块农田；null 表示没有待确认的删除。 */
     private UUID pendingDeleteId;
 
     private FarmPanelStatePacket latest = FarmPanelStatePacket.outside();
@@ -300,8 +299,6 @@ public final class FarmPanelScreen extends ApricityScreen {
                     .append(plot.hasArea() ? areaText(plot) : "未划地")
                     .append("</span>")
                     .append("<span class=\"bp-sub\">").append(plot.workers().size()).append(" 人</span>")
-                    /* 删除按钮贴在卡片最右侧。点它只弹确认、不直接删——
-                       整块农田连同格数与打理人安排一起没，手一抖代价太大。 */
                     .append("<span class=\"bp-row-del\" id=\"fm-row-del-").append(row).append("\">✕</span>")
                     .append("</div>");
         }
@@ -367,7 +364,6 @@ public final class FarmPanelScreen extends ApricityScreen {
         }
     }
 
-    /** 作物槽位的重建依据：清单变了（含"先空后到"）就重建，图标与名字一起刷新。 */
     private static String cropKey(FarmPanelStatePacket packet) {
         StringBuilder key = new StringBuilder();
         for (CropOption crop : packet.crops()) {
@@ -391,7 +387,6 @@ public final class FarmPanelScreen extends ApricityScreen {
         showDetailButtons(false);
     }
 
-    /** 待定农田的详情：数据全在客户端草稿里，点作物与打理人只改草稿，不发包。 */
     private void refreshDraft(FarmPlotDraft draft) {
         setText(detailName, "新农田（待保存）");
         setText(detailSlots, String.valueOf(draft.slots()));
@@ -417,12 +412,6 @@ public final class FarmPanelScreen extends ApricityScreen {
         }
     }
 
-    /**
-     * 底栏常驻「打开仓库」；只有**待定农田**（还没落库）才额外多出「保存 / 取消」。
-     *
-     * <p>已建农田不再有「完成」：格数、作物、打理人本来就是改动即发到服务端，
-     * 那个按钮当年其实只是"关闭详情页"，留着反而让人以为不点就不保存。</p>
-     */
     private void showDetailButtons(boolean draft) {
         setText(detailSave, "保存");
         setVisible(detailSave, draft);
@@ -514,7 +503,6 @@ public final class FarmPanelScreen extends ApricityScreen {
         return plot.extra().isEmpty() ? cells + " 格地" : cells + " 格地 · " + plot.extra().size() + " 块附加";
     }
 
-    /** 新建农田：先关面板去框地，框完的地变成待定卡片，作物与打理人在卡片里选。 */
     private void startNewPlot() {
         onClose();
         FarmAreaSelector.beginNew();
@@ -654,7 +642,6 @@ public final class FarmPanelScreen extends ApricityScreen {
         }
     }
 
-    /** 待定卡片的保存：区域、格数、作物、打理人一次成型发给服务端。 */
     private void saveDetail() {
         if (!draftOpen) {
             closeDetail();
@@ -671,7 +658,6 @@ public final class FarmPanelScreen extends ApricityScreen {
         hint(draft == null ? "农田已保存" : saveHint(draft));
     }
 
-    /** 保存后的提示直说闸门：市民不会开工的原因就这三个，别让人对着不动的市民猜。 */
     private static String saveHint(FarmPlotDraft draft) {
         if (draft.cropId().isBlank()) {
             return "农田已保存，但还没选作物：市民不会开工";
@@ -696,7 +682,6 @@ public final class FarmPanelScreen extends ApricityScreen {
         hint("已放弃这块待定农田");
     }
 
-    /** 点卡片最右侧的 ✕：先把要删的那块记下来并弹确认，不立刻删。 */
     private void askDelete(UUID plotId, String name) {
         if (boundDocument == null || plotId == null) {
             return;
@@ -722,7 +707,6 @@ public final class FarmPanelScreen extends ApricityScreen {
         }
     }
 
-    /** 确认删除。删的是**卡片上那一块**，不一定是详情页里选中的那块。 */
     private void confirmDelete() {
         UUID plotId = pendingDeleteId;
         closeConfirm();
@@ -735,7 +719,6 @@ public final class FarmPanelScreen extends ApricityScreen {
         }
     }
 
-    /** 底栏的「打开仓库」：界面由服务端换（建筑按玩家位置判定，不采信客户端）。 */
     private void openWarehouse() {
         send(FarmPanelActionPacket.openStorage());
     }
@@ -752,7 +735,6 @@ public final class FarmPanelScreen extends ApricityScreen {
         refreshWorkers(latest, assignedWorkers());
     }
 
-    /** 详情页正在编辑谁的打理人：待定草稿，或已建的某块农田。 */
     private List<UUID> assignedWorkers() {
         if (draftOpen) {
             FarmPlotDraft draft = FarmPlotDraft.current();
@@ -762,7 +744,6 @@ public final class FarmPanelScreen extends ApricityScreen {
         return plot == null ? null : plot.workers();
     }
 
-    /** 操作反馈走动作栏，不弹聊天框。 */
     private static void hint(String message) {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.player != null) {

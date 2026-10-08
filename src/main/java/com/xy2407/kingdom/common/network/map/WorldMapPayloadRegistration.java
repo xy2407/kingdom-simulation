@@ -8,9 +8,7 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 /**
- * 地图网络包注册。
- *
- * <p>请求包走 playToServer（客户端提出），数据包走 playToClient（服务端下发）。</p>
+ * 地图网络包注册：请求包由客户端上行，数据包由服务端下发。
  */
 @EventBusSubscriber(modid = ModMain.MOD_ID)
 public final class WorldMapPayloadRegistration {

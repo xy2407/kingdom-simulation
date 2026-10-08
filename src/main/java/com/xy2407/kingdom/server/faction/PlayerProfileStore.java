@@ -15,12 +15,7 @@ import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.persistence.PlayerProfileSchema;
 
 /**
- * 玩家档案表：首登标记与归属。
- *
- * <p>"是否初次登录"就落在 {@code onboarded} 这一列上——玩家登录时若查到 false，
- * 服务端就发一个包让客户端弹阵营选择界面；选完置 true，之后不再弹。</p>
- *
- * <p>档案按需建行：玩家第一次被问到时才写库，不预铺所有玩家。</p>
+ * 玩家档案表：首登标记与归属；档案按需建行，不预铺所有玩家。
  */
 public final class PlayerProfileStore {
 
@@ -63,12 +58,6 @@ public final class PlayerProfileStore {
                      ResultSet rs = st.executeQuery("SELECT " + PlayerProfileSchema.columns()
                              + " FROM " + PlayerProfileSchema.TABLE_PLAYER_PROFILE)) {
                     while (rs.next()) {
-                        /* 单行坏掉不该让整表加载失败。历史上写入端漏写主键
-                           （见 Database.executeOp 的说明），留下过 uuid 为 NULL 的废行；
-                           UUID.fromString(null) 直接抛 NPE，一抛整份档案表就永远读不出来
-                           （每 tick 重试、每 tick 报一条 ERROR），
-                           连带"有没有领地"判定失效、市政厅界面打不开。
-                           Database 启动时会清这些行，这里再兜一层。 */
                         try {
                             PlayerProfile profile = readRow(rs);
                             if (profile.uuid() == null) {
@@ -96,26 +85,14 @@ public final class PlayerProfileStore {
         }
     }
 
-    /**
-     * 全表是否已从库里读出来。
-     *
-     * <p>首登驱动必须先问这一句：没读完就 {@code remember}，会给老玩家误建一份
-     * "全新档案"，把他的国家抹掉。</p>
-     */
     public boolean isLoaded() {
         return loaded;
     }
 
-    /** 查档案；没有则返回 null（不隐式建行，免得把"查一下"变成"写一次"）。 */
     public PlayerProfile byUuid(UUID uuid) {
         return uuid == null ? null : byId.get(uuid);
     }
 
-    /**
-     * 取档案，没有就建一份"全新玩家"的并落库。
-     *
-     * <p>玩家登录时调它——这样"是不是初次登录"这件事一定有答案。</p>
-     */
     public PlayerProfile remember(UUID uuid, int day) {
         if (uuid == null) {
             return null;
@@ -130,7 +107,6 @@ public final class PlayerProfileStore {
         return profile;
     }
 
-    /** 走完首登流程：记下选定的国家并置 onboarded。 */
     public PlayerProfile markOnboarded(UUID uuid, String nationId) {
         PlayerProfile profile = byId.get(uuid);
         if (profile == null) {
@@ -142,19 +118,12 @@ public final class PlayerProfileStore {
         return updated;
     }
 
-    /**
-     * 记下这名玩家看地图时停留的中心点。
-     *
-     * <p>由 {@code WorldMapServer} 在收到采样请求时调用——请求里带的中心就是
-     * 玩家正在看的地方。每人一份，互不影响。</p>
-     */
     public PlayerProfile setMapCenter(UUID uuid, int x, int z) {
         PlayerProfile profile = byId.get(uuid);
         if (profile == null) {
             return null;
         }
         if (profile.mapCenterX() == x && profile.mapCenterZ() == z) {
-            /* 没变就不写库：拖动地图时请求会比较密，省掉无谓的落盘 */
             return profile;
         }
         PlayerProfile updated = profile.withMapCenter(x, z);
@@ -163,7 +132,6 @@ public final class PlayerProfileStore {
         return updated;
     }
 
-    /** 建好领地后回填归属。 */
     public PlayerProfile setTerritory(UUID uuid, String territoryId) {
         PlayerProfile profile = byId.get(uuid);
         if (profile == null) {

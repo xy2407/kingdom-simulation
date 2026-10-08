@@ -19,7 +19,6 @@ public final class RtsPayloadRegistration {
     @SubscribeEvent
     public static void onRegisterPayloads(RegisterPayloadHandlersEvent event) {
         PayloadRegistrar registrar = event.registrar("1");
-        // 客户端 → 服务端
         registrar.playToServer(RtsSelectionSyncPacket.TYPE,
                 RtsSelectionSyncPacket.STREAM_CODEC, RtsSelectionSyncPacket::handle);
         registrar.playToServer(RtsMoveCommandPacket.TYPE,
@@ -30,7 +29,6 @@ public final class RtsPayloadRegistration {
                 RtsFakePlayerSpawnPacket.STREAM_CODEC, RtsFakePlayerSpawnPacket::handle);
         registrar.playToServer(RtsFakePlayerClearPacket.TYPE,
                 RtsFakePlayerClearPacket.STREAM_CODEC, RtsFakePlayerClearPacket::handle);
-        // 服务端 → 客户端
         registrar.playToClient(RtsSelectionCorrectionPacket.TYPE,
                 RtsSelectionCorrectionPacket.STREAM_CODEC, RtsSelectionCorrectionPacket::handle);
     }

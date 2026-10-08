@@ -20,7 +20,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
 
 /**
- * 开垦登记表：内存里按维度存坐标长整数，落库只做一次增量 UPSERT
+ * 开垦登记表：内存按维度存坐标，落库只做一次增量 UPSERT。
  */
 public final class FarmLandRegistry {
 
@@ -79,7 +79,6 @@ public final class FarmLandRegistry {
         }
     }
 
-    /** mixin 的查询入口：一格都没开垦时直接短路，不给随机刻加负担。 */
     public static boolean isTilled(ResourceKey<Level> dimension, BlockPos pos) {
         if (TILLED.isEmpty() || dimension == null || pos == null) {
             return false;
@@ -88,7 +87,6 @@ public final class FarmLandRegistry {
         return positions != null && positions.contains(pos.asLong());
     }
 
-    /** 记下这一格是 NPC 耕的：内存先标记（下一 tick 立刻生效），落库异步走写队列。 */
     public static void mark(ServerLevel level, BlockPos pos, int day) {
         if (level == null || pos == null) {
             return;

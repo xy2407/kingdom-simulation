@@ -9,18 +9,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.ModifyVariable;
 
 /**
- * scissor 裁剪框跟随文档的居中偏移（与 {@link AuiDocumentCenterMixin} 配套）。
- *
- * <p>AUI 的 {@code Mask.enableScissor} 把 CSS 裁剪框按
- * {@code left = x * scissorScale} 直接换算到设备像素，不消费
- * {@code pushScissorScale} 快照里的基础平移（b30/b31）——surface 路径
- * （{@code SurfaceScissorTransform.apply}）用了它，普通屏幕文档路径没用。
- * AUI 自己永远把文档画在 (0,0) 所以无感；我们的居中 mixin 把几何平移之后，
- * 裁剪框留在原地，所有 overflow:hidden 区域（模型盒、槽位面板）
- * 都按旧位置裁切——内容"被切割/被遮住"。</p>
- *
- * <p>修法：入参补上当前上下文文档的偏移（GUI 坐标 ÷ renderScale = CSS 单位）。
- * gui 模式与世界窗口的偏移为 0，完全不影响它们。</p>
+ * scissor 裁剪框跟随文档的居中偏移，与居中 mixin 配套。
  */
 @Mixin(value = Mask.class, remap = false)
 public abstract class AuiScissorOffsetMixin {
@@ -35,7 +24,6 @@ public abstract class AuiScissorOffsetMixin {
         return y + kingdomDocCssOffset()[1];
     }
 
-    /** 当前上下文文档的绘制偏移，换算成 CSS 单位（GUI 偏移 ÷ renderScale）。 */
     private static double[] kingdomDocCssOffset() {
         double[] none = {0.0d, 0.0d};
         try {

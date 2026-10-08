@@ -12,13 +12,11 @@ import net.neoforged.neoforge.registries.DeferredBlock;
 import net.neoforged.neoforge.registries.DeferredItem;
 import net.neoforged.neoforge.registries.DeferredRegister;
 
-/** 方块与物品注册表。 */
+/**
+ * 方块与物品注册表：市政厅方块及其对应的方块物品。
+ */
 public final class ModBlocks {
 
-    /* 用 DeferredRegister.Blocks / Items 这两个专门子类。
-       它们的 registerBlock / register 直接返回 DeferredBlock / DeferredItem，
-       而父类 DeferredRegister<Block> 的 register 只返回 DeferredHolder——
-       声明成 DeferredBlock 就会报"类型变量 I 的实例不存在"。 */
     public static final DeferredRegister.Blocks BLOCKS =
             DeferredRegister.createBlocks(ModMain.MOD_ID);
 

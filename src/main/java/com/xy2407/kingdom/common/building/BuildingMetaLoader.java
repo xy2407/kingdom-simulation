@@ -15,9 +15,7 @@ import com.google.gson.JsonParser;
 import com.xy2407.kingdom.ModMain;
 
 /**
- * 建筑元数据加载：优先读与 nbt 同名的 json，缺失或字段缺省时逐项兜底。
- *
- * <p>任何异常都只记一条日志并回退到兜底值——元数据坏了不应该让建筑列表整个不可用。</p>
+ * 建筑元数据加载：优先读与 nbt 同名的 json，缺失或字段缺省时逐项兜底，读坏也只回退不炸。
  */
 public final class BuildingMetaLoader {
 
@@ -26,12 +24,6 @@ public final class BuildingMetaLoader {
     private BuildingMetaLoader() {
     }
 
-    /**
-     * 读取某个蓝图 nbt 的元数据。
-     *
-     * @param nbtFile nbt 文件路径；对应的 json 取同目录下的同名文件
-     * @param id      蓝图标识（相对 {@code structures} 的路径去掉扩展名）
-     */
     public static BuildingMeta load(Path nbtFile, String id) {
         BuildingType folderType = BuildingType.parse(typeFromFolder(nbtFile));
         Path jsonFile = jsonOf(nbtFile);
@@ -51,7 +43,6 @@ public final class BuildingMetaLoader {
             return BuildingMeta.fallback(id, folderType);
         }
 
-        // json 明确写了 type 就用它，否则退回所在子目录推断出来的类型
         BuildingType jsonType = BuildingType.parse(string(root, "type", null));
         BuildingType type = jsonType != null ? jsonType : folderType;
         String name = string(root, "name", "");
@@ -78,12 +69,6 @@ public final class BuildingMetaLoader {
         );
     }
 
-    /**
-     * 解析 {@code crops} 数组。
-     *
-     * <p>两种写法都收：对象 {@code {"item":"minecraft:wheat","name":"小麦"}}，或直接一个 id 字符串。
-     * 没写 {@code item}/空字符串的条目丢掉——没有物品就没有图标，也没法种。</p>
-     */
     private static List<CropSpec> crops(JsonObject root) {
         JsonElement element = root.get("crops");
         if (element == null || !element.isJsonArray()) {
@@ -115,12 +100,6 @@ public final class BuildingMetaLoader {
         return specs;
     }
 
-    /**
-     * 解析 {@code animals} 数组。
-     *
-     * <p>没写 {@code entity} 的条目直接丢掉——没有生物就无从养起；缺 {@code id} 用实体名兜底；
-     * 缺 {@code capacity} 记 0，面板会把它当"未定义上限"处理。</p>
-     */
     private static List<AnimalSpec> animals(JsonObject root) {
         JsonElement element = root.get("animals");
         if (element == null || !element.isJsonArray()) {
@@ -154,12 +133,6 @@ public final class BuildingMetaLoader {
         return specs;
     }
 
-    /**
-     * 解析 {@code recipes} 数组。
-     *
-     * <p>没有 {@code outputs} 的条目直接丢掉——空转的工序没有意义；缺 {@code id} 的也丢掉，
-     * 因为面板要靠它认卡片。</p>
-     */
     private static List<RecipeSpec> recipes(JsonObject root) {
         JsonElement element = root.get("recipes");
         if (element == null || !element.isJsonArray()) {
@@ -188,7 +161,6 @@ public final class BuildingMetaLoader {
         return specs;
     }
 
-    /** 解析形如 {@code [{"item":"…","count":1}]} 的物品表；没写 {@code item} 的条目丢掉。 */
     private static List<ItemCount> stacks(JsonObject root, String key) {
         JsonElement element = root.get(key);
         if (element == null || !element.isJsonArray()) {
@@ -210,12 +182,6 @@ public final class BuildingMetaLoader {
         return specs;
     }
 
-    /**
-     * 解析餐厅的 {@code menu} 数组。
-     *
-     * <p>没写 {@code output} 的条目丢掉——菜单上不能有不存在的菜；
-     * 缺 {@code id} 的也丢掉，面板要靠它认卡片。</p>
-     */
     private static List<MenuSpec> menu(JsonObject root) {
         JsonElement element = root.get("menu");
         if (element == null || !element.isJsonArray()) {
@@ -244,12 +210,6 @@ public final class BuildingMetaLoader {
         return specs;
     }
 
-    /**
-     * 解析 {@code troops} 数组。
-     *
-     * <p>缺 {@code id} 的条目丢掉——面板要靠它认卡片；缺 {@code capacity} 记 0，
-     * 面板当作"未定编"处理。</p>
-     */
     private static List<TroopSpec> troops(JsonObject root) {
         JsonElement element = root.get("troops");
         if (element == null || !element.isJsonArray()) {
@@ -279,7 +239,6 @@ public final class BuildingMetaLoader {
         return specs;
     }
 
-    /** 取蓝图所在一级的目录名，用于类型兜底。 */
     private static String typeFromFolder(Path nbtFile) {
         Path parent = nbtFile == null ? null : nbtFile.getParent();
         Path folder = parent == null ? null : parent.getFileName();

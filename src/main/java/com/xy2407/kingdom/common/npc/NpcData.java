@@ -34,9 +34,7 @@ public final class NpcData {
     private List<String> hobbies = new ArrayList<>();
     private List<String> likedItems = new ArrayList<>();
     private String personality = "";
-    /** 24 格行装的 SNBT 串（空串表示空行装）。 */
     private String inventoryJson = "";
-    /** 皮肤名（textures/entity/npc 下的文件名，不含扩展名）；空串表示用默认。 */
     private String skin = "";
     private int strength;
     private int intelligence;
@@ -267,12 +265,6 @@ public final class NpcData {
         markDirty();
     }
 
-    /**
-     * 行装的 SNBT 串。
-     *
-     * <p>刻意不在这里 {@code markDirty()}：载入存档时 {@code NpcManager} 会把整行数据回填，
-     * 那时把所有市民标脏没有意义。写入方（{@code NpcEntity#saveInventory}）自己负责标脏。</p>
-     */
     public String getInventoryJson() {
         return inventoryJson == null ? "" : inventoryJson;
     }
@@ -281,7 +273,6 @@ public final class NpcData {
         this.inventoryJson = inventoryJson == null ? "" : inventoryJson;
     }
 
-    /** 皮肤名（{@code textures/entity/npc} 下的文件名，不含扩展名）；空串表示用默认皮肤。 */
     public String getSkin() {
         return skin == null ? "" : skin;
     }

@@ -50,10 +50,10 @@ public record RanchPanelStatePacket(boolean inside, String buildingName, int bui
         }
     }
 
-    /** 可雇市民名册里的一条：{@code note} 是"为什么现在不能上工"的提示。 */
-    public record Worker(UUID id, String name, String note) {
+    public record Worker(UUID id, String name, String skin, String note) {
         public Worker {
             name = name == null ? "" : name;
+            skin = skin == null ? "" : skin;
             note = note == null ? "" : note;
         }
     }
@@ -88,6 +88,7 @@ public record RanchPanelStatePacket(boolean inside, String buildingName, int bui
         for (Worker worker : packet.workers()) {
             buf.writeUUID(worker.id() == null ? new UUID(0L, 0L) : worker.id());
             buf.writeUtf(worker.name(), 64);
+            buf.writeUtf(worker.skin(), 128);
             buf.writeUtf(worker.note(), 16);
         }
     }
@@ -125,7 +126,7 @@ public record RanchPanelStatePacket(boolean inside, String buildingName, int bui
         int workerCount = buf.readVarInt();
         List<Worker> workers = new ArrayList<>(workerCount);
         for (int index = 0; index < workerCount; index++) {
-            workers.add(new Worker(buf.readUUID(), buf.readUtf(64), buf.readUtf(16)));
+            workers.add(new Worker(buf.readUUID(), buf.readUtf(64), buf.readUtf(128), buf.readUtf(16)));
         }
 
         return new RanchPanelStatePacket(inside, buildingName, buildingLevel, position, animals, workers);

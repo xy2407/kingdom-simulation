@@ -22,7 +22,6 @@ public record FarmPlot(UUID id, UUID buildingId, String blueprintName, String na
         extra = extra == null ? List.of() : List.copyOf(extra);
     }
 
-    /** 核心矩形是否成立：某一轴跨两格以上（1×1 的选块一律走附加块）。 */
     public boolean hasCore() {
         return max.getX() > min.getX() || max.getZ() > min.getZ();
     }
@@ -31,7 +30,6 @@ public record FarmPlot(UUID id, UUID buildingId, String blueprintName, String na
         return hasCore() || !extra.isEmpty();
     }
 
-    /** 核心加附加块的总格数：附加块之间重叠时会重复计数，仅用于展示。 */
     public int areaBlocks() {
         int total = hasCore() ? (max.getX() - min.getX() + 1) * (max.getZ() - min.getZ() + 1) : 0;
         for (FarmRegion region : extra) {

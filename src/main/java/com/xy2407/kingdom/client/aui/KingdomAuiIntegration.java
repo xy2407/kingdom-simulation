@@ -10,7 +10,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 
 /**
- * 向晴雪UI注册本模组的扩展元素
+ * 向晴雪 UI 注册本模组的扩展元素，客户端启动时扫描 aui 包并完成注册。
  */
 @EventBusSubscriber(modid = ModMain.MOD_ID, value = Dist.CLIENT)
 @OnlyIn(Dist.CLIENT)

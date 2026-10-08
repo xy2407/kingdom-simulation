@@ -20,7 +20,7 @@ import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import org.joml.Matrix4f;
 
 /**
- * 农田地表网格：框选期间画出正在框的地，并把已建成的农田一并圈出来
+ * 农田地表网格：框选期间画出正在框的地，并把已建成的农田一并圈出来。
  */
 @OnlyIn(Dist.CLIENT)
 @EventBusSubscriber(modid = ModMain.MOD_ID, value = Dist.CLIENT)
@@ -40,7 +40,6 @@ public final class FarmPlotOverlay {
     private FarmPlotOverlay() {
     }
 
-    /** 面板每次收到状态就缓存一份，世界里的边框与面板数据永远同源。 */
     public static void cache(FarmPanelStatePacket packet) {
         lastState = packet;
     }
@@ -69,7 +68,6 @@ public final class FarmPlotOverlay {
         poseStack.translate(-camPos.x, -camPos.y, -camPos.z);
         VertexConsumer consumer = minecraft.renderBuffers().bufferSource().getBuffer(RenderType.lines());
 
-        // 已建农田只在按「新建农田」进入框选时圈出来，平时不挡视线
         if (selecting && lastState != null) {
             for (Plot plot : lastState.plots()) {
                 if (!plot.hasArea()) {
@@ -85,7 +83,6 @@ public final class FarmPlotOverlay {
                 }
             }
         }
-        // 累加框选：已并入的每一块与正在拖的那一块都画出来，玩家能看清选了几块
         if (selecting) {
             for (int[] block : FarmAreaSelector.blocks()) {
                 grid(poseStack, consumer, block[0], block[1], block[2], block[3], block[4],
@@ -112,12 +109,10 @@ public final class FarmPlotOverlay {
         poseStack.popPose();
     }
 
-    /** 核心矩形是否成立：全散落块的农田 min/max 停在原点，不能拿它画框。 */
     private static boolean hasCore(int minX, int minZ, int maxX, int maxZ) {
         return maxX > minX || maxZ > minZ;
     }
 
-    /** 地平线上的一整块网格：外框 + 每格分界线，格子太多时只留外框。 */
     private static void grid(PoseStack poseStack, VertexConsumer consumer,
                              int minX, int minZ, int maxX, int maxZ, int groundY,
                              float red, float green, float blue) {

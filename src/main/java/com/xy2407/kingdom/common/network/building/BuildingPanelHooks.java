@@ -7,7 +7,6 @@ import java.util.function.Consumer;
  */
 public final class BuildingPanelHooks {
 
-    /** 所处建筑判定结果的客户端入口；客户端未初始化时是空实现。 */
     public static volatile Consumer<BuildingPanelStatePacket> stateSink = packet -> {
     };
 

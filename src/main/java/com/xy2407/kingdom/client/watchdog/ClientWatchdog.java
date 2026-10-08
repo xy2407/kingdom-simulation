@@ -33,51 +33,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * 客户端看门狗：客户端线程卡死时，把证据留在磁盘上。
- *
- * <p>之所以要专门做这件事：上次卡死到连日志都停了——渲染线程一卡，写日志的那条线程也走不动，
- * 事后什么都看不到。所以这里刻意分成两套：</p>
- * <ul>
- *   <li><b>心跳</b>由客户端线程打（每帧、每 tick 各一次）；</li>
- *   <li><b>检查与写盘</b>全在独立守护线程 {@code kingdom-watchdog} 上，客户端线程再死也拦不住它。</li>
- * </ul>
- *
- * <p>报告里最关键的三条判据：</p>
- * <ul>
- *   <li><b>心跳增量</b>：{@code 0} = 客户端线程完全停住（死锁 / 死循环 / 驱动挂起）；
- *       大于 {@code 0} = 没死，只是极慢（例如每帧都在刷 GL 错误）。</li>
- *   <li><b>当前所在阶段</b>：最后进入却没退出的自定义绘制（例如 {@code kingdom-npc-model.drawEntity}），
- *       直接指出卡在谁身上。</li>
- *   <li><b>全线程栈 + 渲染线程 CPU 增量</b>：栈顶停在什么地方、CPU 有没有在涨，
- *       足以区分"自旋"和"等锁 / 等驱动"。</li>
- * </ul>
- *
- * <p>报告写到 {@code logs/kingdom-watchdog/}：每次卡死一份带时间戳的完整报告，另有一行摘要追加到
- * {@code summary.log}。卡死够久会开安全模式（跳过重绘型自定义元素），更久则排队关掉当前界面——
- * 目的都是让客户端有机会活过来。</p>
- *
- * <p>本类只在客户端侧加载，且所有对外方法都刻意做成"几百纳秒的字段读写"，
- * 可以毫无顾虑地挂在每帧调用的路径上。</p>
+ * 客户端看门狗：客户端线程卡死时由独立守护线程把证据写到磁盘。
  */
 @OnlyIn(Dist.CLIENT)
 public final class ClientWatchdog {
 
-    // ------------------------------------------------------------ 判定参数
-    /** 看门狗线程的巡检间隔。 */
     private static final long POLL_INTERVAL_MS = 1000L;
-    /** 心跳停多久判定为卡死。 */
     private static final long STALL_THRESHOLD_MS = 5000L;
-    /** 两份报告之间至少间隔这么久，避免一次卡死刷出上百份文件。 */
     private static final long DUMP_COOLDOWN_MS = 5000L;
-    /** 一次卡死最多出几份报告（用于观察"是否在推进"）。 */
     private static final int MAX_DUMPS = 4;
-    /** 第几份报告时开安全模式。 */
     private static final int SAFE_MODE_AT_DUMP = 2;
-    /** 第几份报告时排队关掉当前界面。 */
     private static final int CLOSE_SCREEN_AT_DUMP = 3;
-    /** 面包屑环形缓冲容量。 */
     private static final int BREADCRUMB_CAPACITY = 64;
-    /** 报告里附带 latest.log 末尾多少行 / 最多读多少字节。 */
     private static final int LOG_TAIL_LINES = 120;
     private static final int LOG_TAIL_BYTES = 128 * 1024;
 
@@ -104,18 +71,9 @@ public final class ClientWatchdog {
     private ClientWatchdog() {
     }
 
-    /** 一条面包屑：值得事后回溯的稀有事件（开屏、改版式……）。 */
     public record Crumb(long nanos, String phase, String detail) {
     }
 
-    // ------------------------------------------------------------ 对外接口
-
-    /**
-     * 挂载看门狗。由第一次心跳自举调用，可重复调用。
-     *
-     * <p>刻意不依赖任何初始化事件：第一次心跳必然发生在客户端线程开始干活之后，
-     * 那个时刻一定已经能读到 {@link Minecraft#gameDirectory}。</p>
-     */
     public static void install() {
         if (!INSTALLED.compareAndSet(false, true)) {
             return;
@@ -127,11 +85,6 @@ public final class ClientWatchdog {
                 STALL_THRESHOLD_MS / 1000L, REPORT_DIRECTORY);
     }
 
-    /**
-     * 客户端线程每前进一次调一次。心跳停了就是卡死。
-     *
-     * @param phase 心跳来源，例如 {@code frame} / {@code tick}
-     */
     public static void heartbeat(String phase) {
         if (!INSTALLED.get()) {
             install();
@@ -141,12 +94,6 @@ public final class ClientWatchdog {
         BEATS.incrementAndGet();
     }
 
-    /**
-     * 进入一段"可能长时间不返回"的自定义绘制。
-     *
-     * <p>报告里的"当前所在阶段"就是它：只要某段代码进来了没出去，卡死时就指名道姓。
-     * 每帧调用也很便宜（两次字段写）。</p>
-     */
     public static void beginPhase(String phase) {
         activePhaseNanos = System.nanoTime();
         activePhase = phase;
@@ -156,7 +103,6 @@ public final class ClientWatchdog {
         activePhase = null;
     }
 
-    /** 记一条面包屑，只保留最近 {@value BREADCRUMB_CAPACITY} 条。 */
     public static void crumb(String phase, String detail) {
         long now = System.nanoTime();
         synchronized (BREADCRUMBS) {
@@ -167,11 +113,6 @@ public final class ClientWatchdog {
         }
     }
 
-    /**
-     * 安全模式：跳过重绘型自定义元素（只保留底框），用于把客户端从卡死里救回来。
-     *
-     * <p>由看门狗在确认卡死后自动开启；也可由调试入口手动开关。</p>
-     */
     public static boolean isSafeMode() {
         return safeMode;
     }
@@ -185,12 +126,10 @@ public final class ClientWatchdog {
         crumb("safe-mode", String.valueOf(value));
     }
 
-    /** 记录上一帧耗时，报告里用来看"卡死前的帧有多慢"。 */
     public static void noteFrameMillis(long millis) {
         lastFrameMillis = millis;
     }
 
-    /** 手动立刻出一份报告（留给以后接键位或指令）。 */
     public static void dumpNow(String reason) {
         try {
             Path file = writeReport(1, -1L, -1L, reason);
@@ -198,11 +137,8 @@ public final class ClientWatchdog {
                 LOGGER.warn("看门狗：手动报告已生成 {}", file);
             }
         } catch (Throwable ignored) {
-            // 手动触发失败不应影响游戏
         }
     }
-
-    // ------------------------------------------------------------ 巡检
 
     private static void loop() {
         int dumpIndex = 0;
@@ -240,17 +176,10 @@ public final class ClientWatchdog {
                     queueScreenClose();
                 }
             } catch (Throwable ignored) {
-                // 看门狗自己出错绝不能把客户端带走
             }
         }
     }
 
-    /**
-     * 卡死太久时排队关掉当前界面。
-     *
-     * <p>只在看门狗线程调用，且**不直接碰 MC**：只把任务排进客户端队列，等客户端线程真能动了由它执行
-     * （同线程操作 MC 才安全）。客户端若一直动不了，这个任务就静静躺着，无害。</p>
-     */
     private static void queueScreenClose() {
         LOGGER.warn("看门狗：卡死已出 {} 份报告，排队关闭当前界面", CLOSE_SCREEN_AT_DUMP);
         try {
@@ -273,8 +202,6 @@ public final class ClientWatchdog {
             Thread.currentThread().interrupt();
         }
     }
-
-    // ------------------------------------------------------------ 报告
 
     private static Path writeReport(int index, long stallMs, long beatDelta, String note) {
         Path directory = reportDirectory();
@@ -343,12 +270,6 @@ public final class ClientWatchdog {
         return report.toString();
     }
 
-    /**
-     * 按渲染线程栈顶给一句人话提示。
-     *
-     * <p>看门狗的价值在于"下一次不用靠人猜"：栈里出现 {@code apricityui.layout.*} 与
-     * {@code apricityui.render.*} 含义完全不同（前者安全模式救不了）。</p>
-     */
     private static String hint() {
         StackTraceElement[] stack = renderThreadStack();
         if (stack == null || stack.length == 0) {
@@ -425,11 +346,6 @@ public final class ClientWatchdog {
         appendRenderThreadCpu(report);
     }
 
-    /**
-     * 渲染线程的累计 CPU 时间，以及"自上一份报告起涨了多少"。
-     *
-     * <p>这是区分自旋与阻塞的关键：CPU 猛涨 = 死循环；几乎不涨 = 卡在锁或驱动调用里。</p>
-     */
     private static void appendRenderThreadCpu(StringBuilder report) {
         try {
             ThreadMXBean bean = ManagementFactory.getThreadMXBean();
@@ -561,13 +477,10 @@ public final class ClientWatchdog {
             ByteBuffer buffer = ByteBuffer.allocate(length);
             channel.position(size - length);
             while (buffer.hasRemaining() && channel.read(buffer) > 0) {
-                // 读满为止
             }
             return buffer.array();
         }
     }
-
-    // ------------------------------------------------------------ 环境读取
 
     private static int threadRank(Thread thread) {
         String name = thread.getName();

@@ -3,7 +3,7 @@ package com.xy2407.kingdom.common.npc;
 import java.math.BigDecimal;
 
 /**
- * 身份卡片展示用的市民资料值对象
+ * 身份卡片展示用的市民资料值对象，含三项能力与生命、饥饿等状态。
  */
 public record NpcIdentifyInfo(
         String name,

@@ -45,21 +45,14 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
 /**
- * 市民实体，按状态机闲逛决策执行游走/社交/坐下
+ * 市民实体，按状态机闲逛决策执行游走/社交/坐下。
  */
 public class NpcEntity extends PathfinderMob {
     private static final String KEY_CITIZEN_ID = "CitizenId";
     private static final EntityDataAccessor<Boolean> DATA_SITTING =
             SynchedEntityData.defineId(NpcEntity.class, EntityDataSerializers.BOOLEAN);
-    /**
-     * 饥饿值同步给客户端。
-     *
-     * <p>饥饿只存在于服务端的 {@code NpcData} 里，客户端光凭实体读不到（身份卡片就是纯客户端
-     * 拼的，所以它的饥饿一直是"无"）。这里做成同步数据，客户端随时读到最新值。</p>
-     */
     private static final EntityDataAccessor<Float> DATA_HUNGER =
             SynchedEntityData.defineId(NpcEntity.class, EntityDataSerializers.FLOAT);
-    /** 皮肤名（贴图文件名，不含扩展名）；空串表示用默认皮肤。 */
     private static final EntityDataAccessor<String> DATA_SKIN =
             SynchedEntityData.defineId(NpcEntity.class, EntityDataSerializers.STRING);
     private static final EntityDataAccessor<String> DATA_STATUS =
@@ -71,9 +64,7 @@ public class NpcEntity extends PathfinderMob {
     private static final double WANDER_RADIUS = 10.0D;
     private static final double SIT_WALK_RADIUS = 4.0D;
 
-    /** 24 格随身行装；对外通过 {@code Capabilities.ItemHandler.ENTITY} 暴露给 AUI 容器菜单。 */
     private final NpcInventory npcInventory = createInventory();
-    /** 载入行装期间抑制落库回调，避免"读出来的旧数据又被标脏"。 */
     private boolean inventoryLoading;
     private static final double SOCIALIZE_RADIUS = 12.0D;
     private static final double SOCIALIZE_GAP = 1.0D;
@@ -95,15 +86,6 @@ public class NpcEntity extends PathfinderMob {
     private static final double WORK_FLOOR_MIN_Y = 0.45D;
     private static final double WORK_HEADROOM_MAX_Y = 0.1D;
 
-    /**
-     * 远离所有玩家的 NPC 用几倍时间步长积分。
-     *
-     * <p>NPC 数量上到数千时，{@code Entity.move()} 的碰撞扫描是所有实体里最贵的单项
-     * （profiler 里 travel 能占到将近一半）。让"附近没有任何玩家"的 NPC 每 N tick 才走一次、
-     * 同时把位移速度乘 N，总位移不变：俯视下看不出差别，碰撞扫描次数直接降到 1/N。</p>
-     *
-     * <p>用 {@code getId()} 错开相位，避免同一 tick 所有 NPC 一起更新造成周期性峰值。</p>
-     */
     private static final int FAR_TRAVEL_STRIDE = 2;
     private static final double FAR_TRAVEL_RADIUS = 64.0D;
     private static final int FAR_TRAVEL_RECHECK_TICKS = 40;
@@ -148,7 +130,6 @@ public class NpcEntity extends PathfinderMob {
         applyRtsTarget(target, clearOnArrive, false);
     }
 
-    /** 自定义 A* 寻路的 RTS 目标，路径在后台线程计算后回主线程执行 */
     public void setHighRtsTarget(BlockPos target, boolean clearOnArrive) {
         rtsWaypoints.clear();
         applyRtsTarget(target, clearOnArrive, true);
@@ -162,10 +143,7 @@ public class NpcEntity extends PathfinderMob {
         rtsWaypoints.addAll(waypoints);
         rtsTarget = rtsWaypoints.peekLast();
         rtsClearOnArrive = false;
-        // 终点是方阵里分到的格子，邻居贴身，判定必须比独占一格时宽，否则会被挤到永远差半格
         rtsArriveSqr = RTS_CROWD_ARRIVE_SQR;
-        // 走自定义 A*：路径本身由 applyPath 直接塞给导航（不触发原版寻路），
-        // 重试也必须走同一条路，否则每次重试都会在主线程跑一遍原版 A*。
         rtsHighPath = true;
         rtsRepathCooldown = 0;
         clearPendingPath();
@@ -246,7 +224,6 @@ public class NpcEntity extends PathfinderMob {
         pathRetry.tick(this);
     }
 
-    /** 自定义 A* 在后台线程计算，结果回主线程后再交给原版导航执行 */
     private void tickHighPath(BlockPos target) {
         if (getNavigation().isInProgress()) {
             rtsRepathCooldown = 0;
@@ -304,10 +281,6 @@ public class NpcEntity extends PathfinderMob {
         return dx * dx + dz * dz < limit && Math.abs(getY() - target.getY()) < RTS_ARRIVE_HEIGHT;
     }
 
-    /**
-     * 施工走位：由施工调度每 tick 驱动，用自定义 A* 异步寻路到站位。
-     * 到达站位后停住并返回 true，调度以此作为放置触发条件。
-     */
     public boolean tickConstructionPath(BlockPos target) {
         stopSitting();
         BlockPos stand = resolveWorkStand(target);
@@ -367,7 +340,6 @@ public class NpcEntity extends PathfinderMob {
         return false;
     }
 
-    /** 停止施工走位（到达站位、任务结束或实体移除时调用） */
     public void stopConstructionPath() {
         if (workPathFuture != null) {
             workPathFuture.cancel(false);
@@ -520,7 +492,6 @@ public class NpcEntity extends PathfinderMob {
         return farmTarget;
     }
 
-    /** 农活目标：走到这一格（地表格）后再开垦 / 播种 / 收割。 */
     public void setFarmTarget(BlockPos target) {
         farmTarget = target;
         getNavigation().moveTo(target.getX() + 0.5D, target.getY(), target.getZ() + 0.5D, WALK_SPEED);
@@ -538,7 +509,6 @@ public class NpcEntity extends PathfinderMob {
         return ranchTarget;
     }
 
-    /** 养殖栏工作点：由养殖循环指派，饲养员自己走过去。 */
     public void setRanchTarget(BlockPos target) {
         ranchTarget = target;
         getNavigation().moveTo(target.getX() + 0.5D, target.getY(), target.getZ() + 0.5D, WALK_SPEED);
@@ -596,12 +566,6 @@ public class NpcEntity extends PathfinderMob {
         return InteractionResult.CONSUME;
     }
 
-    /**
-     * 空手右键 = 打开该市民的行装界面；其余情况交还原版。
-     *
-     * <p>刻意排除潜行与副手：潜行是"我不想触发交互"的通用约定，副手留给原版逻辑，
-     * 这样不会和别的模组抢同一次右键。</p>
-     */
     private InteractionResult backpackInteract(Player player, InteractionHand hand, ItemStack stack) {
         if (!stack.isEmpty() || player.isShiftKeyDown() || hand != InteractionHand.MAIN_HAND) {
             return super.mobInteract(player, hand);
@@ -651,7 +615,6 @@ public class NpcEntity extends PathfinderMob {
         super.travel(travelVector);
     }
 
-    /** 施工期间从脚手架跌落不掉血。 */
     @Override
     public boolean causeFallDamage(float fallDistance, float multiplier, DamageSource source) {
         NpcData data = citizenId == null ? null : NpcManager.INSTANCE.getNpc(citizenId);
@@ -669,12 +632,6 @@ public class NpcEntity extends PathfinderMob {
         super.pushEntities();
     }
 
-    /**
-     * 当前该用几倍时间步长积分：附近没有玩家时返回 {@link #FAR_TRAVEL_STRIDE}，否则 1。
-     *
-     * <p>结果每 {@link #FAR_TRAVEL_RECHECK_TICKS} tick 重算一次，{@code getNearestPlayer} 的
-     * 遍历成本被摊薄到可忽略。</p>
-     */
     private int farTravelStride() {
         if (--farTravelCheckTimer > 0) {
             return farTravelStrideCache;
@@ -735,12 +692,10 @@ public class NpcEntity extends PathfinderMob {
         builder.define(DATA_SWING, 0);
     }
 
-    /** 客户端可读的饥饿值（0 ~ {@link NpcData#HUNGER_MAX}）。 */
     public double getSyncedHunger() {
         return entityData.get(DATA_HUNGER);
     }
 
-    /** 客户端可读的皮肤名；空串表示用默认皮肤。 */
     public String getSyncedSkin() {
         return entityData.get(DATA_SKIN);
     }
@@ -800,7 +755,6 @@ public class NpcEntity extends PathfinderMob {
         loadInventory();
     }
 
-    /** 24 格行装（也作为实体物品能力的数据源）。 */
     public NpcInventory getNpcInventory() {
         return npcInventory;
     }
@@ -811,13 +765,6 @@ public class NpcEntity extends PathfinderMob {
         return inventory;
     }
 
-    /**
-     * 把行装写回市民数据。
-     *
-     * <p>玩家在 AUI 容器里点一下槽位只会改动 {@link NpcInventory}，真正的持久化是这里：
-     * 序列化成 SNBT 塞进 {@link NpcData} 并标脏，由 {@code NpcManager.flushDirty} 批量落库。
-     * 不能只依赖实体 NBT——市民实体是 shell，重建时不会带上 NBT。</p>
-     */
     private void saveInventory() {
         if (inventoryLoading || level() == null || level().isClientSide() || citizenId == null) {
             return;
@@ -830,7 +777,6 @@ public class NpcEntity extends PathfinderMob {
         data.markDirty();
     }
 
-    /** 从市民数据读回行装（实体生成/重建时调用）。 */
     private void loadInventory() {
         if (level() == null || level().isClientSide() || citizenId == null) {
             return;
@@ -908,8 +854,6 @@ public class NpcEntity extends PathfinderMob {
             getNavigation().stop();
             return;
         }
-        // 把只存在于服务端的属性同步给客户端：身份卡片要读饥饿，头像/模型要读皮肤。
-        // SynchedEntityData 只在值变化时发包，所以逐 tick 写没有额外开销。
         entityData.set(DATA_HUNGER, (float) data.getHunger());
         entityData.set(DATA_SKIN, data.getSkin());
         entityData.set(DATA_STATUS, data.getDetail().label());
@@ -971,7 +915,6 @@ public class NpcEntity extends PathfinderMob {
         activeStyle = null;
         clearSocialPartner();
         forageTarget = null;
-        // 农活的三个子行为是同一件事：彼此切换时保留目标与在走的路径，别把走到一半的路清掉
         if (!isFarmDetail(activeDetail)) {
             farmTarget = null;
             ranchTarget = null;

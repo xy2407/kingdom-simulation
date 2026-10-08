@@ -11,10 +11,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 /**
- * 客户端 → 服务端：进入 RTS，请在我的位置放一个替身。
- *
- * <p>无字段，带 {@code StreamCodec.unit}。服务端会先清掉我已有的替身再新建，
- * 所以重复发送等价于"把替身挪回我脚下"。</p>
+ * 客户端 → 服务端：进入 RTS，请在我的位置放一个替身，重复发送等于把它挪回脚下。
  */
 public record RtsFakePlayerSpawnPacket() implements CustomPacketPayload {
 

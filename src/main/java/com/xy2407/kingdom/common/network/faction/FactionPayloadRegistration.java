@@ -8,7 +8,7 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 /**
- * 阵营与领地网络包注册
+ * 阵营与领地网络包注册：状态包与选国、立领地两个上行包。
  */
 @EventBusSubscriber(modid = ModMain.MOD_ID)
 public final class FactionPayloadRegistration {

@@ -17,10 +17,7 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * 客户端 → 服务端：这是我现在选中的一批单位。
- *
- * <p>移植自 {@code xy's_nsuk} 的同名包，去掉了城市归属校验与建筑界限同步（kingdom 没有阵营概念）。
- * 服务端只做"存在 + 类型正确 + 是本人替身"这三条基本检查，然后回发一份裁决结果。</p>
+ * 客户端 → 服务端：我现在选中的一批单位，服务端校验后回发裁决结果。
  */
 public record RtsSelectionSyncPacket(Set<UUID> ids) implements CustomPacketPayload {
 

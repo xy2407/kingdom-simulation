@@ -28,7 +28,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
 /**
- * 区块寻路快照，按列存稀疏可站立层
+ * 区块寻路快照：按列存稀疏的可站立层与可攀爬标记，供寻路线程只读查询。
  */
 public final class ChunkSnapshot {
     private static final int COLUMNS = 256;
@@ -39,15 +39,9 @@ public final class ChunkSnapshot {
     private static final double FLOOR_MIN_HEIGHT = 0.8D;
     private static final double MIN_TOP_FOOTPRINT = 0.5D;
 
-    /**
-     * BlockState 全局不可变、按身份唯一，所以「能不能站 / 能不能通行」的判定结果可以永久缓存。
-     * 建快照时每列要问十几次，缓存后每列只省掉一遍 instanceof 链 + 方块标签查询 + 碰撞箱形状查询。
-     * 值为 0~3 的位掩码，落在 Integer 缓存区间内，不产生装箱分配。
-     */
     private static final Map<BlockState, Integer> STATE_FLAGS = new ConcurrentHashMap<>();
     private static final int FLAG_FLOOR = 1;
     private static final int FLAG_PASSABLE = 2;
-    /** 缓存条目上限，防止极端模组包里方块状态数无限膨胀。超限后改为直接计算，不影响正确性。 */
     private static final int MAX_CACHED_STATES = 1 << 16;
 
     private final int minY;
@@ -76,7 +70,6 @@ public final class ChunkSnapshot {
         return false;
     }
 
-    /** 该可站立层的地板是否为脚手架（可在柱内上下攀爬） */
     public boolean climbable(int lx, int y, int lz) {
         int offset = y - minY;
         if (offset < 0) {
@@ -142,7 +135,6 @@ public final class ChunkSnapshot {
         return count + found;
     }
 
-    /** 空气走原地快速判断，不要为了查缓存把最热的那条路变成哈希查找。 */
     private static boolean isPassable(BlockState state) {
         if (state.isAir()) {
             return true;

@@ -31,7 +31,7 @@ import org.lwjgl.glfw.GLFW;
 import com.mojang.blaze3d.platform.InputConstants;
 
 /**
- * 农田范围框选：左键拖拽可多次累加、重复格自动去重，Enter 保存、Esc 清空全部退出
+ * 农田范围框选：左键拖拽可多次累加、重复格自动去重，Enter 保存、Esc 清空全部退出。
  */
 @OnlyIn(Dist.CLIENT)
 @EventBusSubscriber(modid = ModMain.MOD_ID, value = Dist.CLIENT)
@@ -43,7 +43,6 @@ public final class FarmAreaSelector {
     private static final int COUNT_BACK = 0xB0202030;
     private static final int COUNT_BORDER = 0xFFE8D9A8;
 
-    /** 单次框选与总格数的上限，防手抖拖出几十万格把内存吃满。 */
     private static final int MAX_CELLS = 65536;
 
     private static UUID targetPlot;
@@ -55,13 +54,9 @@ public final class FarmAreaSelector {
     private static double endX;
     private static double endY;
 
-    /** 已累积的框选块，元素为 {minX, minZ, maxX, maxZ, groundY}。 */
     private static final List<int[]> BLOCKS = new ArrayList<>();
-    /** 去重后的地面格集合，键为 (x, z) 打包。 */
     private static final Set<Long> CELLS = new HashSet<>();
-    /** 保存时随核心矩形一起提交的散落块。 */
     private static final List<FarmRegion> EXTRA = new ArrayList<>();
-    /** 正在拖拽中的那一块，结构与 {@link #BLOCKS} 相同。 */
     private static int[] live;
 
     private static int minX;
@@ -74,7 +69,6 @@ public final class FarmAreaSelector {
     private FarmAreaSelector() {
     }
 
-    /** 新建农田：框完的格数会作为待定草稿写回面板，等玩家选作物与打理人。 */
     public static void beginNew() {
         targetPlot = null;
         draftMode = true;
@@ -122,17 +116,14 @@ public final class FarmAreaSelector {
         return groundY;
     }
 
-    /** 去重后的唯一格数：多次框选叠到的同一格只算一次。 */
     public static int cells() {
         return cells;
     }
 
-    /** 已累积的框选块（每块一个矩形），世界内逐块画网格用。 */
     public static List<int[]> blocks() {
         return BLOCKS;
     }
 
-    /** 正在拖拽中的那一块；没在拖拽时返回 null。 */
     public static int[] liveRect() {
         return live;
     }
@@ -144,7 +135,6 @@ public final class FarmAreaSelector {
         }
         int button = event.getButton();
         if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
-            // 中键放行：RTS 相机转向只在事件没被消费时才响应，这里吃掉就再也转不动视角
             return;
         }
         event.setCanceled(true);
@@ -190,7 +180,6 @@ public final class FarmAreaSelector {
     public static void onRenderGui(RenderGuiEvent.Post event) {
         GuiGraphics graphics = event.getGuiGraphics();
         if (!isActive()) {
-            // 框完地之后仍把"待保存 N 格地"这块框顶在屏幕上，直到玩家去面板里处理它
             FarmPlotDraft draft = FarmPlotDraft.current();
             if (draft != null && Minecraft.getInstance().screen == null) {
                 drawCountBox(graphics, draft.cells() + " 格地（待保存）· 在农业面板点卡片配置");
@@ -221,7 +210,6 @@ public final class FarmAreaSelector {
         graphics.fill(right - 1, top, right, bottom, BOX_BORDER);
     }
 
-    /** 顶部格数框：框了几块、去重后多少格随时可见，保存前就能对着数字调整范围。 */
     private static void drawCountBox(GuiGraphics graphics, String text) {
         Minecraft minecraft = Minecraft.getInstance();
         int width = minecraft.font.width(text) + 12;
@@ -244,7 +232,6 @@ public final class FarmAreaSelector {
         return cells + " 格地 · " + BLOCKS.size() + " 块 · Enter 保存 / Esc 清空全部";
     }
 
-    /** Enter：新建农田落成待定草稿（格数按建筑剩余额度钳制），重划则发包写回。 */
     public static void confirm() {
         if (!hasRect()) {
             hint("还没有框选范围，先左键拖拽框一块地");
@@ -267,7 +254,6 @@ public final class FarmAreaSelector {
         leave();
     }
 
-    /** 判定核心矩形与散落块：核心取面积最大的那块（要求某一轴跨两格以上），其余块进附加列表。 */
     private static void resolveRegions() {
         int best = -1;
         int bestCells = 0;
@@ -304,7 +290,6 @@ public final class FarmAreaSelector {
         }
     }
 
-    /** Esc：丢掉全部框选内容（由暂停菜单的 mixin 调用，见 FarmPauseGuardMixin）。 */
     public static void cancelByEscape() {
         int dropped = BLOCKS.size();
         leave();
@@ -336,11 +321,9 @@ public final class FarmAreaSelector {
         if (!RtsModeManager.isActive()) {
             RtsModeManager.enter();
         }
-        // 30° 平视角基本打不到地面，框选先摆成俯视才能落点
         RtsModeManager.tiltCameraToGround(60.0F);
     }
 
-    /** 松手：把这一块并进累积结果，重复格自动去重，并刷新并集外框。 */
     private static void commitLive() {
         int[] block = rectOf(startX, startY, endX, endY);
         live = null;
@@ -364,7 +347,6 @@ public final class FarmAreaSelector {
         hint(cells + " 格地 · " + BLOCKS.size() + " 块 · Enter 保存 / Esc 清空全部");
     }
 
-    /** 把屏幕上的两个点打到地面，得到一块矩形 {minX, minZ, maxX, maxZ, groundY}；打不到返回 null。 */
     private static int[] rectOf(double screenX1, double screenY1, double screenX2, double screenY2) {
         Vec3 first = RtsPicker.pickTargetBlock(screenX1, screenY1);
         Vec3 second = RtsPicker.pickTargetBlock(screenX2, screenY2);

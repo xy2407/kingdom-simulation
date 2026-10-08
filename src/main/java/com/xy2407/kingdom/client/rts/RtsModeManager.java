@@ -24,7 +24,7 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * RTS 灵魂出窍视角：相机独立飞行、框选点选、选中集合与矩阵缓存
+ * RTS 灵魂出窍视角：相机独立飞行、框选点选、选中集合与矩阵缓存。
  */
 @OnlyIn(Dist.CLIENT)
 public final class RtsModeManager {
@@ -32,13 +32,10 @@ public final class RtsModeManager {
     private static final double CAMERA_MOVE_SPEED_FAST = 1.8;
     private static final double CAMERA_MOVE_SPEED_SLOW = 0.45;
 
-    /** 进入 RTS 时相机抬到玩家上方这么高。 */
     private static final double ENTER_HEIGHT_OFFSET = 12.0;
 
-    /** 拖拽超过这么多 GUI 像素才算框选，否则算点选。 */
     private static final double BOX_SELECT_THRESHOLD = 5.0;
 
-    /** 每 tick 向目标高度收敛的比例，做出滚轮缩放的顺滑感。 */
     private static final double ZOOM_SMOOTHING = 0.35;
 
     private static final double MAX_CAMERA_Y = 256.0D;
@@ -52,7 +49,6 @@ public final class RtsModeManager {
     private static float cameraYaw = 0.0F;
     private static float cameraPitch = 30.0F;
 
-    /** 上一 tick 的相机状态，供渲染按 partialTick 插值。 */
     private static Vec3 prevCameraPos = null;
     private static float prevCameraYaw = 0.0F;
     private static float prevCameraPitch = 30.0F;
@@ -87,10 +83,6 @@ public final class RtsModeManager {
 
     private RtsModeManager() {
     }
-
-    // ------------------------------------------------------------------
-    // 模式开关
-    // ------------------------------------------------------------------
 
     public static boolean isActive() {
         return active;
@@ -162,14 +154,12 @@ public final class RtsModeManager {
         }
     }
 
-    /** 玩家在世界里下线 / 掉线时收尾。 */
     public static void onLogout() {
         if (active) {
             exit();
         }
     }
 
-    /** 玩家死亡：只清掉选择态，模式本身保留（重生后相机跟着挪）。 */
     public static void onPlayerDeath() {
         if (!active) {
             return;
@@ -183,7 +173,6 @@ public final class RtsModeManager {
         middleMouseDown = false;
     }
 
-    /** 重生后把相机挪到新位置上方。 */
     public static void syncCameraToRespawn() {
         if (!active) {
             return;
@@ -201,10 +190,6 @@ public final class RtsModeManager {
         prevCameraYaw = cameraYaw;
         prevCameraPitch = cameraPitch;
     }
-
-    // ------------------------------------------------------------------
-    // 相机状态
-    // ------------------------------------------------------------------
 
     public static Vec3 getCameraPos() {
         return cameraPos;
@@ -237,7 +222,6 @@ public final class RtsModeManager {
         return viewMode != RtsViewMode.FREE;
     }
 
-    /** 抬俯角：框选这类要往地面落点的操作先摆成俯视，方位角保持玩家当前朝向。 */
     public static void tiltCameraToGround(float pitch) {
         if (cameraPos == null) {
             return;
@@ -247,7 +231,6 @@ public final class RtsModeManager {
         prevCameraPitch = next;
     }
 
-    /** 把相机瞬移到某个位置上方（用于"前往某处"这类入口）。 */
     public static void teleportCameraTo(Vec3 pos) {
         if (pos == null) {
             return;
@@ -292,10 +275,6 @@ public final class RtsModeManager {
         return from + diff * t;
     }
 
-    // ------------------------------------------------------------------
-    // 正交投影
-    // ------------------------------------------------------------------
-
     public static boolean isOrthoEnabled() {
         return orthoEnabled;
     }
@@ -311,7 +290,6 @@ public final class RtsModeManager {
         return orthoHalfWidth;
     }
 
-    /** 正交取景宽度跟着相机离地高度走：压得越低看得越近。 */
     public static void updateOrthoHalfWidth() {
         Minecraft minecraft = Minecraft.getInstance();
         double height = cameraPos == null
@@ -322,14 +300,9 @@ public final class RtsModeManager {
         orthoHalfWidth = Math.max(16.0D, height * factor);
     }
 
-    /** 给正交注入用的远裁剪面。 */
     public static double getCameraFarClip() {
         return CAMERA_FAR_CLIP;
     }
-
-    // ------------------------------------------------------------------
-    // 每 tick 相机移动
-    // ------------------------------------------------------------------
 
     public static void tickCamera() {
         if (!active) {
@@ -405,10 +378,6 @@ public final class RtsModeManager {
             updateOrthoHalfWidth();
         }
     }
-
-    // ------------------------------------------------------------------
-    // 鼠标：滚轮缩放 / 中键旋转 / 左键框选
-    // ------------------------------------------------------------------
 
     public static void onScroll(double vertical) {
         if (!active || cameraPos == null) {
@@ -588,10 +557,6 @@ public final class RtsModeManager {
         return new double[]{x / scale, y / scale};
     }
 
-    // ------------------------------------------------------------------
-    // 选中集合与移动目标
-    // ------------------------------------------------------------------
-
     public static Set<UUID> getSelectedEntities() {
         return selectedEntities;
     }
@@ -607,7 +572,6 @@ public final class RtsModeManager {
         syncSelectionToServer();
     }
 
-    /** 服务端裁决后的结果：只覆盖本地，不再回发，避免来回弹。 */
     public static void applyServerSelection(Set<UUID> ids) {
         selectedEntities.clear();
         if (ids != null) {

@@ -10,17 +10,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 像素缓冲：内容先按设备像素写进 {@code int[]}，取用时再把相邻同色像素横向与纵向合并成矩形区间。
- *
- * <p>identify.html 里的三角图、进度条与羊皮纸底纹原本由 canvas 脚本生成，AUI 对那段脚本支持不全。
- * 这里把同样的绘制过程搬到 Java：上游按 1:1 像素落笔，最终只向 AUI 的 {@link Graph} 批次提交
- * 合并后的少量矩形，避免每帧提交上万个四边形。</p>
- *
- * <p>位于 {@code x1} / {@code y1} 的坐标都是开区间上界，与 canvas {@code fillRect} 的语义一致。</p>
+ * 像素缓冲：按设备像素落笔，取用时把相邻同色像素合并成矩形提交给 AUI。
  */
 final class SpanSheet {
 
-    /** 一段同色矩形区间。 */
     record Span(int y0, int y1, int x0, int x1, int color) {
     }
 
@@ -36,7 +29,6 @@ final class SpanSheet {
         this.pixels = new int[this.width * this.height];
     }
 
-    /** 直接写入像素，用于逐像素生成纹理。 */
     void set(int x, int y, int argb) {
         if (x < 0 || y < 0 || x >= width || y >= height) {
             return;
@@ -45,7 +37,6 @@ final class SpanSheet {
         dirty = true;
     }
 
-    /** 以 source-over 方式填充矩形，等价于 canvas 的 {@code fillRect}。 */
     void fill(int x0, int y0, int x1, int y1, int argb) {
         int left = Math.max(0, Math.min(x0, x1));
         int right = Math.min(width, Math.max(x0, x1));
@@ -71,7 +62,6 @@ final class SpanSheet {
         return spans;
     }
 
-    /** 把整张缓冲铺到给定矩形内，按缓冲尺寸等比拉伸。 */
     static void draw(PoseStack poseStack, Position origin, Size box, SpanSheet sheet) {
         if (sheet == null) {
             return;
@@ -156,7 +146,6 @@ final class SpanSheet {
         return (outAlpha << 24) | (red << 16) | (green << 8) | blue;
     }
 
-    /** 纵向合并时的一段未闭合区间。 */
     private static final class Open {
         private final int x0;
         private final int x1;

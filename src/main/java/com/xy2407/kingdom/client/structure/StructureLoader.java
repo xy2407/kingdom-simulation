@@ -31,18 +31,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * 读取原版结构文件（vanilla structure NBT）。
- *
- * <p>结构 id 用逻辑名，例如 {@code minecraft:village/plains/town_centers/plains_meeting_point_1}；
- * 真正落在资源包里的文件是 {@code data/<namespace>/structure/<path>.nbt}（注意 1.21.1 的目录是单数
- * {@code structure}）。</p>
- *
- * <p>解析走 vanilla 的方块状态读取，因此方块属性（楼梯朝向、台阶上下半、原木轴向等）都会被保留。</p>
- *
- * <p>必须走服务端资源管理器（{@link net.minecraft.server.packs.PackType#SERVER_DATA}）：客户端资源管理器的 {@code getResource}
- * 会把路径前缀成 {@code assets/}，而结构文件在 {@code data/} 下，客户端侧永远读不到。
- * 因此本类只在单人世界（{@link Minecraft#getSingleplayerServer()} 非空）里可用，
- * 多人环境下客户端没有原版数据包，直接返回 null。</p>
+ * 读取原版结构 NBT：从资源管理器或本地文件解析出建筑模型。
  */
 @OnlyIn(Dist.CLIENT)
 public final class StructureLoader {
@@ -53,7 +42,6 @@ public final class StructureLoader {
     private StructureLoader() {
     }
 
-    /** 按逻辑 id 加载；任何一步失败都返回 null，由调用方决定回退。 */
     public static StructureModel load(ResourceLocation structureId) {
         MinecraftServer server = Minecraft.getInstance().getSingleplayerServer();
         if (server == null) {
@@ -97,13 +85,6 @@ public final class StructureLoader {
         return model;
     }
 
-    /**
-     * 从本地文件系统直接读取一份结构 NBT（例如 {@code <游戏根目录>/kingdom simulation/structures/*.nbt}）。
-     *
-     * <p>与 {@link #load(ResourceLocation)} 走资源管理器不同，这里按绝对文件路径读取，因此不依赖单人服务端
-     * 数据包。解析与剔除逻辑完全复用：任何一步失败或没有非空气方块都返回 null。日志无聊天渲染（静默），
-     * 由调用方决定是否提示。</p>
-     */
     public static StructureModel loadFile(Path file) {
         if (file == null || !Files.isRegularFile(file)) {
             return null;
@@ -157,7 +138,6 @@ public final class StructureLoader {
                 continue;
             }
             BlockState state = palette[stateIndex];
-            // 空气不参与渲染，提前丢弃
             if (state == null || state.isAir()) {
                 skippedAir++;
                 continue;

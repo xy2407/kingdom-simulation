@@ -28,7 +28,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
 /**
- * 建筑登记表，完工落库并在玩家进入包围盒时提示
+ * 建筑登记表，完工落库并在玩家进入包围盒时提示。
  */
 public final class BuildingRegistry {
     public static final BuildingRegistry INSTANCE = new BuildingRegistry();
@@ -42,11 +42,6 @@ public final class BuildingRegistry {
 
     private final List<BuildingRecord> records = new ArrayList<>();
     private final Map<String, Boolean> diningCache = new ConcurrentHashMap<>();
-    /**
-     * 蓝图名 → 元数据。元数据只有蓝图能决定，而读蓝图要碰磁盘，所以缓存一层。
-     *
-     * <p>仓库容量、建筑类型（决定打开哪个操作面板）都从这里取。</p>
-     */
     private final Map<String, BuildingMeta> metaCache = new ConcurrentHashMap<>();
     private boolean loaded;
     private int tickCounter;
@@ -58,7 +53,6 @@ public final class BuildingRegistry {
     public void reset() {
         records.clear();
         loaded = false;
-        /* "蓝图 → 元数据"的缓存也随存档清掉：蓝图可能被玩家改过，缓存留着会串 */
         metaCache.clear();
         tickCounter = 0;
         loadRetryCooldown = 0;
@@ -81,12 +75,6 @@ public final class BuildingRegistry {
         return meta.farmSlots();
     }
 
-    /**
-     * 这座建筑的蓝图元数据；蓝图名拿不到时给一份兜底（类型为 null = 未归类）。
-     *
-     * <p>建筑操作面板要靠它决定打开哪个页面（农业 / 工业 / 养殖 / 商店），
-     * 所以缓存一层，别每次按 Tab 都读盘。</p>
-     */
     public BuildingMeta metaOf(BuildingRecord building) {
         if (building == null || building.name() == null || building.name().isBlank()) {
             return BuildingMeta.fallback("", null);
@@ -95,17 +83,10 @@ public final class BuildingRegistry {
                 BuildingMetaLoader.load(BuildingBlueprints.fileOf(blueprintName), blueprintName));
     }
 
-    /**
-     * 这座建筑同时当仓库用时能放多少格；蓝图没写 {@code storage_slots} 就是 0（不是仓库）。
-     *
-     * <p>刻意**不**从 {@code building} 表读：那是老建筑没有的列，补上也只能是默认值 0，
-     * 会让所有已有建筑都开不出仓库。容量属于蓝图元数据，按需从蓝图算并缓存即可。</p>
-     */
     public int storageSlotsOf(BuildingRecord building) {
         return Math.max(0, metaOf(building).storageSlots());
     }
 
-    /** 全部已完工建筑；养殖栏等下游系统按它补数据。 */
     public List<BuildingRecord> all() {
         return List.copyOf(records);
     }
@@ -167,11 +148,6 @@ public final class BuildingRegistry {
         }
     }
 
-    /**
-     * 找出玩家当前所处的建筑；不在任何建筑内时返回 {@code null}。
-     *
-     * <p>公开给建筑操作面板用：按 Tab 时由服务端按玩家实际位置判定，不采信客户端坐标。</p>
-     */
     public BuildingRecord locate(ServerPlayer player) {
         String dimension = player.level().dimension().location().toString();
         for (BuildingRecord building : records) {
@@ -182,12 +158,6 @@ public final class BuildingRegistry {
         return null;
     }
 
-    /**
-     * 按坐标找所在建筑；给"潜行右键方块开仓库"这类入口用。
-     *
-     * <p>与 {@link #locate} 的区别只是不看玩家位置而看方块位置。
-     * 建筑表没读完时返回 {@code null}——宁可这一下没反应，也不拿空表下结论。</p>
-     */
     public BuildingRecord at(String dimension, double x, double y, double z) {
         if (dimension == null || !loaded) {
             return null;
@@ -227,7 +197,6 @@ public final class BuildingRegistry {
         return Math.max(low, Math.min(high, value));
     }
 
-    /** 某蓝图是不是餐厅（商业类 + 二级分类命中餐厅词），结果按蓝图名缓存。 */
     private boolean isDining(String blueprintName) {
         if (blueprintName == null || blueprintName.isBlank()) {
             return false;

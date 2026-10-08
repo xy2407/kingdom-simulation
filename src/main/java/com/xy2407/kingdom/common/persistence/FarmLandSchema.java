@@ -50,7 +50,6 @@ public final class FarmLandSchema implements Migration {
         }
     }
 
-    /** 坐标唯一键，同一格重复开垦只会 UPSERT 自己。 */
     public static String landId(String dimension, int x, int y, int z) {
         return dimension + "@" + x + "," + y + "," + z;
     }

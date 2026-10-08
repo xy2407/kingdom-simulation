@@ -25,7 +25,6 @@ public final class RanchBounds {
     private RanchBounds() {
     }
 
-    /** 建筑包围盒，纵向多留两格给动物身高（对齐参照实现的 buildingBounds）。 */
     public static AABB box(BuildingRecord building) {
         BlockPos min = building.min();
         BlockPos max = building.max();
@@ -45,7 +44,6 @@ public final class RanchBounds {
                 (building.min().getZ() + building.max().getZ()) / 2);
     }
 
-    /** 栏内可站立点：脚下实心 + 本体与头顶空气；结果按坐标顺序缓存。 */
     public static List<BlockPos> standablePoints(ServerLevel level, BuildingRecord building) {
         List<BlockPos> cached = POINTS.get(building.id());
         if (cached != null) {
@@ -80,7 +78,6 @@ public final class RanchBounds {
         return result;
     }
 
-    /** 建筑范围内已加载的容器，用作饲料箱与产出点；没有容器时相关流程自动跳过。 */
     public static List<Container> containers(ServerLevel level, BuildingRecord building) {
         List<Container> found = new ArrayList<>();
         AABB area = box(building);

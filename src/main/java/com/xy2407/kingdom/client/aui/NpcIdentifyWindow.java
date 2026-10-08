@@ -39,11 +39,7 @@ import org.joml.Matrix4f;
 import org.lwjgl.glfw.GLFW;
 
 /**
- * 准星对准市民时在其侧边显示身份卡片
- *
- * <p>另有一个调试入口：按 {@link #SPAWN_EMPTY_CARD}（V）在玩家当前坐标插一张内容全为"无"的同款
- * 卡片，按 {@link #CLEAR_EMPTY_CARD}（C）清掉。它不跟随玩家、也不会因为背对或丢失目标而消失，
- * 用来验证世界窗口的可见性（剔除/深度/朝向）是否正常。</p>
+ * 准星对准市民时在其侧边显示身份卡片，另提供调试用的空卡片开关。
  */
 @EventBusSubscriber(modid = ModMain.MOD_ID, value = Dist.CLIENT)
 @OnlyIn(Dist.CLIENT)
@@ -58,7 +54,6 @@ public final class NpcIdentifyWindow {
     private static final double HEIGHT_RATIO = 0.55D;
     private static final double MIN_SIDE_LENGTH = 1.0E-4D;
     private static final double PARK_DISTANCE = 1024.0D;
-    /** 按键放下的空卡片能看多远：比 NPC 卡片的 12 格宽松，方便退开几步整体看。 */
     private static final int EMPTY_DISPLAY_RANGE = 64;
 
     private static final String ID_NAME = "npc-name";
@@ -87,7 +82,6 @@ public final class NpcIdentifyWindow {
     private static final String MAX_PREFIX = "MAX ";
     private static final String SLASH = "/";
 
-    /** V：在玩家当前坐标放一张空卡片。 */
     public static final KeyMapping SPAWN_EMPTY_CARD = new KeyMapping(
             "key.xy2407_kingdom.identify_spawn_empty",
             KeyConflictContext.IN_GAME,
@@ -97,7 +91,6 @@ public final class NpcIdentifyWindow {
             "key.categories.xy2407_kingdom"
     );
 
-    /** C：清掉按键放下的空卡片。 */
     public static final KeyMapping CLEAR_EMPTY_CARD = new KeyMapping(
             "key.xy2407_kingdom.identify_clear_empty",
             KeyConflictContext.IN_GAME,
@@ -113,9 +106,7 @@ public final class NpcIdentifyWindow {
     private static NpcIdentifyInfo shown;
     private static Element probe;
 
-    /** 按键放下的空卡片；与 {@link #window} 相互独立，可以同时存在。 */
     private static WorldWindow emptyCard;
-    /** {@link #emptyCard} 已经绑定过的文档实例，用来在资源重载换文档后重新绑一次。 */
     private static Document emptyBound;
 
     private NpcIdentifyWindow() {
@@ -167,7 +158,6 @@ public final class NpcIdentifyWindow {
             }
             return;
         }
-        // AFTER_ENTITIES 只负责给跟随 NPC 的卡片摆位置；空卡片位置是固定的，不需要逐帧更新。
         if (identified == null) {
             return;
         }
@@ -230,13 +220,9 @@ public final class NpcIdentifyWindow {
         if (current != null && current.document != null) {
             ApricityUI.removeWorldWindow(current);
         }
-        // 世界没了，空卡片留着也没有意义（它记的是旧世界里的坐标）。
         removeEmptyCard();
     }
 
-    /**
-     * 每 tick 的空卡片处理：读按键，并在文档实例被换掉（资源重载）后重新绑一次数据。
-     */
     private static void handleEmptyCard(LocalPlayer player) {
         if (SPAWN_EMPTY_CARD.consumeClick()) {
             spawnEmptyCard(player);
@@ -250,15 +236,6 @@ public final class NpcIdentifyWindow {
         }
     }
 
-    /**
-     * 在玩家当前坐标放一张空卡片。
-     *
-     * <p>位置取按下按键那一刻玩家眼睛所在的位置并就此固定：卡片不跟随玩家，也不会因为离远、
-     * 背对或丢失瞄准目标而隐藏，只能由 {@link #CLEAR_EMPTY_CARD} 或世界卸载清掉。
-     * {@code setFacing(true)} 让它始终转向相机，所以绕着走都能看正。</p>
-     *
-     * <p>卡片中心就是玩家的眼睛位置，站在原地会正对着它（被近平面切掉），退开几步再看即可。</p>
-     */
     public static void spawnEmptyCard(LocalPlayer player) {
         removeEmptyCard();
         WorldWindow card = new WorldWindow(PAGE, player.getEyePosition(), EMPTY_DISPLAY_RANGE);
@@ -270,7 +247,6 @@ public final class NpcIdentifyWindow {
         bindEmpty(card);
     }
 
-    /** 移除按键放下的空卡片；重复调用安全。 */
     public static void removeEmptyCard() {
         WorldWindow current = emptyCard;
         emptyCard = null;
@@ -314,12 +290,6 @@ public final class NpcIdentifyWindow {
         return entity instanceof NpcEntity npc && npc.isAlive() && npc.isPickable();
     }
 
-    /**
-     * 当前瞄准的市民；没瞄准时为 {@code null}。
-     *
-     * <p>给 {@link KingdomEntityAvatarElement} 用：头像要跟着瞄准目标换，而它每帧都要重画，
-     * 所以这里暴露的是实时的目标，而不是某一 tick 的快照。</p>
-     */
     public static NpcEntity currentTarget() {
         return target;
     }
@@ -368,7 +338,6 @@ public final class NpcIdentifyWindow {
         bind(document, info);
     }
 
-    /** 把一份资料推进页面 DOM；{@code null} / 空字段一律渲染成"无"。 */
     private static void bind(Document document, NpcIdentifyInfo info) {
         if (document == null) {
             return;
@@ -414,8 +383,6 @@ public final class NpcIdentifyWindow {
                 NpcIdentifyInfo.Stat.ABSENT,
                 npc.getSyncedStatus(),
                 new NpcIdentifyInfo.Stat((double) npc.getHealth(), maxHealth),
-                // 饥饿只存在于服务端 NpcData，靠实体同步数据读过来（原来写死 ABSENT，
-                // 所以卡片上永远是"无"）
                 new NpcIdentifyInfo.Stat(npc.getSyncedHunger(), NpcData.HUNGER_MAX));
     }
 

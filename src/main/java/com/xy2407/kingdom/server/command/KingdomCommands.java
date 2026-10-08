@@ -44,7 +44,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/** 王国指令：市民生成与测试移动 */
+/** 王国指令入口：市民生成、测试移动，以及地图与农田、养殖的调试命令。 */
 @EventBusSubscriber(modid = ModMain.MOD_ID)
 public final class KingdomCommands {
 
@@ -88,22 +88,12 @@ public final class KingdomCommands {
                         .then(ranchCommand())));
     }
 
-    /**
-     * 地图调试命令。单独建一棵小的，不塞进上面那串长链——
-     * 长链一多，括号一错就很难定位。
-     */
     private static LiteralArgumentBuilder<CommandSourceStack> mapCommand() {
         return Commands.literal("map")
                 .then(Commands.literal("export")
                         .executes(ctx -> exportMap(ctx, 128)));
     }
 
-    /**
-     * 农田诊断命令：把服务端看到的农田与打理人状态直接打出来。
-     *
-     * <p>市民不干活的闸门有四道——作物没选、格数为 0、人饿着、不在工时——任意一道不满足都是
-     * 静默的（什么都不发生）。这条命令就是把这四道一次性摊开看。</p>
-     */
     private static LiteralArgumentBuilder<CommandSourceStack> farmCommand() {
         return Commands.literal("farm")
                 .executes(KingdomCommands::farmReport);
@@ -119,9 +109,6 @@ public final class KingdomCommands {
         return 1;
     }
 
-    /**
-     * 养殖调试命令。正式流程由养殖面板指派饲养员，这里只是让运行时能单独测起来。
-     */
     private static LiteralArgumentBuilder<CommandSourceStack> ranchCommand() {
         return Commands.literal("ranch")
                 .then(Commands.literal("keeper")
@@ -174,12 +161,6 @@ public final class KingdomCommands {
         return best;
     }
 
-    /**
-     * 把玩家所在位置周围的地表采样成一张 PNG，写到 run/kingdom/map_preview.png。
-     *
-     * <p>这是给调试用的：不用进游戏界面就能看到世界表面被采成什么样，
-     * 也方便比对采样算法与原版地图是否一致。</p>
-     */
     private static int exportMap(CommandContext<CommandSourceStack> ctx, int radius)
             throws CommandSyntaxException {
         CommandSourceStack source = ctx.getSource();
@@ -193,15 +174,11 @@ public final class KingdomCommands {
         long elapsedMs = (System.nanoTime() - started) / 1_000_000L;
 
         int size = snapshot.size();
-        /* NativeImage 的像素序是 ABGR（低字节是红）。而原版 MapColor.getColorFromPackedId
-           返回的正好就是这个序（它一直是要直接喂 setPixelRGBA 的），所以直接写即可——
-           之前在这里又套了一层 ARGB→ABGR，反而把红蓝调了个头。 */
         var image = new com.mojang.blaze3d.platform.NativeImage(
                 com.mojang.blaze3d.platform.NativeImage.Format.RGBA, size, size, false);
         for (int z = 0; z < size; z++) {
             for (int x = 0; x < size; x++) {
                 int packed = snapshot.colors()[z * size + x];
-                /* 与游戏里同一套取色：打包 id 直接交给原版调色板 */
                 int abgr = packed == WorldSurfaceSampler.UNEXPLORED
                         ? 0xFF000000
                         : MapColor.getColorFromPackedId(packed);

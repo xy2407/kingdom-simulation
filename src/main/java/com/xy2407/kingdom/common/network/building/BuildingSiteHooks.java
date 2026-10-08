@@ -7,7 +7,6 @@ import java.util.function.Consumer;
  */
 public final class BuildingSiteHooks {
 
-    /** 施工点增删回包入口；客户端未初始化时是空实现。 */
     public static volatile Consumer<BuildingSitePacket> siteSink = packet -> {
     };
 

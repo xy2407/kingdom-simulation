@@ -23,17 +23,14 @@ import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
- * 建筑投影放置状态机，投影跟随鼠标并支持旋转、调高与暂存后统一开工
+ * 建筑投影放置状态机，投影跟随鼠标并支持旋转、调高与暂存后统一开工。
  */
 @OnlyIn(Dist.CLIENT)
 public final class BuildingPlacementManager {
-    /** 跟随鼠标的建筑投影：全不透明。 */
     public static final float GHOST_ALPHA = 1.0F;
 
-    /** 右键固定落点后的投影：八成不透明。 */
     public static final float PENDING_ALPHA = 0.8F;
 
-    /** 已暂存、等待统一开工的投影；保留原始模型以便拖动时继续改旋转。 */
     public record Pending(String name, BlockPos origin, int rotation, Vec3i size,
                           StructureModel source, StructureMesh mesh) {
     }
@@ -47,7 +44,6 @@ public final class BuildingPlacementManager {
     private static int baseY;
     private static boolean active;
     private static int dragIndex = -1;
-    /** {@link #size()} 的缓存，键为「源模型 + 旋转角」。 */
     private static Vec3i cachedSize;
     private static StructureModel cachedSizeSource;
     private static int cachedSizeRotation = -1;
@@ -56,7 +52,6 @@ public final class BuildingPlacementManager {
     private BuildingPlacementManager() {
     }
 
-    /** RTS 建筑列表的[加载]入口：先落在玩家旁边，之后每帧跟随鼠标落点。 */
     public static void beginRtsFollow(String name, BlockPos startOrigin) {
         discardActive();
         if (name == null || name.isBlank() || startOrigin == null) {
@@ -76,7 +71,6 @@ public final class BuildingPlacementManager {
         rebuildMesh();
     }
 
-    /** 把投影挪到鼠标指向的地面格；只在 RTS 相机下由 HUD 图层每帧驱动。 */
     public static void tickRtsFollow() {
         if (!active || origin == null) {
             return;
@@ -111,7 +105,6 @@ public final class BuildingPlacementManager {
         origin = new BlockPos(origin.getX(), baseY + heightOffset, origin.getZ());
     }
 
-    /** 右键：把当前投影固化成蓝影，等待 Enter 统一开工。 */
     public static void confirmPlace() {
         if (!active || origin == null || mesh == null || mesh.isEmpty()) {
             return;
@@ -124,7 +117,6 @@ public final class BuildingPlacementManager {
         blueprintName = "";
     }
 
-    /** X：撤回最后一个已暂存的蓝影。 */
     public static void undoLastPlacement() {
         if (PENDINGS.isEmpty()) {
             return;
@@ -133,11 +125,9 @@ public final class BuildingPlacementManager {
         closeMesh(removed.mesh());
     }
 
-    /** Enter：把所有暂存投影一次性提交给服务端开工。 */
     public static void confirmAll() {
         Minecraft minecraft = Minecraft.getInstance();
         if (PENDINGS.isEmpty()) {
-            // 静默返回会让人以为按键坏了：右键很可能被 AUI 覆盖层吃掉了
             hint(minecraft, "还没有待建投影：先把跟随鼠标的建筑右键固定在落点");
             return;
         }
@@ -159,7 +149,6 @@ public final class BuildingPlacementManager {
         }
     }
 
-    /** 左键按下时尝试抓住一张蓝影拖动。 */
     public static boolean beginPendingDrag() {
         if (PENDINGS.isEmpty()) {
             return false;
@@ -178,7 +167,6 @@ public final class BuildingPlacementManager {
         return false;
     }
 
-    /** 拖动中把蓝影挪到鼠标落点，高度保持不变。 */
     public static void tickPendingDrag() {
         if (dragIndex < 0 || dragIndex >= PENDINGS.size()) {
             return;
@@ -196,7 +184,6 @@ public final class BuildingPlacementManager {
                 pending.source(), pending.mesh()));
     }
 
-    /** R：正在拖动蓝影时优先旋转它，否则旋转当前投影。 */
     public static void rotateTarget() {
         if (dragIndex < 0 || dragIndex >= PENDINGS.size()) {
             rotate();
@@ -211,7 +198,6 @@ public final class BuildingPlacementManager {
                 pending.source(), next));
     }
 
-    /** 滚轮：正在拖动蓝影时调整它的高度，否则调整当前投影。 */
     public static void adjustTargetHeight(int delta) {
         if (dragIndex < 0 || dragIndex >= PENDINGS.size()) {
             adjustHeight(delta);

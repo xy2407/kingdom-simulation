@@ -10,17 +10,7 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 import net.minecraft.server.level.ServerPlayer;
 
 /**
- * 客户端 → 服务端：玩家在择旗界面上的决定。
- *
- * <p>两种走法合在一个包里：</p>
- * <ul>
- *   <li>{@code custom=false}：选了预置或已有的阵营，此时只有 {@code id} 有意义，
- *       服务端拿 {@code NationRegistry.isKnown} 校验；</li>
- *   <li>{@code custom=true}：自建国，{@code id} 由服务端分配（{@code realm-N}），
- *       客户端带的国号/君主/箴言/双色/纹章/纹章色一律作数。</li>
- * </ul>
- *
- * <p>服务端处理完用 {@link FactionStatePacket} 回推一次状态，客户端据此刷新。</p>
+ * 客户端 → 服务端：玩家在择旗界面上的决定，选现有阵营与自建国共用一个包。
  */
 public record FactionSelectPacket(boolean custom, String id,
                                   String name, String ruler, String motto,

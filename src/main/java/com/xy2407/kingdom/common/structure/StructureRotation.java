@@ -18,13 +18,11 @@ public final class StructureRotation {
     private StructureRotation() {
     }
 
-    /** 把角度归一到 0~3 个 90° 的圈数。 */
     public static int turns(int degrees) {
         int normalized = ((degrees % 360) + 360) % 360;
         return normalized / 90;
     }
 
-    /** 绕 Y 轴旋转整数个 90°，返回新模型；0 圈时原样返回。 */
     public static StructureModel rotate(StructureModel model, int degrees) {
         int turns = turns(degrees);
         if (turns == 0) {

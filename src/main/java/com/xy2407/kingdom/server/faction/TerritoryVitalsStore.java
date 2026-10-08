@@ -14,14 +14,7 @@ import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.persistence.TerritoryVitalsSchema;
 
 /**
- * 领地民心三值的内存索引与落库入口。
- *
- * <p>模式照 {@code TerritoryRegistry} / {@code PlayerProfileStore}：懒加载（等
- * {@code KingdomPersistence} 就绪后读一次），之后全部走内存，变更用
- * {@link KingdomPersistence#submit} 攒增量写库。</p>
- *
- * <p>取值一律用 {@link #of(String)}：库里没有这块领地的行就按默认值新建一条
- * （凝聚力 100 / 忠诚 80 / 幸福 80）并立即落库，所以调用方不必关心"有没有"。</p>
+ * 领地民心三值的内存索引与落库入口：懒加载后全走内存，变更攒增量写库。
  */
 public final class TerritoryVitalsStore {
 
@@ -44,19 +37,12 @@ public final class TerritoryVitalsStore {
         return loaded;
     }
 
-    /** 懒加载驱动：DB 就绪后读一次，之后不再重复。 */
     public void tick() {
         if (!loaded && KingdomPersistence.isReady()) {
             load();
         }
     }
 
-    /**
-     * 取这块领地的民心值；没有就按默认值建一条并落库。
-     *
-     * <p>注意不能写成 {@code computeIfAbsent(...)} 里直接落库——那会在 map 的
-     * 分段锁里做 IO，容易和别的写操作互相等。这里先查、再放。</p>
-     */
     public TerritoryVitals of(String territoryId) {
         if (territoryId == null || territoryId.isBlank()) {
             return null;
@@ -74,12 +60,10 @@ public final class TerritoryVitalsStore {
         return fresh;
     }
 
-    /** 只查、不新建（给"有没有"这类判断用）。 */
     public TerritoryVitals peek(String territoryId) {
         return territoryId == null ? null : byTerritory.get(territoryId);
     }
 
-    /** 落库一条。所有改动三值的地方改完都要调它。 */
     public void persist(TerritoryVitals vitals) {
         if (vitals == null || !KingdomPersistence.isReady()) {
             return;

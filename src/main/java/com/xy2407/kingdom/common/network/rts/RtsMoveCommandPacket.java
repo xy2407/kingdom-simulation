@@ -23,15 +23,7 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * 客户端 → 服务端：命令这批单位走到目标点（RTS 的基础移动指令）。
- *
- * <p>移植自 {@code xy's_nsuk} 的同名包，做了三处减法：</p>
- * <ul>
- *   <li>去掉队伍阵型联调与队长跟随（kingdom 暂无队伍）；</li>
- *   <li>执行端从 simukraft 的导航服务换成 {@link NpcEntity#setRtsTarget(BlockPos, boolean)}，
- *       NPC 会自己进入"受指挥"状态并用自研 A* 寻路走过去；</li>
- *   <li>没有阵型时用黄金角螺旋错开落点，避免整队叠在一格。</li>
- * </ul>
+ * 客户端 → 服务端：命令这批单位走到目标点，多个落点用黄金角螺旋错开。
  */
 public record RtsMoveCommandPacket(List<UUID> entityIds, Vec3 target) implements CustomPacketPayload {
 
@@ -97,7 +89,6 @@ public record RtsMoveCommandPacket(List<UUID> entityIds, Vec3 target) implements
         });
     }
 
-    /** 黄金角螺旋散布：第 0 个走正中，其余按 2 格间距错开。 */
     private static Vec3 scatterOffset(int index, double spacing) {
         if (index == 0) {
             return Vec3.ZERO;

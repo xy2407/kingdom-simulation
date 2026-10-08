@@ -18,13 +18,8 @@ public final class BuildingTask {
     public static final int REPAIR_SCAN_INTERVAL = 80;
     public static final int SWING_INTERVAL = 20;
 
-    /** 工步类型：圈块 / 柱块 / 建筑方块 */
     public enum WorkKind { RING, PILLAR, BUILD }
 
-    /**
-     * 单个工步：pos 为待放方块，stand 为建筑师站位（生成时静态算好），
-     * section 为所属 4 层段编号
-     */
     public record Step(BlockPos pos, BlockState state, WorkKind kind, int section, BlockPos stand) {
     }
 

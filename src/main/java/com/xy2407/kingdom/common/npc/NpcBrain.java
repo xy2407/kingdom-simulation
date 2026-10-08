@@ -55,7 +55,6 @@ public final class NpcBrain {
             return;
         }
         if (farmControlled) {
-            // 只在自己班次的工时里下地，其余时间照常回家休息
             if (NpcSchedule.subState(owner.getShift(), owner.getDayTime()) == NpcSubState.WORKING) {
                 setPlan(phase(), NpcSubState.WORKING, farmDetail());
                 return;
@@ -81,14 +80,6 @@ public final class NpcBrain {
         }
     }
 
-    /**
-     * 窗口外的状态纠偏：把 detail 拉回"它与当前子状态该有的对应关系"。
-     *
-     * <p>时间驱动的正常推进由 {@link #applySchedule()} 负责（它已经在按当前时刻算该上班、
-     * 该回家还是该休息），这里只兜住"对不上"的情况——detail 空着，或者子状态被别处改过而细节
-     * 还停在旧的一档。受控状态（RTS 指令 / 施工 / 农活 / 养殖）的细节由各自系统指派，
-     * 不在这里纠正，否则会把它们刚设好的行为抹掉。</p>
-     */
     private void correctDrift() {
         if (rtsControlled || constructionControlled || farmControlled || ranchControlled) {
             return;
@@ -109,14 +100,10 @@ public final class NpcBrain {
             detail = NpcSchedule.moveDetail(shift, dayTime);
             boolean goingWork = detail == NpcDetail.GOING_WORK;
             if ((goingWork && !hasWorkplace()) || (!goingWork && !hasHome())) {
-                /* 该上班却没有工作地点（或该回家却没有住宅）：**统一降级为闲逛**。
-                   不能留在这里不动，也不能放回 rollDetail——那对"有家"的人会掷出 SLEEPING，
-                   把"没有工作地点的人"显示成在家睡觉。分配系统落地前这是常态而非异常。 */
                 subState = NpcSubState.RESTING;
                 detail = NpcDetail.WANDERING;
             }
         } else if (subState == NpcSubState.WORKING && !hasWorkplace()) {
-            /* 同上：该干活却没有工作地点 → 闲逛 */
             subState = NpcSubState.RESTING;
             detail = NpcDetail.WANDERING;
         }
@@ -179,7 +166,6 @@ public final class NpcBrain {
         return true;
     }
 
-    /** 巡检结果写回状态机：种植中 / 收割中 / 在田里候着；值没变不写，免得每 tick 把市民标脏。 */
     public void setFarmDetail(NpcDetail detail) {
         NpcDetail next = detail == NpcDetail.PLANTING || detail == NpcDetail.HARVESTING
                 ? detail : NpcDetail.FARMING;
@@ -188,13 +174,11 @@ public final class NpcBrain {
         }
     }
 
-    /** 农活子行为由巡检决定，状态机每 tick 复述时不能把它抹回 FARMING。 */
     private NpcDetail farmDetail() {
         NpcDetail current = owner.getDetail();
         return current == NpcDetail.PLANTING || current == NpcDetail.HARVESTING ? current : NpcDetail.FARMING;
     }
 
-    /** 是否处于饥饿状态：饿着的人不能生产，派工前要先问这里。 */
     public boolean isStarving() {
         return owner.getHunger() < HUNGER_TRIGGER;
     }

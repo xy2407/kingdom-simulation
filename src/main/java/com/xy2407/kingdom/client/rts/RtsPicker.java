@@ -28,11 +28,7 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * RTS 拾取：点选 / 框选单位，以及"右键指地面"时的落点解算。
- *
- * <p>屏幕射线是用相机朝向 + FOV（或正交半宽）自己算的，不依赖投影矩阵——所以正交视角下也准。
- * 移植自 {@code xy's_nsuk} 的 {@code RtsPicker}，砍掉的部分：攻击目标框选、坐骑/骑乘判定、
- * Sable 子世界坐标投影、建筑放置落点。锁定/阵营相关判断一并去掉（kingdom 暂无阵营）。</p>
+ * RTS 拾取：点选框选单位、世界射线解算与屏幕世界坐标互转。
  */
 @OnlyIn(Dist.CLIENT)
 public final class RtsPicker {
@@ -43,11 +39,6 @@ public final class RtsPicker {
     private RtsPicker() {
     }
 
-    // ------------------------------------------------------------------
-    // 选中
-    // ------------------------------------------------------------------
-
-    /** 左键点选：命中单位就选中（Ctrl 叠加、否则替换），点空地清空。 */
     public static void clickSelect(double mouseX, double mouseY) {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.level == null || minecraft.player == null) {
@@ -65,7 +56,6 @@ public final class RtsPicker {
         RtsModeManager.clearSelection();
     }
 
-    /** 左键框选：框内的单位（Ctrl 叠加、否则替换）。 */
     public static void boxSelect(double x1, double y1, double x2, double y2) {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.level == null || minecraft.player == null) {
@@ -114,21 +104,15 @@ public final class RtsPicker {
         RtsModeManager.setSelectedEntities(selected);
     }
 
-    /** 可被玩家指挥的单位：王国 NPC 与本人的替身。 */
     public static boolean isSelectable(Entity entity) {
         return entity instanceof NpcEntity || entity instanceof RtsFakePlayerEntity;
     }
-
-    // ------------------------------------------------------------------
-    // 瞄准
-    // ------------------------------------------------------------------
 
     public static Vec3 pickTargetBlock(double mouseX, double mouseY) {
         BlockHit hit = pickBlockHit(mouseX, mouseY);
         return hit == null ? null : hit.standPos;
     }
 
-    /** 方块命中：位置 + 面 + "站上去"的落点。 */
     public record BlockHit(BlockPos blockPos, Direction direction, Vec3 standPos, Vec3 location) {
     }
 
@@ -157,7 +141,6 @@ public final class RtsPicker {
             return new BlockHit(hitPos, face, standPos, loc);
         }
 
-        // 没打到方块就把射线投到玩家所在高度，当成"指远处地面"
         Vec3 rayDir = end.subtract(origin).normalize();
         if (Math.abs(rayDir.y) < 1.0E-6D) {
             return null;
@@ -172,7 +155,6 @@ public final class RtsPicker {
         return new BlockHit(ground, Direction.UP, stand, stand);
     }
 
-    /** 点到竖直墙面时，向侧面找一个能站的位置（往下最多 16 格）。 */
     private static Vec3 resolveStandTarget(Minecraft minecraft, BlockPos hitPos, Direction face) {
         if (face.getAxis().isHorizontal()) {
             BlockPos side = hitPos.relative(face);
@@ -232,11 +214,6 @@ public final class RtsPicker {
         return best;
     }
 
-    // ------------------------------------------------------------------
-    // 屏幕 ⇄ 世界
-    // ------------------------------------------------------------------
-
-    /** 把屏幕（GUI 缩放）坐标换成一条世界射线；相机不可用时返回 null。 */
     public static Vec3[] screenToWorldRay(Minecraft minecraft, double mouseX, double mouseY) {
         if (minecraft.level == null) {
             return null;
@@ -286,7 +263,6 @@ public final class RtsPicker {
         return new Vec3[]{camPos, camPos.add(dir.scale(PICK_MAX_DISTANCE))};
     }
 
-    /** 世界坐标 → 屏幕（GUI 缩放）坐标；在相机背后返回 null。 */
     public static double[] projectToScreen(Vec3 worldPos) {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.level == null) {
@@ -331,7 +307,6 @@ public final class RtsPicker {
         return new double[]{(ndcX + 1.0D) * 0.5D * width, (1.0D - (ndcY + 1.0D) * 0.5D) * height};
     }
 
-    /** 相机与被选单位之间是否隔着方块。 */
     private static boolean isOccludedByBlocks(Level level, Vec3 camPos, Entity entity, Entity context) {
         Vec3 to = entity.getBoundingBox().getCenter();
         double distance = camPos.distanceTo(to);

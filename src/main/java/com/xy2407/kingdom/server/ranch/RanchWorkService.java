@@ -36,7 +36,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * 养殖核心循环：校验建筑与饲养员、维护动物数量、投喂繁殖、采集与宰杀
+ * 养殖核心循环：校验建筑与饲养员、维护动物数量、投喂繁殖、采集与宰杀。
  */
 public final class RanchWorkService {
 
@@ -96,7 +96,6 @@ public final class RanchWorkService {
         releaseUnusedKeepers(server, activeKeepers);
     }
 
-    /** 只读清点这一栏的家底，返回 {总数, 成年数}：面板展示与"取出"判定都用它，不改任何状态。 */
     public static int[] headcount(ServerLevel level, RanchPen pen) {
         int[] heads = new int[]{0, 0};
         if (level == null || pen == null) {
@@ -171,7 +170,6 @@ public final class RanchWorkService {
         runtime.nextTick = gameTime + 1;
     }
 
-    /** 栏内动物按容量补齐：同类合并到一个基座实体，数量存在它的虚拟条目里。 */
     private static void ensureAnimals(ServerLevel level, RanchPen pen, PenRuntime runtime) {
         int capacity = runtime.spec.limit();
         Mob base = RanchAnimals.consolidate(level, runtime.bounds, penKey(pen), runtime.type);
@@ -207,7 +205,6 @@ public final class RanchWorkService {
         status(pen, STATUS_GROWING);
     }
 
-    /** 采集型按成年数定期出货；宰杀型每次拿一头成年换一份产出并补一条幼年。 */
     private static void produce(ServerLevel level, RanchPen pen, PenRuntime runtime,
                                 NpcEntity keeper, boolean collecting) {
         Mob base = baseOf(runtime);
@@ -293,7 +290,6 @@ public final class RanchWorkService {
         return remaining <= 0;
     }
 
-    /** 产出发给饲养员背包（替代参照实现的产出容器）；背包装不下就丢弃。 */
     private static void deposit(NpcEntity keeper, String itemId, int amount) {
         if (keeper == null || amount <= 0) {
             return;

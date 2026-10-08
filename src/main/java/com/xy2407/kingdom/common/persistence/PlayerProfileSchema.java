@@ -10,17 +10,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 玩家档案表迁移：建 player_profile 表、幂等补列。
- *
- * <p>这张表管两件事：</p>
- * <ol>
- *   <li><b>首登标记</b>。{@code onboarded=0} 表示这名玩家还没走完"选国家"流程——
- *       登录时据此弹出阵营选择界面。走完就置 1，之后再登录不会再弹。</li>
- *   <li><b>归属</b>。{@code nation_id} 是首登时选定的国家（或自建的那个），
- *       {@code territory_id} 是自己那块领地。两者都为空串表示还没选／还没建。</li>
- * </ol>
- *
- * <p>用玩家 UUID 当主键，跟原版 playerdata 无关，换皮肤/改名都不受影响。</p>
+ * 玩家档案表迁移：首登标记、归属（国家与领地）以及上次看地图的中心点。
  */
 public final class PlayerProfileSchema implements Migration {
     private static final Map<String, String> COLUMN_DEFS = buildColumnDefs();
@@ -31,17 +21,12 @@ public final class PlayerProfileSchema implements Migration {
     public static final String COL_TERRITORY_ID = "territory_id";
     public static final String COL_ONBOARDED = "onboarded";
     public static final String COL_FIRST_JOIN_DAY = "first_join_day";
-    /** 该玩家上次查看地图时停留的中心点。每人一份，与他人无关。 */
     public static final String COL_MAP_CENTER_X = "map_center_x";
     public static final String COL_MAP_CENTER_Z = "map_center_z";
     public static final String COL_UPDATED_AT = "updated_at";
 
     @Override
     public int version() {
-        /* 版本号只用来排序与排查。Database.migrate 现在**每次启动都执行全部迁移**
-           （apply 幂等：建表 IF NOT EXISTS + 查过列再 ALTER），
-           所以新加的列（如 map_center_x / map_center_z）会自动补上，
-           不再需要靠"抬高版本号"来触发。 */
         return 15;
     }
 

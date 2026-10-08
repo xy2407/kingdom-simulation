@@ -27,13 +27,12 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.fml.loading.FMLPaths;
 
 /**
- * 建筑蓝图库，读取游戏目录本地结构 NBT 并生成施工计划
+ * 建筑蓝图库，读取游戏目录本地结构 NBT 并生成施工计划。
  */
 public final class BuildingBlueprints {
     private static final String ROOT_NAME = "kingdom simulation";
     private static final String STRUCTURES_NAME = "structures";
     private static final String EXTENSION = ".nbt";
-    /** 扫描深度：{@code structures} 根目录 + 一层类型子目录。 */
     private static final int SCAN_DEPTH = 2;
 
     private BuildingBlueprints() {
@@ -47,13 +46,6 @@ public final class BuildingBlueprints {
         return structuresDir().resolve(sanitize(name) + EXTENSION);
     }
 
-    /**
-     * 列出所有蓝图标识，递归一层子目录（六个类型目录）。
-     *
-     * <p>标识是相对 {@code structures} 的路径去掉扩展名，统一用 {@code /} 分隔，
-     * 例如 {@code residential/house_small}；它既能直接喂给 {@link #fileOf(String)} 定位文件，
-     * 也是网络传输与入库用的键。</p>
-     */
     public static List<String> listNames() {
         Path dir = structuresDir();
         if (!Files.isDirectory(dir)) {
@@ -71,7 +63,6 @@ public final class BuildingBlueprints {
         return names;
     }
 
-    /** 相对 structures 的路径，统一成 {@code /} 分隔。 */
     public static String relativeId(Path structuresDir, Path file) {
         return structuresDir.relativize(file).toString().replace('\\', '/');
     }
@@ -80,7 +71,6 @@ public final class BuildingBlueprints {
         return load(name, 0);
     }
 
-    /** 按旋转角度载入蓝图，返回已经旋转过的施工计划。 */
     public static BuildPlan load(String name, int rotationDegrees) {
         StructureModel model = loadModel(name);
         return model == null ? null : BuildPlan.of(StructureRotation.rotate(model, rotationDegrees));
@@ -146,11 +136,6 @@ public final class BuildingBlueprints {
         return Files.isRegularFile(path) && path.getFileName().toString().toLowerCase().endsWith(EXTENSION);
     }
 
-    /**
-     * 允许 {@code residential/house} 这样的子目录标识，但仍挡住跳出 structures 目录的写法。
-     *
-     * <p>标识来自客户端与网络包，必须当作不可信输入处理。</p>
-     */
     private static boolean isValidName(String name) {
         if (name == null || name.isBlank()) {
             return false;

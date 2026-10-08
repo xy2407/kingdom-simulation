@@ -27,7 +27,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 
 /**
- * 养殖栏登记表：加载落库，并按已完工的养殖建筑自动补栏
+ * 养殖栏登记表：加载落库，并按已完工的养殖建筑自动补栏。
  */
 public final class RanchPenManager {
 
@@ -100,7 +100,6 @@ public final class RanchPenManager {
         return null;
     }
 
-    /** 这栏养的动物配置：从蓝图 json 现读（带缓存），蓝图改了重启即可生效。 */
     public AnimalSpec animalOf(RanchPen pen) {
         if (pen == null) {
             return null;
@@ -138,7 +137,6 @@ public final class RanchPenManager {
         return true;
     }
 
-    /** 给完工的养殖建筑补栏；建筑没了的栏一并清掉，避免留下空壳。 */
     private void ensurePens() {
         for (RanchPen pen : new ArrayList<>(pens.values())) {
             if (BuildingRegistry.INSTANCE.byId(pen.buildingId()) == null) {

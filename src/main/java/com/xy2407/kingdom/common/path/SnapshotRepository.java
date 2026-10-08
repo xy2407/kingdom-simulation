@@ -22,14 +22,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
 
 /**
- * 寻路快照仓库，分帧构建区块快照并做兜底轮转重建；路径搜索交由后台线程池执行。
- *
- * <p>搜索提交按「每 tick 放行数」约束：{@value #MAX_SEARCHES_PER_TICK} 个名额每 tick 由
- * {@link #tick} 重置，只用于给主线程的提交动作限流。名额不跨 tick 累积，所以没有回收动作，
- * 也就不存在任务被取消后名额泄漏的问题。</p>
- *
- * <p>快照构建由 {@link #hasDemand} 门控：没有自定义 A* 需求时调用方跳过 {@link #tick}，
- * 常驻开销归零。</p>
+ * 寻路快照仓库：分帧构建区块快照并兜底轮转重建，路径搜索交由后台线程池执行。
  */
 public final class SnapshotRepository {
     private static final Map<MinecraftServer, SnapshotRepository> INSTANCES = new ConcurrentHashMap<>();
@@ -41,28 +34,13 @@ public final class SnapshotRepository {
     private static final int PENDING_QUEUE_CAP = 4096;
     private static final int MAX_TRACKED_CHUNKS = 4096;
     private static final int MAX_SEARCHES_PER_TICK = 20;
-    /**
-     * 通勤批次专用通道的每 tick 上限，**与 {@link #MAX_SEARCHES_PER_TICK} 互不相干**。
-     *
-     * <p>上下班是整城一起动（一批 200 个），要是和 RTS 指令抢那 20 个名额，
-     * 玩家框选部队就会一直排不上队。分开之后两条路各走各的：
-     * 通勤稳态约 5 条/tick（200 ÷ 40），这里给 16 留出窗口初期的积压余量。</p>
-     */
     private static final int MAX_COMMUTE_SEARCHES_PER_TICK = 16;
     private static final int SEARCH_THREADS = 2;
     private static final long DIRTY_COOLDOWN_TICKS = 4L;
 
     private final Map<ResourceKey<Level>, Store> stores = new ConcurrentHashMap<>();
     private final AtomicInteger threadSeq = new AtomicInteger();
-    /** 本 tick 已放行的搜索数，由 {@link #tick} 每 tick 清零，只在主线程读写。 */
     private int searchesThisTick;
-    /**
-     * 本 tick 已放行的**通勤**搜索数。
-     *
-     * <p>刻意不并进 {@link #tick} 的清零里：那个方法受 {@code hasDemand} 门控，
-     * 没需求时整个不跑，计数会跨 tick 累加到卡死。改由
-     * {@link #resetCommuteSearches()} 在通勤调度每 tick 开头显式清零。</p>
-     */
     private int commuteSearchesThisTick;
     private ExecutorService executor;
 
@@ -118,7 +96,6 @@ public final class SnapshotRepository {
         }
     }
 
-    /** 尝试占本 tick 的一个搜索名额。成功返回 true；名额每 tick 自动重置。 */
     public boolean tryAcquireSearch() {
         if (searchesThisTick >= MAX_SEARCHES_PER_TICK) {
             return false;
@@ -127,12 +104,10 @@ public final class SnapshotRepository {
         return true;
     }
 
-    /** 清空本 tick 的通勤名额。由通勤调度每 tick 开头调用一次。 */
     public void resetCommuteSearches() {
         commuteSearchesThisTick = 0;
     }
 
-    /** 尝试占本 tick 的一个**通勤**名额，与 {@link #tryAcquireSearch()} 各自独立。 */
     private boolean tryAcquireCommuteSearch() {
         if (commuteSearchesThisTick >= MAX_COMMUTE_SEARCHES_PER_TICK) {
             return false;
@@ -141,28 +116,19 @@ public final class SnapshotRepository {
         return true;
     }
 
-    /** 与 {@link #tryAcquireSearch()} 配对；名额按 tick 重置，这里不再回收。 */
     public void releaseSearch() {
     }
 
-    /** 还有没有人在等自定义 A*：本 tick 有放行，或待建队列非空。 */
     public boolean hasDemand(ServerLevel level) {
         return searchesThisTick > 0 || !store(level.dimension()).pending.isEmpty();
     }
 
-    /**
-     * 提交后台 A* 搜索，并预先把搜索区域所需的区块加入快照队列；仅在主线程调用
-     *
-     * @return 搜索任务；没有名额、起终点不可站或线程池不可用时返回 null
-     */
     public Future<List<BlockPos>> submitSearch(ServerLevel level, BlockPos start, BlockPos end) {
         ExecutorService current = executor;
         if (current == null || current.isShutdown()) {
             return null;
         }
         ResourceKey<Level> dimension = level.dimension();
-        // 廉价预检：起终点若在已有快照里根本落不到可站立层，这次搜索必然空手而归，
-        // 直接否决，省掉一整轮最多 MAX_NODES 次扩张。
         if (!NpcPathfinder.isViable(this, dimension, start, end)) {
             return null;
         }
@@ -177,15 +143,6 @@ public final class SnapshotRepository {
         }
     }
 
-    /**
-     * 通勤批次专用提交：与 {@link #submitSearch} 完全同路，**只有名额来源不同**——
-     * 走 {@link #MAX_COMMUTE_SEARCHES_PER_TICK} 这条独立通道，不占 RTS 指令的
-     * {@link #MAX_SEARCHES_PER_TICK} 名额（反之亦然）。
-     *
-     * <p>调用方（通勤调度）需在每 tick 开头先 {@link #resetCommuteSearches()}。</p>
-     *
-     * @return 搜索任务；名额用尽或起终点不可站时返回 {@code null}
-     */
     public Future<List<BlockPos>> submitCommuteSearch(ServerLevel level, BlockPos start, BlockPos end) {
         ExecutorService current = executor;
         if (current == null || current.isShutdown()) {
@@ -206,15 +163,6 @@ public final class SnapshotRepository {
         }
     }
 
-    /**
-     * 分帧建快照。
-     *
-     * <p>本方法由 {@link #hasDemand} 门控：没有自定义 A* 需求时调用方会跳过它，轮转重建
-     * 也一并停下。代价是静默期间发生、又没触发 {@code SnapshotEvents} 的地形变化（活塞、
-     * 流体、爆炸、{@code /setblock}）不再有「最多一个轮转周期」的自愈兜底，要等下一次
-     * 真正有人寻路、轮转重新转起来才会被吸收。想恢复无条件轮转，把调用方的 hasDemand
-     * 判断去掉即可。</p>
-     */
     public void tick(ServerLevel level) {
         searchesThisTick = 0;
         Store store = store(level.dimension());
@@ -225,7 +173,6 @@ public final class SnapshotRepository {
         }
     }
 
-    /** 无副作用读取，可在后台线程调用 */
     public ChunkSnapshot getSnapshot(ResourceKey<Level> dimension, int chunkX, int chunkZ) {
         return store(dimension).snapshots.get(ChunkPos.asLong(chunkX, chunkZ));
     }
@@ -234,7 +181,6 @@ public final class SnapshotRepository {
         return getSnapshot(level.dimension(), chunkX, chunkZ);
     }
 
-    /** 仅在主线程调用；已有快照的区块跳过，避免寻路批量请求把待建队列冲爆 */
     public void enqueue(ResourceKey<Level> dimension, ChunkPos pos) {
         Store store = store(dimension);
         long id = pos.toLong();
@@ -252,13 +198,6 @@ public final class SnapshotRepository {
         markDirty(level, pos.getX() >> 4, pos.getZ() >> 4);
     }
 
-    /**
-     * 标记区块快照需要重建（带冷却）。
-     *
-     * <p>施工期会连续放置成百上千个方块，若逐块把同一区块重新入队，就等于每 tick 重建一次整块
-     * 快照（{@code ChunkSnapshot.build} 要扫 256 列全高）。冷却期内只记时间不重复入队，
-     * 漏掉的那一次由轮转重建 {@link #enqueueRotation} 兜底吸收，不会丢更新。</p>
-     */
     public void markDirty(ServerLevel level, int chunkX, int chunkZ) {
         Store store = store(level.dimension());
         long id = ChunkPos.asLong(chunkX, chunkZ);
@@ -353,7 +292,6 @@ public final class SnapshotRepository {
         private final ArrayDeque<Long> pending = new ArrayDeque<>();
         private final Set<Long> pendingIds = new HashSet<>();
         private final List<Long> cycle = new ArrayList<>();
-        /** 各区块上次因标脏而重建的游戏刻，用于 {@link #markDirty} 的冷却。 */
         private final Map<Long, Long> dirtyAt = new ConcurrentHashMap<>();
         private int cycleCursor;
     }

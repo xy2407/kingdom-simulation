@@ -28,7 +28,6 @@ public record FarmPanelActionPacket(int action, UUID plotId, String text, int va
     public static final int ACTION_TOGGLE_WORKER = 3;
     public static final int ACTION_SET_AREA = 4;
     public static final int ACTION_DELETE = 5;
-    /** 请服务端打开这座建筑的仓库界面（面板底栏的「打开仓库」）。 */
     public static final int ACTION_OPEN_STORAGE = 6;
 
     public static final CustomPacketPayload.Type<FarmPanelActionPacket> TYPE =
@@ -42,7 +41,6 @@ public record FarmPanelActionPacket(int action, UUID plotId, String text, int va
         return TYPE;
     }
 
-    /** 一次成型：核心矩形、附加块、格数、作物、打理人一起提交，避免创建后再补三四次包。 */
     public static FarmPanelActionPacket create(int slots, String cropId, String workerIds,
                                                int minX, int minZ, int maxX, int maxZ,
                                                List<FarmRegion> extra) {
@@ -84,7 +82,6 @@ public record FarmPanelActionPacket(int action, UUID plotId, String text, int va
         return new FarmPanelActionPacket(ACTION_DELETE, plotId, "", 0, 0, 0, 0, 0, "", "");
     }
 
-    /** 请服务端把当前界面换成这座建筑的仓库。不需要任何参数——建筑由服务端按玩家位置判定。 */
     public static FarmPanelActionPacket openStorage() {
         return new FarmPanelActionPacket(ACTION_OPEN_STORAGE, null, "", 0, 0, 0, 0, 0, "", "");
     }
@@ -93,7 +90,6 @@ public record FarmPanelActionPacket(int action, UUID plotId, String text, int va
         return FarmRegion.decode(regions);
     }
 
-    /** 逗号分隔的打理人列表；解析失败的单条直接跳过。 */
     public List<UUID> workerIds() {
         List<UUID> ids = new ArrayList<>();
         if (workers == null || workers.isBlank()) {

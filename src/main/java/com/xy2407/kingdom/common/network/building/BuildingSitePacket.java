@@ -12,10 +12,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 /**
- * 服务端 → 客户端：施工点新增 / 移除。
- *
- * <p>客户端收到新增后在整栋建筑的施工期间持续渲染半透明虚影，收到移除（完工或中止）时清理。
- * 与玩家自己那份"放置投影"不同：放置投影在右键暂存后就交给服务端了，这里管的是任务期间那一段。</p>
+ * 服务端 → 客户端：施工点新增或移除，客户端据此渲染或清理半透明施工虚影。
  */
 public record BuildingSitePacket(UUID taskId, boolean remove, String blueprintName,
                                  BlockPos origin, int rotation) implements CustomPacketPayload {

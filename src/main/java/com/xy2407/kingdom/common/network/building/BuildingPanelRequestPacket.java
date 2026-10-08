@@ -9,9 +9,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 /**
- * 客户端 → 服务端：请求判定当前所处的建筑。
- *
- * <p>空载荷——玩家位置由服务端从 {@code context.player()} 直接取，客户端不必也不该传坐标。</p>
+ * 客户端 → 服务端：请求判定当前所处的建筑，空载荷，位置由服务端自己取。
  */
 public record BuildingPanelRequestPacket() implements CustomPacketPayload {
 

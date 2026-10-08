@@ -7,7 +7,9 @@ import net.minecraft.world.entity.MobCategory;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 
-/** 实体类型注册。 */
+/**
+ * 实体类型注册：市民 NPC 与 RTS 假玩家实体。
+ */
 public final class ModEntities {
 
     public static final DeferredRegister<EntityType<?>> ENTITY_TYPES =

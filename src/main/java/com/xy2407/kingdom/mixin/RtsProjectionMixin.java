@@ -11,10 +11,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * RTS 正交投影：开着正交时把 {@code GameRenderer.getProjectionMatrix(double)} 的返回值换成正交矩阵。
- *
- * <p>渲染投影与视锥剔除共用这个方法，所以换这里等于两处一起生效。从 {@code xy's_nsuk} 的
- * {@code GameRendererProjectionMixin} 迁来，逻辑未变。</p>
+ * RTS 正交投影：开着正交时把游戏投影矩阵换成正交矩阵。
  */
 @Mixin(GameRenderer.class)
 public abstract class RtsProjectionMixin {

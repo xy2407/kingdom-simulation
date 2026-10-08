@@ -26,7 +26,7 @@ import net.neoforged.neoforge.client.settings.KeyConflictContext;
 import org.lwjgl.glfw.GLFW;
 
 /**
- * RTS 的键鼠输入与渲染事件处理，含模式切换、相机推进与世界空间线框入口
+ * RTS 的键鼠输入与渲染事件处理，含模式切换、相机推进与世界空间线框入口。
  */
 @EventBusSubscriber(modid = ModMain.MOD_ID, value = Dist.CLIENT)
 @OnlyIn(Dist.CLIENT)
@@ -48,9 +48,7 @@ public final class RtsClientEvents {
             "key.categories.xy2407_kingdom"
     );
 
-    /** 覆盖层文档的深度基准，需大于原版聊天栏。 */
     private static final float OVERLAY_DOCUMENT_Z = 2000.0F;
-    /** 准星要再高一层，免得被建筑列表 HUD 压住。 */
     private static final float OVERLAY_CROSSHAIR_Z = 100.0F;
 
     private static boolean wasDead;
@@ -84,21 +82,12 @@ public final class RtsClientEvents {
         }
         wasDead = dead;
 
-        // AUI 的命中判定读 MouseHandler.xpos/ypos：光标被抓回时这两个值会脱离屏幕范围
-        // （中途开过一次 GUI 再关掉就会被抓回），HUD 上的一切按钮都会点不到。这里每 tick 兜回释放态。
         if (RtsModeManager.isActive() && minecraft.screen == null && minecraft.mouseHandler.isMouseGrabbed()) {
             minecraft.mouseHandler.releaseMouse();
         }
         RtsModeManager.tickCamera();
     }
 
-    /**
-     * 鼠标（GUI 坐标）是否落在建筑列表 HUD 内。落在 UI 上时把输入整个让给 AUI：
-     * 既不消费事件也不走 RTS 的世界交互，这样卡片里的拖拽、滚轮、按钮才收得到。
-     *
-     * <p>页面声明了 {@code aui-mouse-events=intercept}，文档级判定会对整屏返回真，
-     * 所以必须用元素级命中再向上追溯是否真的落在面板里。</p>
-     */
     private static boolean overAui() {
         double[] mouse = RtsModeManager.getGuiScaledMouse();
         Position screen = new Position(mouse[0], mouse[1]);
@@ -110,7 +99,6 @@ public final class RtsClientEvents {
         return false;
     }
 
-    /** 命中元素是否落在建筑列表 HUD（{@code viewer-* / card-* / load-* / big-*}）内部。 */
     private static boolean insideViewer(Element element) {
         for (Node node = element; node instanceof Element current; node = current.getParentNode()) {
             String id = current.getAttribute("id");
@@ -122,10 +110,6 @@ public final class RtsClientEvents {
         return false;
     }
 
-    /**
-     * 排最低优先级：AUI 在默认优先级处理覆盖层的卡片与按钮，必须排在它之后才看得到它是否已消费，
-     * 否则这里的 {@code setCanceled(true)} 会把 AUI 的鼠标分发一起挡掉。
-     */
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onMouseButton(InputEvent.MouseButton.Pre event) {
         Minecraft minecraft = Minecraft.getInstance();
@@ -133,8 +117,6 @@ public final class RtsClientEvents {
             return;
         }
         if (event.isCanceled() || overAui()) {
-            // AUI 排在我们之前，它已经处理完这次输入；这里再消费一次，
-            // 免得原版把鼠标抓回去（坐标一乱，投影会跟着跳）。
             event.setCanceled(true);
             return;
         }
@@ -211,8 +193,6 @@ public final class RtsClientEvents {
         if (key == GLFW.GLFW_KEY_R) {
             BuildingPlacementManager.rotateTarget();
         } else if (key == GLFW.GLFW_KEY_X) {
-            // 用 X 而非 C：C 已经被 RtsWaypointState 占用（按住录节点路径），
-            // 两者同键会让"按住 C 录路径"顺手把已暂存的蓝影撤回掉。
             BuildingPlacementManager.undoLastPlacement();
         }
     }
@@ -223,13 +203,6 @@ public final class RtsClientEvents {
         RtsWaypointMarkerRenderer.onRenderLevel(event);
     }
 
-    /**
-     * 最高优先级，排在 AUI 绘制覆盖层之前：抬高嵌套渲染面的文档深度基准。
-     *
-     * <p>注意：扁平覆盖层文档不吃这个值——{@code Base#drawFlatDocumentAtZInContext} 会用
-     * {@code resolveFlatDocumentBaseZ} 覆盖它，文档面恒为 1.0 + 层序号。要压过原版聊天栏，
-     * 只能给页面里有确定尺寸的容器加 {@code transform:translateZ(...)}（见《AUI使用总结》§4.4 坑 36）。</p>
-     */
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public static void onRenderGuiPre(RenderGuiEvent.Post event) {
         if (!RtsModeManager.isActive() || Minecraft.getInstance().screen != null) {
@@ -238,7 +211,6 @@ public final class RtsClientEvents {
         Base.pushDocumentZOffset(OVERLAY_DOCUMENT_Z);
     }
 
-    /** 最低优先级，排在 AUI 覆盖层文档之后：画准星并还原深度基准。 */
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onRenderGuiPost(RenderGuiEvent.Post event) {
         if (!RtsModeManager.isActive() || Minecraft.getInstance().screen != null) {

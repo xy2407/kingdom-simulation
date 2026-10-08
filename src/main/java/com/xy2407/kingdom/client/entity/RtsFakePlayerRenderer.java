@@ -12,11 +12,7 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 
 /**
- * 用本地玩家的皮肤渲染 RTS 假人，名条显式打开（由服务端生成时设置）。
- *
- * <p>移植自 {@code xy's_nsuk} 的 {@code RtsFakePlayerRenderer}；那边额外覆写了
- * {@code setupRotations} 把四肢摆成站立不动，这里去掉了——该方法的签名在不同版本间有差异，
- * 而且让它正常摆臂走路更自然。</p>
+ * 用本地玩家的皮肤渲染 RTS 假人，名条由服务端生成时设置。
  */
 @OnlyIn(Dist.CLIENT)
 public class RtsFakePlayerRenderer extends LivingEntityRenderer<RtsFakePlayerEntity, PlayerModel<RtsFakePlayerEntity>> {

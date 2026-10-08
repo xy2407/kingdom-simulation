@@ -80,7 +80,6 @@ public final class BuildingPanelScreen extends ApricityScreen {
         }
     }
 
-    /** init 阶段 AUI 的布局缓存还没开（说明 §7.8），DOM 一律等第一帧 tick 再写，和农业页在收包后才填一致。 */
     private void sync() {
         Document document = getLinkedDocument();
         if (document == null) {

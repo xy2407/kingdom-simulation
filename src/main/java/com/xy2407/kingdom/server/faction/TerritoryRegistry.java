@@ -17,14 +17,7 @@ import com.xy2407.kingdom.common.persistence.TerritorySchema;
 import net.minecraft.core.BlockPos;
 
 /**
- * 领地登记表。
- *
- * <p><b>范围</b>：以市政厅方块所在区块为中心、向四个方向各扩 {@link Territory#CHUNK_RADIUS}
- * 格，即 5×5 共 {@link Territory#CHUNK_COUNT} 个水平区块。创建时一次算好四个角点存进去，
- * 之后判定归属只做整数比较。</p>
- *
- * <p><b>一个玩家一块</b>：{@link #byOwner} 命中时 {@link #create} 直接拒绝，
- * 不去覆盖已有的那块——覆盖等于无声抹掉玩家之前的领地。</p>
+ * 领地登记表：以市政厅所在区块为中心的 5×5 区块，一个玩家只能有一块。
  */
 public final class TerritoryRegistry {
 
@@ -46,13 +39,6 @@ public final class TerritoryRegistry {
         loadRetryCooldown = 0;
     }
 
-    /**
-     * 表是否已经从库里读出来。
-     *
-     * <p>右键市政厅时要靠它分流。没读完就 {@link #byOwner} 一律返回 null，
-     * 会被当成"这人还没有领地"，于是刚进服的玩家一右键就被引到建城界面——
-     * 哪怕他早就建过。所以分流前必须先问这一句。</p>
-     */
     public boolean isLoaded() {
         return loaded;
     }
@@ -79,12 +65,6 @@ public final class TerritoryRegistry {
                      ResultSet rs = st.executeQuery("SELECT " + TerritorySchema.columns()
                              + " FROM " + TerritorySchema.TABLE_TERRITORY)) {
                     while (rs.next()) {
-                        /* 单行坏掉不该让整表加载失败。历史上写入端漏写主键
-                           （见 Database.executeOp 的说明），留下过 id 为 NULL 的废行；
-                           它读出来是 null，put 进 ConcurrentHashMap 会抛 NPE，
-                           一抛整张领地表就永远读不出来——而"领地表没读完"正是
-                           市政厅被判成"你没有领地"、界面打不开的直接原因。
-                           Database 启动时会清这些行，这里再兜一层。 */
                         try {
                             Territory territory = readRow(rs);
                             if (territory.id() == null || territory.id().isBlank()) {
@@ -120,7 +100,6 @@ public final class TerritoryRegistry {
         return id == null ? null : byId.get(id);
     }
 
-    /** 某个玩家已有的领地；没有则 null。一人一块，所以最多命中一条。 */
     public Territory byOwner(UUID owner) {
         if (owner == null) {
             return null;
@@ -133,7 +112,6 @@ public final class TerritoryRegistry {
         return null;
     }
 
-    /** 某水平区块归哪块领地；不属于任何领地时返回 null。 */
     public Territory byChunk(String dimension, int chunkX, int chunkZ) {
         if (dimension == null) {
             return null;
@@ -146,21 +124,12 @@ public final class TerritoryRegistry {
         return null;
     }
 
-    /** 世界坐标某点归哪块领地。 */
     public Territory byBlock(String dimension, double x, double z) {
         return byChunk(dimension,
                 (int) Math.floor(x / 16.0),
                 (int) Math.floor(z / 16.0));
     }
 
-    /**
-     * 以市政厅方块为中心建一块领地。
-     *
-     * <p>范围固定 5×5 区块：中心区块 ±{@link Territory#CHUNK_RADIUS}。
-     * 越界不管——负坐标区块本来就是合法编号，MC 的世界边界远在更外面。</p>
-     *
-     * @return 新建的领地；该玩家已有领地时返回 {@code null}（不覆盖）
-     */
     public Territory create(UUID owner, String nationId, String name,
                             String dimension, BlockPos center, int day) {
         if (owner == null || byOwner(owner) != null) {
@@ -189,7 +158,6 @@ public final class TerritoryRegistry {
                 try {
                     max = Math.max(max, Integer.parseInt(id.substring(ID_PREFIX.length())));
                 } catch (NumberFormatException ignored) {
-                    /* 手工改过的脏 id，跳过 */
                 }
             }
         }

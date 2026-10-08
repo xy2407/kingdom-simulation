@@ -8,7 +8,6 @@ import java.util.List;
  */
 public record FarmRegion(int minX, int minZ, int maxX, int maxZ) {
 
-    /** 附加块数量上限，防脏数据把每 tick 的扫描撑爆。 */
     public static final int MAX_REGIONS = 32;
 
     public FarmRegion {
@@ -26,7 +25,6 @@ public record FarmRegion(int minX, int minZ, int maxX, int maxZ) {
         return (maxX - minX + 1) * (maxZ - minZ + 1);
     }
 
-    /** 编码为 "minX,minZ,maxX,maxZ;..."：一块约 20 字节，几十块也不占地方。 */
     public static String encode(List<FarmRegion> regions) {
         if (regions == null || regions.isEmpty()) {
             return "";
@@ -45,7 +43,6 @@ public record FarmRegion(int minX, int minZ, int maxX, int maxZ) {
         return builder.toString();
     }
 
-    /** 解析失败的单块跳过、超上限截断，坏数据不会连带整块农田读不出来。 */
     public static List<FarmRegion> decode(String raw) {
         List<FarmRegion> regions = new ArrayList<>();
         if (raw == null || raw.isBlank()) {

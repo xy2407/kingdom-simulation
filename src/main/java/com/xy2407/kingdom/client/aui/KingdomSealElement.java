@@ -16,14 +16,7 @@ import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 
 /**
- * 火漆印章：把 start.html 里原来用 canvas + ImageData 逐像素画的那枚蜡封，改成 Java2D 绘制。
- *
- * <p>算法与原页 {@code drawSealCanvas()} 一致：以圆心为基准按半径分层上色（外圈压深、内圈提亮），
- * 左上方加一道斜向高光、半径 {@code outerR - 9} 处点一圈内环、中心画十字反光，
- * 半径抖动来自 {@link #noise}（原页的 {@code nz()}）。</p>
- *
- * <p>用法：{@code <kingdom-seal width="52" height="52"></kingdom-seal>}，CSS 里给宽高即可缩放；
- * 表面按布局尺寸的 4 倍做超采样，缩小时不会糊边。</p>
+ * 火漆印章元素：按原页算法用 Java2D 绘制蜡封，超采样后铺到元素表面。
  */
 @OnlyIn(Dist.CLIENT)
 @ElementRegister(KingdomSealElement.TAG_NAME)
@@ -31,9 +24,7 @@ public class KingdomSealElement extends Canvas {
 
     public static final String TAG_NAME = "KINGDOM-SEAL";
 
-    /** 原页里的画布尺寸，所有半径都按它算。 */
     private static final int ART_SIZE = 52;
-    /** 超采样倍率，和 AUI 自带的 svg 元素一致。 */
     private static final int RASTER_SCALE = 4;
 
     private static final int[] C_OUTER = {0x4A, 0x0A, 0x0A};
@@ -104,7 +95,6 @@ public class KingdomSealElement extends Canvas {
                 (float) layoutWidth, (float) layoutHeight, true);
     }
 
-    /** 把 {@link #ART_SIZE} 见方的像素画放大到整张表面。 */
     private static void paint(Graphics2D graphics, int surfaceWidth, int surfaceHeight) {
         BufferedImage image = new BufferedImage(ART_SIZE, ART_SIZE, BufferedImage.TYPE_INT_ARGB);
         double center = (ART_SIZE - 1) / 2.0;
@@ -166,7 +156,6 @@ public class KingdomSealElement extends Canvas {
         };
     }
 
-    /** 原页的 {@code nz()}：确定性伪随机，用来做半径抖动与点状纹理。 */
     private static double noise(double x, double y, double seed) {
         double value = Math.sin(x * 12.9898 + y * 78.233 + seed * 4.71) * 43758.5453;
         return value - Math.floor(value);

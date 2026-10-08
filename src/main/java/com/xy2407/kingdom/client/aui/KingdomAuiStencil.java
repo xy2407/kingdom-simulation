@@ -3,13 +3,7 @@ package com.xy2407.kingdom.client.aui;
 import com.xy2407.kingdom.ModMain;
 
 /**
- * AUI stencil 抑制开关。
- *
- * <p>置位期间 {@code Mask} 一律不进入 stencil 分支（圆角退回轴对齐 scissor、clip-path 退回无裁剪），
- * 从而不会在渲染期调用 AUI 的 {@code enableStencil}，主渲染目标的深度附件就不会被当帧重建，
- * 逐方块渲染依赖的深度缓冲得以保持完整。</p>
- *
- * <p>只由建筑预览栏的开关驱动，避免影响其它 AUI 页面。</p>
+ * AUI stencil 抑制开关：置位期间 Mask 不走 stencil，避免主渲染目标深度被当帧重建。
  */
 public final class KingdomAuiStencil {
 

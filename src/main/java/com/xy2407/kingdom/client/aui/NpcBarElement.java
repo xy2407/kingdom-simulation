@@ -13,7 +13,7 @@ import net.neoforged.api.distmarker.OnlyIn;
 import java.util.Locale;
 
 /**
- * 身份卡片的像素格子进度条元素
+ * 身份卡片的像素格子进度条元素，按 type 取色阶并缓存像素表。
  */
 @OnlyIn(Dist.CLIENT)
 @ElementRegister(NpcBarElement.TAG_NAME)
@@ -107,10 +107,6 @@ public class NpcBarElement extends Element {
         return raw == null ? "" : raw.trim().toLowerCase(Locale.ROOT);
     }
 
-    /**
-     * 取色阶：hp 红、hunger 橙、gold 金、mana 蓝。未知类型按 hp 处理，
-     * 这样页面上写错 type 也不会画出空条。
-     */
     private static int[] palette(String type) {
         return switch (type) {
             case "hunger" -> new int[] {HUNGER_BASE, HUNGER_HIGHLIGHT, HUNGER_DARK};

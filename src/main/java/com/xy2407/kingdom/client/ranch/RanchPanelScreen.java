@@ -36,9 +36,6 @@ public final class RanchPanelScreen extends ApricityScreen {
     private static final String ON = "on";
     private static final String ROW = "bp-item";
     private static final String TAG_ITEM = "item";
-    private static final String OFF_HEAD = "bp-head-off";
-    private static final String OFF_BODY = "bp-body-off";
-    private static final String OFF_FOOT = "bp-foot-off";
     private static final String MODE_SLAUGHTER = "slaughter";
     private static final int REFRESH_INTERVAL = 40;
 
@@ -134,7 +131,7 @@ public final class RanchPanelScreen extends ApricityScreen {
         on("bp-warehouse", this::openWarehouse);
         on("bp-close", this::onClose);
 
-        setOff(warehouseRow, OFF_FOOT, false);
+        setShown(warehouseRow, true);
         setLevel(false);
         apply(latest);
         PacketDistributor.sendToServer(new RanchPanelRequestPacket());
@@ -210,7 +207,7 @@ public final class RanchPanelScreen extends ApricityScreen {
         }
         if (!packet.inside()) {
             listHost.setInnerHTML("");
-            setVisible(emptyHint, true);
+            setShown(emptyHint, true);
             setText(emptyHint, "载入中…");
             return;
         }
@@ -222,11 +219,11 @@ public final class RanchPanelScreen extends ApricityScreen {
         }
         if (visible.isEmpty()) {
             listHost.setInnerHTML("");
-            setVisible(emptyHint, true);
+            setShown(emptyHint, true);
             setText(emptyHint, packet.animals().isEmpty() ? "这座建筑没有配置可养动物" : "没有匹配的动物");
             return;
         }
-        setVisible(emptyHint, false);
+        setShown(emptyHint, false);
         StringBuilder html = new StringBuilder();
         for (int index = 0; index < visible.size(); index++) {
             Animal animal = visible.get(index);
@@ -279,21 +276,22 @@ public final class RanchPanelScreen extends ApricityScreen {
         }
         if (visible.isEmpty()) {
             workersHost.setInnerHTML("");
-            setVisible(workersEmpty, true);
+            setShown(workersEmpty, true);
             setText(workersEmpty, latest.workers().isEmpty() ? "城里还没有可雇的市民" : "没有匹配的市民");
             return;
         }
-        setVisible(workersEmpty, false);
+        setShown(workersEmpty, false);
         StringBuilder html = new StringBuilder();
         for (int index = 0; index < visible.size(); index++) {
             Worker worker = visible.get(index);
             boolean hired = keepers.contains(worker.id());
+            String state = worker.note().isBlank() ? (hired ? "饲养中" : "空闲") : worker.note();
             html.append("<div class=\"").append(ROW).append(hired ? " " + ON : "")
                     .append("\" id=\"rc-worker-").append(index).append("\">")
+                    .append("<kingdom-entity-avatar class=\"bp-worker-face\" skin=\"")
+                    .append(escape(worker.skin())).append("\"></kingdom-entity-avatar>")
                     .append("<span class=\"bp-name\">").append(escape(worker.name())).append("</span>")
-                    .append("<span class=\"bp-tag\">").append(hired ? "饲养员" : "雇佣").append("</span>")
-                    .append(worker.note().isBlank() ? ""
-                            : "<span class=\"bp-sub\">" + escape(worker.note()) + "</span>")
+                    .append("<span class=\"bp-sub\">").append(escape(state)).append("</span>")
                     .append("</div>");
         }
         workersHost.setInnerHTML(html.toString());
@@ -318,12 +316,12 @@ public final class RanchPanelScreen extends ApricityScreen {
     }
 
     private void setLevel(boolean detail) {
-        setOff(mainHead, OFF_HEAD, detail);
-        setOff(mainBody, OFF_BODY, detail);
-        setOff(mainFoot, OFF_FOOT, detail);
-        setOff(detailHead, OFF_HEAD, !detail);
-        setOff(detailBody, OFF_BODY, !detail);
-        setOff(detailFoot, OFF_FOOT, !detail);
+        setShown(mainHead, !detail);
+        setShown(mainBody, !detail);
+        setShown(mainFoot, !detail);
+        setShown(detailHead, detail);
+        setShown(detailBody, detail);
+        setShown(detailFoot, detail);
     }
 
     private void toggleRun() {
@@ -462,15 +460,9 @@ public final class RanchPanelScreen extends ApricityScreen {
         }
     }
 
-    private static void setVisible(Element element, boolean visible) {
+    private static void setShown(Element element, boolean shown) {
         if (element != null) {
-            element.setAttribute("style", visible ? "display:flex" : "display:none");
-        }
-    }
-
-    private static void setOff(Element element, String token, boolean off) {
-        if (element != null) {
-            element.getClassList().toggle(token, off);
+            element.setAttribute("style", shown ? "display:flex" : "display:none");
         }
     }
 

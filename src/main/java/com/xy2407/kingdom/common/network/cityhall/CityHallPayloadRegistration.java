@@ -8,7 +8,7 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 /**
- * 市政厅网络包注册
+ * 市政厅网络包注册：开屏包与城镇数据包的登记点。
  */
 @EventBusSubscriber(modid = ModMain.MOD_ID)
 public final class CityHallPayloadRegistration {

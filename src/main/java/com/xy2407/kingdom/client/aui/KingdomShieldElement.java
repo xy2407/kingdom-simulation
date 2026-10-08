@@ -19,15 +19,7 @@ import java.awt.image.BufferedImage;
 import java.util.Locale;
 
 /**
- * 阵营盾牌：把 start.html 里原来用 canvas 逐像素画的盾徽，改成 Java2D 绘制。
- *
- * <p>算法与原页 {@code drawShield()} 一致：上半段是整宽矩形，下半段按 {@code w = W * (1 - t²)}
- * 收成圆角尖底；左右两半分别填 {@code c1}/{@code c2}，边缘 1 像素描深轮廓、再 1 像素描亮线，
- * 左上点高光、右下点阴影、正中一道竖缝。抖动来自 {@link #noise}（原页的 {@code nz()}）。</p>
- *
- * <p>用法：{@code <kingdom-shield width="40" height="48" c1="#7a1414" c2="#e8d8b0"></kingdom-shield>}。
- * 纹章符号不画进这张位图（原页要先把字形光栅化成蒙版再染色），而是由页面上的文字节点叠在盾面上，
- * 这样字体走 AUI 自己的文字管线，颜色也就是一个 CSS {@code color}。</p>
+ * 阵营盾牌元素：按原页算法用 Java2D 画盾面，纹章文字由页面文字节点叠加。
  */
 @OnlyIn(Dist.CLIENT)
 @ElementRegister(KingdomShieldElement.TAG_NAME)
@@ -37,11 +29,9 @@ public class KingdomShieldElement extends Canvas {
     public static final String ATTRIBUTE_COLOR_LEFT = "c1";
     public static final String ATTRIBUTE_COLOR_RIGHT = "c2";
 
-    /** 原页里的盾面像素尺寸。 */
     private static final int ART_WIDTH = 40;
     private static final int ART_HEIGHT = 48;
     private static final int RASTER_SCALE = 3;
-    /** 上半段整宽的行数。 */
     private static final int SOLID_ROWS = 26;
 
     private static final int OUTLINE = 0xFF2A1A08;
@@ -205,7 +195,6 @@ public class KingdomShieldElement extends Canvas {
         graphics.drawImage(image, 0, 0, surfaceWidth, surfaceHeight, null);
     }
 
-    /** 把半透明的描边色叠到已有像素上（原页用的 {@code ctx.fillStyle = rgba(...)} + fillRect）。 */
     private static void blendPixel(BufferedImage image, int x, int y, int sourceArgb) {
         if (x < 0 || y < 0 || x >= ART_WIDTH || y >= ART_HEIGHT) {
             return;
@@ -229,13 +218,11 @@ public class KingdomShieldElement extends Canvas {
         return (int) Math.round(base * (1 - alpha) + over * alpha);
     }
 
-    /** 原页的 {@code nz()}：确定性伪随机，用来决定高光/阴影点位。 */
     private static double noise(double x, double y, double seed) {
         double value = Math.sin(x * 12.9898 + y * 78.233 + seed * 4.71) * 43758.5453;
         return value - Math.floor(value);
     }
 
-    /** 便于调试：当前配色。 */
     public String describeColors() {
         return String.format(Locale.ROOT, "c1=%s c2=%s", colorLeft, colorRight);
     }

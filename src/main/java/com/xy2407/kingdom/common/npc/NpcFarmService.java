@@ -27,11 +27,10 @@ import net.minecraft.world.level.block.state.properties.IntegerProperty;
 import net.minecraft.world.level.block.state.properties.Property;
 
 /**
- * 农活执行：服务端每 1000 tick 巡检一次农田表算出待办，雇员按状态机领活开垦、种植、收割
+ * 农活执行：服务端每 1000 tick 巡检一次农田表算出待办，雇员按状态机领活开垦、种植、收割。
  */
 public final class NpcFarmService {
 
-    /** 一格目标最多重发几次寻路，之后丢弃等下一轮巡检，免得死盯走不到的格。 */
     private static final int MAX_RESUME_RETRIES = 3;
     private static final int ACTION_INTERVAL_TICKS = 20;
     private static final double ARRIVE_SQR = 6.25D;
@@ -39,14 +38,11 @@ public final class NpcFarmService {
 
     private static final Map<UUID, Work> WORKS = new ConcurrentHashMap<>();
     private static final Set<UUID> ASSIGNED = new HashSet<>();
-    /** 市民 → 他负责的农田，每 100 tick 派工时重建，免得每 tick 遍历全表找归属。 */
     private static final Map<UUID, UUID> WORKER_PLOT = new ConcurrentHashMap<>();
-    /** 每块田的待办队列（巡检产出）：熟的先收、再按格数额度补种，雇员领完为止。 */
     private static final Map<UUID, Deque<Task>> QUEUES = new ConcurrentHashMap<>();
 
     private enum Action { PLANT, HARVEST }
 
-    /** 一条待办：去这一格（地表格）收割或种植。 */
     private record Task(BlockPos pos, Action action) {
     }
 
@@ -67,11 +63,6 @@ public final class NpcFarmService {
         QUEUES.clear();
     }
 
-    /**
-     * 服务端巡检：每 1000 tick 由 {@code FarmPlotManager} 调一次，查农田表算出每块田该收什么、该种什么。
-     *
-     * <p>扫描次数只跟农田数挂钩（不再跟雇员数挂钩），并且顺手把待办派给该田空闲的雇员。</p>
-     */
     public static void survey(MinecraftServer server) {
         for (FarmPlot plot : FarmPlotManager.INSTANCE.all()) {
             if (plot.cropId().isBlank() || !plot.hasArea()) {
@@ -112,7 +103,6 @@ public final class NpcFarmService {
         return server.getLevel(ResourceKey.create(Registries.DIMENSION, id));
     }
 
-    /** 一次扫描出一整轮待办：熟的收、空的种（按格数额度截断），别人正在处理的格跳过。 */
     private static Deque<Task> collect(ServerLevel level, FarmPlot plot) {
         Deque<Task> harvests = new ArrayDeque<>();
         Deque<Task> plants = new ArrayDeque<>();
@@ -155,7 +145,6 @@ public final class NpcFarmService {
                 }
             }
         }
-        // 格数是建筑分给这块田的额度：已占格数到额度就不再派新的种植待办
         Deque<Task> tasks = new ArrayDeque<>(harvests);
         for (int room = Math.max(0, plot.slots() - occupied); room > 0 && !plants.isEmpty(); room--) {
             tasks.add(plants.poll());
@@ -163,7 +152,6 @@ public final class NpcFarmService {
         return tasks;
     }
 
-    /** 正在被某个雇员走去处理的格：这一轮巡检不再派给第二个人。 */
     private static Set<Long> heldCells(FarmPlot plot) {
         Set<Long> held = new HashSet<>();
         for (UUID id : plot.workerIds()) {
@@ -175,7 +163,6 @@ public final class NpcFarmService {
         return held;
     }
 
-    /** 把一条待办交给某个雇员：记目标、把状态机切到种植中/收割中、导航过去。 */
     private static void take(NpcEntity npc, NpcData data, Task task) {
         Work work = WORKS.computeIfAbsent(data.getId(), id -> new Work());
         work.target = task.pos();
@@ -185,7 +172,6 @@ public final class NpcFarmService {
         npc.setFarmTarget(task.pos());
     }
 
-    /** 定期把"负责农田的市民"标成农活受控；不再负责农田的人摘掉标记。 */
     public static void assignWorkers() {
         Set<UUID> wanted = new HashSet<>();
         WORKER_PLOT.clear();
@@ -198,7 +184,6 @@ public final class NpcFarmService {
                 if (npc == null || npc.isDead()) {
                     continue;
                 }
-                // 归属先记下：饿着只是暂时不下地，回来还要接着原来那一轮巡检
                 WORKER_PLOT.put(worker, plot.id());
                 if (!npc.getBrain().isStarving()) {
                     wanted.add(worker);
@@ -261,7 +246,6 @@ public final class NpcFarmService {
             }
             return;
         }
-        // 待办由服务端巡检算好：领一条就干，队列空着就在田里候着，农夫自己不再扫田
         Deque<Task> queue = QUEUES.get(plot.id());
         Task next = queue == null ? null : queue.poll();
         if (next == null) {
@@ -272,7 +256,6 @@ public final class NpcFarmService {
         take(npc, data, next);
     }
 
-    /** 目标还在但导航被清掉（例如刚从饥饿或指挥回来）：重发寻路，几次不成就等下一轮。 */
     private static void resumeOrDrop(NpcEntity npc, Work work) {
         if (work.retries >= MAX_RESUME_RETRIES) {
             work.target = null;
@@ -334,14 +317,12 @@ public final class NpcFarmService {
             return;
         }
         BlockState planted = crop.defaultBlockState();
-        // 先按原土试种：甘蔗、甜浆果这类要吃泥土，翻成耕地反而种不活
         if (!planted.canSurvive(level, cropPos)) {
             if (!level.getBlockState(soil).is(BlockTags.DIRT)) {
                 return;
             }
             level.setBlock(soil, Blocks.FARMLAND.defaultBlockState()
                     .setValue(FarmBlock.MOISTURE, FarmBlock.MAX_MOISTURE), Block.UPDATE_ALL);
-            // 记进开垦表：这格之后永远湿润、不吃随机刻（FarmBlockMoistureMixin）
             FarmLandRegistry.mark(level, soil, DateSystem.totalDay(level));
             markSnapshot(level, soil);
             if (!planted.canSurvive(level, cropPos)) {
@@ -352,7 +333,6 @@ public final class NpcFarmService {
         markSnapshot(level, cropPos);
     }
 
-    /** 核心矩形（index = -1，不成立时为 null）与第 index 个附加块，巡检只按这份定义扫。 */
     private static FarmRegion regionOf(FarmPlot plot, int index) {
         if (index < 0) {
             return plot.hasCore()
@@ -362,7 +342,6 @@ public final class NpcFarmService {
         return plot.extra().get(index);
     }
 
-    /** 通用成熟判定：带 age 属性的方块取到满级即成熟。 */
     private static boolean isMature(BlockState state) {
         for (Property<?> property : state.getProperties()) {
             if (property instanceof IntegerProperty age && "age".equals(property.getName())) {
@@ -433,7 +412,6 @@ public final class NpcFarmService {
         }
     }
 
-    /** 诊断：逐块田列出作物、格数、巡检产出与打理人状态，定位"市民为什么不干活"。 */
     public static List<String> debugReport(ServerLevel level) {
         List<String> lines = new ArrayList<>();
         for (FarmPlot plot : FarmPlotManager.INSTANCE.all()) {

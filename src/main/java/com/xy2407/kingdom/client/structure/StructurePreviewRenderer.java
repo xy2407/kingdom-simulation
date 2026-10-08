@@ -9,13 +9,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 
 /**
- * 建筑预览的每帧渲染钩子。
- *
- * <p>选择关卡渲染阶段而不是在页面绘制过程中嵌套渲染：这个阶段稳定在 GUI 之前，
- * 离屏纹理在页面取用时一定已经写好，同时完全不用把离屏渲染塞进 AUI 的绘制流程里
- * 去处理 GL 状态嵌套。</p>
- *
- * <p>代价是要求当前存在世界（在主菜单上不会触发），查看器因此需要在游戏内打开。</p>
+ * 建筑预览的每帧渲染钩子，在关卡渲染阶段驱动离屏预览重绘。
  */
 @EventBusSubscriber(modid = ModMain.MOD_ID, value = Dist.CLIENT)
 @OnlyIn(Dist.CLIENT)

@@ -14,8 +14,6 @@ import net.neoforged.api.distmarker.OnlyIn;
 
 /**
  * 建筑预览调试通道，把各环节状态写到屏幕叠加层与日志。
- *
- * <p>刻意不再写聊天框：建筑与施工的全过程消息都不再打扰玩家，需要排查时看日志。</p>
  */
 @OnlyIn(Dist.CLIENT)
 public final class StructureDebugChat {

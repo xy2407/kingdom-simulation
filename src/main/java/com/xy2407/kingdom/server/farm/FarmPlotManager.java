@@ -23,7 +23,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 
 /**
- * 农田登记表：加载、落库，并唯一负责"格子额度不得超过建筑上限"的校验
+ * 农田登记表：加载、落库，并唯一负责"格子额度不得超过建筑上限"的校验。
  */
 public final class FarmPlotManager {
     public static final FarmPlotManager INSTANCE = new FarmPlotManager();
@@ -138,7 +138,6 @@ public final class FarmPlotManager {
         return create(building, name, slots, day, BlockPos.ZERO, BlockPos.ZERO, "", List.of(), List.of());
     }
 
-    /** 一次成型：格数按剩余额度钳制（框选格数超过额度时取额度），核心矩形、附加块、作物、打理人一起落库。 */
     public FarmPlot create(BuildingRecord building, String name, int slots, int day,
                            BlockPos min, BlockPos max, String cropId, List<UUID> workerIds,
                            List<FarmRegion> extra) {
@@ -165,7 +164,6 @@ public final class FarmPlotManager {
         if (existing == null) {
             return false;
         }
-        // 校验时先扣掉它自己原来占的额度，否则"原地改大"会把自己算两遍
         int usedByOthers = usedSlots(plot.buildingId()) - existing.slots();
         int cap = capacityOf(plot.buildingId(), existing);
         if (usedByOthers + Math.max(0, plot.slots()) > cap) {
@@ -189,7 +187,6 @@ public final class FarmPlotManager {
         if (building != null) {
             return building.farmSlots();
         }
-        // 建筑没了（比如存档被清理）就不放行新额度，避免凭空造出配额
         return fallback == null ? 0 : fallback.slots();
     }
 

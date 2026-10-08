@@ -23,7 +23,7 @@ import org.joml.Matrix4f;
 import org.joml.Matrix4fStack;
 
 /**
- * 世界内建筑投影渲染，绘制幽灵几何与占地线框
+ * 世界内建筑投影渲染：绘制跟随鼠标的幽灵几何、已暂存蓝影与施工中虚影。
  */
 @EventBusSubscriber(modid = ModMain.MOD_ID, value = Dist.CLIENT)
 @OnlyIn(Dist.CLIENT)
@@ -54,7 +54,6 @@ public final class BuildingPlacementRenderer {
             pendingMesh.draw(view, event.getProjectionMatrix(), BuildingPlacementManager.PENDING_ALPHA);
             drawFootprintBox(view, pending.size());
         }
-        // 施工中的建筑：从开工一直渲染到完工/中止，透明度与放置投影一致，投影"一直保持"
         for (BuildingSiteManager.Site site : BuildingSiteManager.sites()) {
             StructureMesh siteMesh = site.mesh();
             if (siteMesh == null || siteMesh.isEmpty()) {
@@ -66,7 +65,6 @@ public final class BuildingPlacementRenderer {
         }
     }
 
-    /** 世界坐标 → 相机空间 的完整矩阵：modelView 只含相机旋转，位移需自行减去相机位置 */
     private static Matrix4f worldView(RenderLevelStageEvent event, BlockPos origin, Vec3i size) {
         float cx = origin.getX() + size.getX() / 2.0F;
         float cy = origin.getY() + size.getY() / 2.0F;

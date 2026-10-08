@@ -8,7 +8,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 /**
- * 服务端向客户端同步当前总天数的网络包
+ * 服务端向客户端同步当前总天数的网络包，客户端据此刷新日期显示。
  */
 public record DateSyncPacket(int totalDay) implements CustomPacketPayload {
 

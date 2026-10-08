@@ -9,7 +9,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Vec3i;
 
 /**
- * 脚手架规划，外扩一圈矩形框，立柱每7格一根，横杆每4层一圈
+ * 脚手架规划，外扩一圈矩形框，立柱每 7 格一根，横杆每 4 层一圈。
  */
 public final class ScaffoldPlanner {
     public static final int HORIZONTAL_INTERVAL = 7;
@@ -19,13 +19,11 @@ public final class ScaffoldPlanner {
     private ScaffoldPlanner() {
     }
 
-    /** 脚手架顶部高度：建筑层高向上取整到横杆间隔的整数倍，允许高出建筑 */
     public static int scaffoldTop(int buildingHeight) {
         int sections = (Math.max(buildingHeight, 1) + LAYER_INTERVAL - 1) / LAYER_INTERVAL;
         return sections * LAYER_INTERVAL;
     }
 
-    /** 指定高度层的脚手架相对坐标，沿框单线行进：立柱恒在，横杆按层间隔补一圈 */
     public static List<BlockPos> layer(Vec3i size, int y) {
         List<BlockPos> walk = perimeterWalk(size);
         Set<BlockPos> columnSet = new LinkedHashSet<>(columns(size));
@@ -39,7 +37,6 @@ public final class ScaffoldPlanner {
         return out;
     }
 
-    /** 全部脚手架相对坐标，供完工拆除 */
     public static List<BlockPos> all(Vec3i size, int buildingHeight) {
         Set<BlockPos> out = new LinkedHashSet<>();
         for (int y = 0; y < scaffoldTop(buildingHeight); y++) {
@@ -48,12 +45,10 @@ public final class ScaffoldPlanner {
         return List.copyOf(out);
     }
 
-    /** 外框行走路径（仅水平坐标），供施工走位选取站位 */
     public static List<BlockPos> walkPositions(Vec3i size) {
         return perimeterWalk(size);
     }
 
-    /** 从 (minX, minZ) 角出发，沿矩形框顺时针单线走一圈 */
     private static List<BlockPos> perimeterWalk(Vec3i size) {
         int minX = -MARGIN;
         int minZ = -MARGIN;
@@ -75,7 +70,6 @@ public final class ScaffoldPlanner {
         return out;
     }
 
-    /** 柱位（圈上每 7 格一根 + 四角），供施工序列排布 */
     public static List<BlockPos> pillarPositions(Vec3i size) {
         return columns(size);
     }

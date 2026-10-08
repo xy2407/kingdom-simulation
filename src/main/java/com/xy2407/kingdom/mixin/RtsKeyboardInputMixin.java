@@ -10,10 +10,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * RTS 期间把键盘输入从玩家身上摘掉。
- *
- * <p>否则 WASD 会一边推相机（我们直接读 GLFW）一边推玩家本体，玩家会自己走掉。
- * 移植自 {@code xy's_nsuk} 的 {@code KeyboardInputMixin}。</p>
+ * RTS 期间把键盘输入从玩家身上摘掉，避免 WASD 带着玩家走。
  */
 @Mixin(KeyboardInput.class)
 public abstract class RtsKeyboardInputMixin extends Input {

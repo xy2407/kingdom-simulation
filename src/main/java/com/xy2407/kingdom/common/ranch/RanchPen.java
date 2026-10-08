@@ -40,7 +40,6 @@ public record RanchPen(UUID id, UUID buildingId, String blueprintName, String an
                 keeperIds, running, key, System.currentTimeMillis());
     }
 
-    /** 一栏的锚点：建筑原点，用来定位与归属判定。 */
     public BlockPos anchor() {
         return min;
     }

@@ -13,10 +13,7 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * 服务端 → 客户端：服务端裁决后的选中集合，客户端以此为准覆盖本地选择。
- *
- * <p>客户端只通过 {@link RtsClientHooks#selectionSink} 这个可插拔入口落地，
- * 这样 common 侧不必引用任何客户端类。</p>
+ * 服务端 → 客户端：裁决后的选中集合，客户端以此为准覆盖本地选择。
  */
 public record RtsSelectionCorrectionPacket(Set<UUID> ids) implements CustomPacketPayload {
 

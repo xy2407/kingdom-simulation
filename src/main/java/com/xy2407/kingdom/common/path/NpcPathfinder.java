@@ -35,7 +35,6 @@ public final class NpcPathfinder {
     private NpcPathfinder() {
     }
 
-    /** 只读快照执行 A*，缺快照的区块视为不可通行，起终点无法落位时返回空列表 */
     public static List<BlockPos> find(SnapshotRepository repository, ResourceKey<Level> dimension, BlockPos start, BlockPos end) {
         if (repository == null) {
             return List.of();
@@ -53,10 +52,6 @@ public final class NpcPathfinder {
         return new Search(view, end.getX(), endY, end.getZ()).run(start.getX(), startY, start.getZ());
     }
 
-    /**
-     * 提交搜索前的廉价预检：起终点所在区块的快照若已就绪，确认它们能落到可站立层。
-     * 快照还没建好时返回 true——那种情况留给搜索阶段失败，不在这里否决。
-     */
     public static boolean isViable(SnapshotRepository repository, ResourceKey<Level> dimension, BlockPos start, BlockPos end) {
         if (repository == null) {
             return false;
@@ -82,7 +77,6 @@ public final class NpcPathfinder {
         return false;
     }
 
-    /** 主线程调用：把搜索区域覆盖到的区块全部加入快照构建队列 */
     public static void requestChunks(SnapshotRepository repository, ResourceKey<Level> dimension, BlockPos start, BlockPos end) {
         if (repository == null) {
             return;

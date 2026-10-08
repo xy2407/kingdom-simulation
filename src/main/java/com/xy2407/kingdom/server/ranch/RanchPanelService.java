@@ -24,7 +24,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
- * 养殖面板服务端处理：应答请求、执行开始/暂停与饲养员任免，每次操作后整份回推
+ * 养殖面板服务端处理：应答请求、执行开始/暂停与饲养员任免，每次操作后整份回推。
  */
 public final class RanchPanelService {
 
@@ -70,7 +70,6 @@ public final class RanchPanelService {
         respond(player);
     }
 
-    /** 反着切这一栏：开跑时把同建筑的其它栏一律停下，保证一次只处理一条配方。 */
     private static void toggleRun(BuildingRecord building, RanchPen pen) {
         boolean wanted = !pen.running();
         for (RanchPen other : RanchPenManager.INSTANCE.pensOf(building.id())) {
@@ -116,12 +115,12 @@ public final class RanchPanelService {
             if (npc.isDead()) {
                 continue;
             }
-            options.add(new RanchPanelStatePacket.Worker(npc.getId(), npc.getName(), workerNote(npc)));
+            options.add(new RanchPanelStatePacket.Worker(npc.getId(), npc.getName(), npc.getSkin(),
+                    workerNote(npc)));
         }
         return options;
     }
 
-    /** 名册上的状态提示：让玩家在面板上就能看出这个人为什么现在不下地。 */
     private static String workerNote(NpcData npc) {
         if (npc.getBrain().isStarving()) {
             return "饥饿";

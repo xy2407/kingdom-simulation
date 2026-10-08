@@ -115,7 +115,6 @@ public record RtsWaypointMovePacket(List<UUID> entityIds, List<Vec3> waypoints) 
         });
     }
 
-    /** 终点方阵站位：每个单位分到一格，行优先拼成尽量方的矩形并向终点格居中，避免挤向同一点后卡死。 */
     private static BlockPos formationLanding(BlockPos last, int index, int cols, int rows) {
         return last.offset(index % cols - (cols - 1) / 2, 0, index / cols - (rows - 1) / 2);
     }

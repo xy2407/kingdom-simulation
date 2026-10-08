@@ -32,34 +32,29 @@ import java.util.Locale;
 import java.util.stream.Stream;
 
 /**
- * 本地建筑库目录，只扫描结构文件名与尺寸供预览卡片使用
+ * 本地建筑库目录，只扫描结构文件名与尺寸供预览卡片使用。
  */
 @OnlyIn(Dist.CLIENT)
 public final class KingdomSimulationStructures {
 
-    /** 三边都小于该值的结构才允许 3D 预览，超出只在卡片上提示。 */
     public static final int MAX_PREVIEW_SIZE = 20;
 
     private static final String ROOT_NAME = "kingdom simulation";
     private static final String STRUCTURES_NAME = "structures";
     private static final String NBT_EXTENSION = ".nbt";
-    /** 扫描深度：根目录 + 一层类型子目录。 */
     private static final int SCAN_DEPTH = 2;
 
     private KingdomSimulationStructures() {
     }
 
-    /** 游戏根目录下部署的根文件夹。 */
     public static Path rootDir() {
         return Minecraft.getInstance().gameDirectory.toPath().resolve(ROOT_NAME);
     }
 
-    /** 放结构 nbt 的文件夹。 */
     public static Path structuresDir() {
         return rootDir().resolve(STRUCTURES_NAME);
     }
 
-    /** 启动时部署根目录与六个类型子目录，已存在则沿用。 */
     public static void deploy() {
         try {
             Path structures = structuresDir();
@@ -72,11 +67,6 @@ public final class KingdomSimulationStructures {
         }
     }
 
-    /**
-     * 扫描 structures 文件夹下所有 {@code .nbt}，按文件名字典序排序。
-     *
-     * <p>只解析根标签的尺寸与方块表是否为空，不构建任何建筑模型——列表卡片自己按需加载。</p>
-     */
     public static List<Entry> scan() {
         deploy();
         List<Entry> entries = new ArrayList<>();
@@ -113,11 +103,9 @@ public final class KingdomSimulationStructures {
         return dot < 0 ? relativePath : relativePath.substring(0, dot);
     }
 
-    /** 一趟读取得到的摘要：尺寸 + 床数。 */
     private record Summary(Vec3i size, int beds) {
     }
 
-    /** 读取结构根标签；无尺寸、尺寸非法或无方块表时返回 null。 */
     private static Summary readSummary(Path file) {
         CompoundTag root;
         try (InputStream stream = Files.newInputStream(file)) {
@@ -137,23 +125,14 @@ public final class KingdomSimulationStructures {
         if (x <= 0 || y <= 0 || z <= 0 || blockTags.isEmpty()) {
             return null;
         }
-        // 尺寸与床数同一趟 IO 一起算出来，不必二次读取文件
         return new Summary(new Vec3i(x, y, z), countBeds(root, blockTags));
     }
 
-    /**
-     * 数床位。
-     *
-     * <p>一张床由 {@code foot} 与 {@code head} 两个方块组成，只数 {@code foot}，数出来就是床的张数。
-     * 判定走 {@link BlockStateProperties#BED_PART} 属性而不是具体的 {@code BedBlock} 类，
-     * 这样原版 16 色床以及带该属性的模组床都能被认出来。</p>
-     */
     private static int countBeds(CompoundTag root, ListTag blockTags) {
         ListTag paletteTag = root.getList("palette", Tag.TAG_COMPOUND);
         if (paletteTag.isEmpty()) {
             return 0;
         }
-        // 先把 palette 里"哪些条目算床脚"预计算一遍，再线性扫方块，避免每个方块重复解状态
         HolderGetter<Block> blockLookup = BuiltInRegistries.BLOCK.asLookup();
         boolean[] bedFoot = new boolean[paletteTag.size()];
         for (int index = 0; index < paletteTag.size(); index++) {
@@ -171,20 +150,13 @@ public final class KingdomSimulationStructures {
         return beds;
     }
 
-    /**
-     * 扫描结果：蓝图标识 + 元数据 + 结构尺寸 + 床位。
-     *
-     * @param beds 蓝图里画出来的床位数（只数床脚，一张床两个方块）；仅住宅类建筑使用
-     */
     @OnlyIn(Dist.CLIENT)
     public record Entry(String id, BuildingMeta meta, Vec3i size, int beds) {
 
-        /** 卡片上显示的名字，来自元数据（未配置 json 时退回文件名）。 */
         public String displayName() {
             return meta.name();
         }
 
-        /** 类型中文名，未归类时为"未分类"。 */
         public String typeLabel() {
             return meta.typeLabel();
         }

@@ -15,7 +15,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 
 /**
- * 身份卡片的像素三角属性雷达图元素
+ * 身份卡片的像素三角属性雷达图元素，按三围比例绘制并缓存像素表。
  */
 @OnlyIn(Dist.CLIENT)
 @ElementRegister(NpcTriangleElement.TAG_NAME)

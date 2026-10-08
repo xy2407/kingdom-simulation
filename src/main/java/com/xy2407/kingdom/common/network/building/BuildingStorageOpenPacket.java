@@ -9,16 +9,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 /**
- * 服务端 → 客户端：仓库界面的展示参数。
- *
- * <p>界面本身由 AUI 的容器菜单打开（槽位、拖拽、shift-click 全归它管），
- * 这个包只负责告诉客户端"这是哪座建筑的仓库、能用几格、整排有多少格"。客户端据此
- * 填标题，并把用不到的那些槽位隐藏掉——<b>格子是页面里静态写死的 54 个</b>，
- * 而容量由蓝图决定，两边对不上的部分只能靠隐藏来解决。</p>
- *
- * @param buildingName 建筑显示名，填在标题上
- * @param capacity     可用格数（蓝图 {@code storage_slots}，已夹在 1..maxSlots）
- * @param maxSlots     页面里实际画了多少格
+ * 服务端 → 客户端：仓库界面的展示参数（建筑名、可用格数、页面实际画了多少格）。
  */
 public record BuildingStorageOpenPacket(String buildingName, int capacity, int maxSlots)
         implements CustomPacketPayload {

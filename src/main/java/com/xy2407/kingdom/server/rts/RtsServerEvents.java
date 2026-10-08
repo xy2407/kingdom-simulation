@@ -9,10 +9,7 @@ import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 
 /**
- * 服务端兜底清理：掉线 / 死亡重生 / 停服时把替身和选中集合收干净。
- *
- * <p>正常退出走客户端的回收包（{@code RtsFakePlayerClearPacket}），这里只处理"没走到那一步"的情况，
- * 避免替身残留在世界里。对应 nsuk 的 {@code RtsServerTick} 里那几段清理，砍掉了全部队伍逻辑。</p>
+ * 服务端兜底清理：掉线、死亡重生、停服时把替身与选中集合收干净。
  */
 @EventBusSubscriber(modid = ModMain.MOD_ID)
 public final class RtsServerEvents {
@@ -27,7 +24,6 @@ public final class RtsServerEvents {
         }
     }
 
-    /** 死亡与重生都会触发 Clone：两头都清，避免旧实体残留。 */
     @SubscribeEvent
     public static void onPlayerClone(PlayerEvent.Clone event) {
         if (event.getEntity() instanceof ServerPlayer player) {

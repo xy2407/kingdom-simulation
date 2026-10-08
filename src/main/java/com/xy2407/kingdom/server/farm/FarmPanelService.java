@@ -28,11 +28,10 @@ import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
- * 农业面板服务端处理：应答请求、执行操作，每次操作后整份回推最新状态
+ * 农业面板服务端处理：应答请求、执行操作，每次操作后整份回推最新状态。
  */
 public final class FarmPanelService {
 
-    /** 按蓝图名缓存作物清单：每次操作都要回推状态，不能每次都读盘。 */
     private static final Map<String, List<CropSpec>> CROP_CACHE = new ConcurrentHashMap<>();
 
     private FarmPanelService() {
@@ -96,8 +95,6 @@ public final class FarmPanelService {
                 }
             }
             case FarmPanelActionPacket.ACTION_OPEN_STORAGE -> {
-                /* 这一步要把整个界面换成容器屏，所以**直接 return**：
-                   末尾那次 respond 会再推一份农田状态包，和刚打开的仓库屏抢同一个界面。 */
                 openStorage(player, building);
                 return;
             }
@@ -120,7 +117,6 @@ public final class FarmPanelService {
                 cropOptions(building), workerOptions());
     }
 
-    /** 面板作物槽位：优先用这座建筑蓝图 json 里的 crops，没写就退回全局默认清单。 */
     private static List<FarmPanelStatePacket.CropOption> cropOptions(BuildingRecord building) {
         List<CropSpec> specs = cropsOf(building);
         if (specs.isEmpty()) {
@@ -142,7 +138,6 @@ public final class FarmPanelService {
                 name -> BuildingMetaLoader.load(BuildingBlueprints.fileOf(name), name).crops());
     }
 
-    /** 只认面板给出的作物；不在清单里的（含空串＝取消选择）一律记成空。 */
     private static String allowedCrop(BuildingRecord building, String raw) {
         if (raw == null || raw.isBlank()) {
             return "";
@@ -167,7 +162,6 @@ public final class FarmPanelService {
         return options;
     }
 
-    /** 名册上的状态提示：让玩家在面板上就能看出这个人为什么不下地。 */
     private static String workerNote(NpcData npc) {
         if (npc.getBrain().isStarving()) {
             return "饥饿";
@@ -175,13 +169,6 @@ public final class FarmPanelService {
         return NpcSchedule.subState(npc.getShift(), npc.getDayTime()) == NpcSubState.WORKING ? "" : "下班";
     }
 
-    /**
-     * 把当前界面换成这座建筑的仓库。
-     *
-     * <p>容量取自蓝图 json 的 {@code storage_slots}（见
-     * {@code BuildingRegistry#storageSlotsOf}）；没写就是 0，即"这座建筑不是仓库"，
-     * 这时给玩家一句明话——否则点下去毫无反应，只能干瞪眼。</p>
-     */
     private static void openStorage(ServerPlayer player, BuildingRecord building) {
         int capacity = BuildingRegistry.INSTANCE.storageSlotsOf(building);
         if (capacity <= 0) {

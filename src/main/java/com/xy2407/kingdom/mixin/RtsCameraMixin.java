@@ -13,9 +13,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * RTS 相机覆盖：在 {@code Camera.setup} 末尾改写相机位置与旋转，用渲染插值保证平滑。
- *
- * <p>从 {@code xy's_nsuk} 的 {@code CameraMixin} 迁来，逻辑未变（只换了 RtsModeManager 的包名）。</p>
+ * RTS 相机覆盖：在 Camera.setup 末尾改写相机位置与旋转。
  */
 @Mixin(Camera.class)
 public abstract class RtsCameraMixin {

@@ -16,15 +16,13 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.phys.AABB;
 
 /**
- * 觅食执行服务，每个觅食周期按行装、餐厅、容器、掉落物的顺序补食；
- * 四处都没有就在 10 格内随机采一个点走过去，等下一轮再找。
+ * 觅食执行服务：每周期按行装、餐厅、容器、掉落物顺序补食，都找不到就在附近随机走动再找。
  */
 public final class NpcForageService {
     private static final int CONTAINER_RADIUS = 5;
     private static final int COMMERCIAL_RADIUS = 64;
     private static final double ARRIVE_DISTANCE_SQR = 6.25D;
 
-    /** 四级查找全落空时的随机游走半径（格）。走完不等到达，下一轮轮询重新查。 */
     private static final double FORAGE_WANDER_RADIUS = 10.0D;
 
     private NpcForageService() {
@@ -63,14 +61,6 @@ public final class NpcForageService {
         if (eatFromGroundItems(npc, data, needed)) {
             return;
         }
-        /* 四处都没有：在 10 格内随机采一个可站立的点走过去——"换个地方找找"。
-         *
-         * 这里**只移动、不进食**：到达与否都不影响下一轮。下一个 240 tick 的轮询
-         * 周期会重新走上面这四级查找（`forageDue` 由 NpcBrain 按 MAIN_LOOP_INTERVAL 置位），
-         * 真走到有食物的地方时，那一轮就会被查到。这正是需求里"下次轮询重复此逻辑"。
-         *
-         * 采样失败（8 次都没掷出可站立的落点，比如被墙围住/悬空）才原地停下，
-         * 避免每 tick 空转寻路。 */
         if (!npc.walkToRandomPoint(npc.blockPosition(), FORAGE_WANDER_RADIUS)) {
             npc.haltForage();
         }
@@ -82,7 +72,6 @@ public final class NpcForageService {
         return dx * dx + dz * dz <= ARRIVE_DISTANCE_SQR;
     }
 
-    /** 城市表里最近的餐厅；城市还没有餐厅时返回 null，改走就地觅食。 */
     private static BlockPos diningOf(NpcEntity npc) {
         if (!(npc.level() instanceof ServerLevel level)) {
             return null;
@@ -91,7 +80,6 @@ public final class NpcForageService {
                 npc.getX(), npc.getY(), npc.getZ(), COMMERCIAL_RADIUS);
     }
 
-    /** 先吃自己行装里的食物：背包里就有吃的，不必出门。 */
     private static boolean eatFromBackpack(NpcEntity npc, NpcData data, double needed) {
         NpcInventory inventory = npc.getNpcInventory();
         double remaining = needed;
@@ -167,14 +155,12 @@ public final class NpcForageService {
             if (stack.isEmpty()) {
                 item.discard();
             } else {
-                // 掉落物只改本地实例不会标记同步，必须回写一份副本才会发包给客户端
                 item.setItem(stack.copy());
             }
         }
         return applyFood(data, needed, remaining);
     }
 
-    /** 吃到的量记进饱食度；一份都没吃到时返回 false，让调用方继续往下找。 */
     private static boolean applyFood(NpcData data, double needed, double remaining) {
         if (remaining >= needed) {
             return false;

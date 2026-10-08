@@ -65,7 +65,6 @@ public final class RanchAnimals {
         return mob != null && !readEntries(mob).isEmpty();
     }
 
-    /** 成年数量：条目 Age ≥ 0 视为成年。 */
     public static int adults(Mob mob) {
         int adults = 0;
         for (CompoundTag entry : readEntries(mob)) {
@@ -76,7 +75,6 @@ public final class RanchAnimals {
         return adults;
     }
 
-    /** 投喂一次：所有幼年条目长大一档，到 0 即成年。 */
     public static void grow(Mob mob) {
         List<CompoundTag> entries = readEntries(mob);
         boolean changed = false;
@@ -92,7 +90,6 @@ public final class RanchAnimals {
         }
     }
 
-    /** 把条目数补齐/裁剪到指定值，新增的一律按成年算（栏刚建成即成年牲畜）。 */
     public static void keep(Mob mob, int target) {
         List<CompoundTag> entries = readEntries(mob);
         while (entries.size() < target) {
@@ -104,7 +101,6 @@ public final class RanchAnimals {
         setEntries(mob, entries);
     }
 
-    /** 宰杀：拿掉 count 条成年，并补回等量幼年，形成"育肥 → 宰杀 → 繁殖"循环。 */
     public static int takeAdults(Mob mob, int count) {
         if (count <= 0) {
             return 0;
@@ -125,7 +121,6 @@ public final class RanchAnimals {
         return taken;
     }
 
-    /** 把栏内属于本栏的同类实体合并成一个基座，返回基座（栏内没有就返回 null）。 */
     public static Mob consolidate(ServerLevel level, AABB bounds, String penKey, EntityType<?> type) {
         if (level == null || type == null || penKey.isBlank()) {
             return null;
@@ -169,7 +164,6 @@ public final class RanchAnimals {
         return mob;
     }
 
-    /** 基座不参与 AI（不跑不吃不散），纯粹当数量载体，和参照实现的虚拟条目一个意思。 */
     private static void tame(Mob mob) {
         mob.setNoAi(true);
         mob.setPersistenceRequired();
@@ -183,7 +177,6 @@ public final class RanchAnimals {
         base.setCustomNameVisible(true);
     }
 
-    /** 基座死亡：数量减一，用剩下的条目在原地补一个新基座（没有剩余就正常消失）。 */
     public static void handleBaseDeath(Mob base) {
         if (base == null || !(base.level() instanceof ServerLevel level)) {
             return;

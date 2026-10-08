@@ -11,22 +11,11 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 /**
- * 「择旗而誓」页面的静态数据与入口。
- *
- * <p>页面是 {@code apricityui/apricity/ui/start.html}：原来的交互全在 {@code <script>} 里，
- * 而 AUI 的脚本要装 KubeJS 才跑、用的是 Rhino、不支持 {@code async/await}，也没有 {@code btoa}
- * 与 {@code document.fonts}，所以那一段整段废弃，改由 {@link FactionSelectScreen} 用 Java 驱动；
- * 页面上两处 canvas（火漆、盾徽）换成了自定义元素
- * {@code kingdom-seal} / {@code kingdom-shield}（见 {@code client.aui} 包）。</p>
- *
- * <p>阵营清单只在这一处维护：12 张预置卡的标记写在 html 里（{@code id="card-<id>"}），
- * 自建国由 {@link FactionSelectScreen} 在 {@code #grid} 末尾追加。色板、纹章、纹章色三组数据也在这里，
- * 页面上的方块由 Java 生成。</p>
+ * 择旗而誓页面的静态数据与入口：阵营清单、色板、纹章与自建国的默认值。
  */
 @OnlyIn(Dist.CLIENT)
 public final class FactionSelectPage {
 
-    /** 逻辑路径，不含 {@code assets/apricityui/apricity/} 前缀。 */
     public static final String PAGE = "ui/start.html";
 
     public static final String ID_STAGE = "stage";
@@ -61,7 +50,6 @@ public final class FactionSelectPage {
     public static final String CLASS_OPEN = "open";
     public static final String CLASS_SHOW = "show";
 
-    /** 旗帜色板（对应原页的 SWATCHES）。 */
     public static final List<String> SWATCHES = List.of(
             "#7a1414", "#8b1a1a", "#b8860b", "#c9a227",
             "#1f4d8b", "#2b2b6b", "#2f6b3a", "#1f6b6b",
@@ -69,13 +57,11 @@ public final class FactionSelectPage {
             "#e8d8b0", "#d4d4d4"
     );
 
-    /** 纹章符号（对应原页的 CRESTS）：全部换成 Zpix 实测含字形的符号，否则游戏里是空白。 */
     public static final List<String> CRESTS = List.of(
             "★", "☆", "◆", "◇", "●", "○", "■", "□",
             "▲", "△", "†", "※", "♥", "◎", "〓", "⊕"
     );
 
-    /** 纹章颜色（对应原页的 EMBLEM_COLORS）。 */
     public static final List<String> EMBLEM_COLORS = List.of(
             "#ffffff", "#e8d8b0", "#d4d4d4", "#1a1a1a",
             "#f5e08a", "#c9a227", "#b8860b", "#d4433a",
@@ -83,7 +69,6 @@ public final class FactionSelectPage {
             "#4a90d9", "#1f4d8b", "#7b5ea7", "#6b3a1f"
     );
 
-    /** 自建国的默认配色，对应原页 openModal 里的初值。 */
     public static final String DEFAULT_COLOR_LEFT = SWATCHES.get(0);
     public static final String DEFAULT_COLOR_RIGHT = SWATCHES.get(12);
     public static final String DEFAULT_EMBLEM = CRESTS.get(0);
@@ -94,9 +79,6 @@ public final class FactionSelectPage {
     private FactionSelectPage() {
     }
 
-    /**
-     * 打开择旗界面；玩家确认后回调，参数是这次的选择（预置阵营或自建国）。
-     */
     public static void open(Consumer<FactionChoice> onConfirm) {
         Minecraft.getInstance().setScreen(new FactionSelectScreen(onConfirm));
     }
@@ -109,7 +91,6 @@ public final class FactionSelectPage {
         return id == null ? null : FACTIONS.get(id);
     }
 
-    /** 预置阵营转成统一的选择结构；配色留空即可，服务端只需要 id。 */
     public static FactionChoice presetChoice(String id) {
         Faction faction = byId(id);
         if (faction == null) {
@@ -140,14 +121,9 @@ public final class FactionSelectPage {
         factions.put(id, new Faction(id, name, latin, emblem));
     }
 
-    /** 一个预置阵营：id 与卡片一一对应。 */
     public record Faction(String id, String name, String latin, String emblem) {
     }
 
-    /**
-     * 一次择旗的结果：{@code custom=false} 时只有 {@code id} 有意义（自建国的 id 是 {@code realm-N}），
-     * {@code custom=true} 时携带国号/君主/箴言/双色/纹章与纹章色，供服务端存档与后续渲染旗帜用。
-     */
     public record FactionChoice(String id, String name, String ruler, String motto,
                                 String colorLeft, String colorRight,
                                 String emblem, String emblemColor, boolean custom) {

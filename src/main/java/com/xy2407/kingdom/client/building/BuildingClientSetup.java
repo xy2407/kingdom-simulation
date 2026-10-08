@@ -26,7 +26,7 @@ import net.neoforged.neoforge.client.settings.KeyConflictContext;
 import org.lwjgl.glfw.GLFW;
 
 /**
- * 建筑放置客户端接线
+ * 建筑放置的客户端接线：注册确认键并挂上各面板的回调。
  */
 @EventBusSubscriber(modid = ModMain.MOD_ID, value = Dist.CLIENT)
 @OnlyIn(Dist.CLIENT)
@@ -57,7 +57,6 @@ public final class BuildingClientSetup {
     @SubscribeEvent
     public static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         BuildingSiteManager.clear();
-        /* 地图数据是服务端下发的，换存档就没意义了，清掉免得画上一局的地表 */
         WorldMapClientData.clear();
     }
 

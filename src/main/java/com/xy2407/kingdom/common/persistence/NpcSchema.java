@@ -59,9 +59,7 @@ public final class NpcSchema implements Migration {
     public static final String COL_SUB_STATE = "sub_state";
     public static final String COL_DETAIL = "detail";
     public static final String COL_SHIFT = "shift";
-    /** 24 格行装（SNBT 文本）。 */
     public static final String COL_INVENTORY = "inventory";
-    /** 皮肤名（textures/entity/npc 下的文件名）。 */
     public static final String COL_SKIN = "skin";
 
     @Override

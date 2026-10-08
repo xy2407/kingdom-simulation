@@ -68,7 +68,6 @@ public final class RanchSchema implements Migration {
         }
     }
 
-    /** 一栏的唯一键：建筑 + 动物，用来判断这栏是不是已经建过。 */
     public static String penKey(Object buildingId, String animalId) {
         return buildingId + "#" + (animalId == null ? "" : animalId);
     }

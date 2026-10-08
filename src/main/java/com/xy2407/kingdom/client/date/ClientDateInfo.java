@@ -4,7 +4,7 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 
 /**
- * 客户端当前总天数缓存，由服务端同步包写入
+ * 客户端当前总天数缓存，由服务端的日期同步包写入。
  */
 @OnlyIn(Dist.CLIENT)
 public final class ClientDateInfo {

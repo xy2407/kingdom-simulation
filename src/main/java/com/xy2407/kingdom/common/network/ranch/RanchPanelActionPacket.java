@@ -17,11 +17,8 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
  */
 public record RanchPanelActionPacket(int action, UUID penId, String text) implements CustomPacketPayload {
 
-    /** 开始或暂停这一栏的养殖；开始时同一座建筑的其它栏会自动停下。 */
     public static final int ACTION_TOGGLE_RUN = 0;
-    /** 指派或解雇一位饲养员，{@code text} 是市民 id。 */
     public static final int ACTION_SET_KEEPER = 1;
-    /** 这一栏的饲养员全部解雇。 */
     public static final int ACTION_CLEAR_KEEPERS = 2;
 
     public static final CustomPacketPayload.Type<RanchPanelActionPacket> TYPE =
@@ -54,7 +51,6 @@ public record RanchPanelActionPacket(int action, UUID penId, String text) implem
                 ? null : penId;
     }
 
-    /** {@code text} 里的市民 id；空串或解析失败返回 null。 */
     public UUID workerIdOrNull() {
         if (text == null || text.isBlank()) {
             return null;

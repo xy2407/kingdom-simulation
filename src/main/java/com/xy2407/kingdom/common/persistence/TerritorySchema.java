@@ -10,18 +10,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 领地表迁移：建 territory 表、幂等补列。
- *
- * <p><b>领地是国家的下属</b>：{@code nation_id} 指向玩家首登时选定的国家；
- * 玩家自己建国的话，指向的就是自己建的那个。</p>
- *
- * <p><b>范围记的是区块，不是方块</b>：以市政厅所在区块为中心、向四周各扩 2 格，
- * 即 5×5 共 25 个水平区块。四个 {@code *_chunk_*} 列存这个矩形的闭区间角点，
- * 判定"某区块属不属于这块领地"就是一次整数比较，不需要扫方块。</p>
- *
- * <p>当前规则是<b>一个玩家一块领地</b>，所以 {@code owner_uuid} 上加唯一约束不现实
- * （玩家可以有自己的第二块，将来放开时不必改表），改由 {@code TerritoryRegistry} 在
- * 创建时做"已有则拒绝"的校验。</p>
+ * 领地表迁移：领地隶属国家，范围按区块记（市政厅区块 ±2 格），当前一人一块。
  */
 public final class TerritorySchema implements Migration {
     private static final Map<String, String> COLUMN_DEFS = buildColumnDefs();
