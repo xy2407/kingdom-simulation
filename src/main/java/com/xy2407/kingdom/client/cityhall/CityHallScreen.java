@@ -30,6 +30,10 @@ public final class CityHallScreen extends ApricityScreen {
 
     private static final String[] MAP_VIEW_ATTRIBUTES = {"center-x", "center-z", "zoom"};
 
+    private static final String[] TIER_NAMES = {"据点", "村落", "集镇", "城池", "城邦"};
+
+    private static final int[] TIER_NEEDS = {0, 24, 80, 200, 400};
+
     private static volatile CityHallDataPacket snapshot = CityHallDataPacket.EMPTY;
 
     private static Document boundDocument;
@@ -130,6 +134,8 @@ public final class CityHallScreen extends ApricityScreen {
         fillLines(document, "chEventList", packet.events(), "最近没有值得记一笔的事");
         fillLines(document, "chTodoList", packet.todos(), "暂无待办");
         fillLines(document, "chLedgerList", packet.ledger(), "暂无进出账");
+
+        applyTier(document, packet.population());
 
         if (openModal != null) {
             showModal(openModal);
@@ -349,6 +355,38 @@ public final class CityHallScreen extends ApricityScreen {
                     .append("</div>");
         }
         host.setInnerHTML(html.toString());
+    }
+
+    private static void applyTier(Document document, int population) {
+        int tier = 0;
+        for (int index = TIER_NEEDS.length - 1; index >= 0; index--) {
+            if (population >= TIER_NEEDS[index]) {
+                tier = index;
+                break;
+            }
+        }
+        for (int index = 0; index < TIER_NAMES.length; index++) {
+            toggleClass(document, "chTierNode" + index, "is-passed", index < tier);
+            toggleClass(document, "chTierNode" + index, "is-current", index == tier);
+        }
+        for (int index = 0; index < TIER_NAMES.length - 1; index++) {
+            toggleClass(document, "chTierLink" + index, "is-passed", index < tier);
+        }
+
+        text(document, "chTierNow", TIER_NAMES[tier]);
+        boolean maxed = tier >= TIER_NAMES.length - 1;
+        toggleClass(document, "chTierCond", "is-max", maxed);
+        text(document, "chTierPopNow", String.valueOf(population));
+        if (maxed) {
+            text(document, "chTierNext", "已达最高等级");
+            text(document, "chTierPopNeed", "");
+            bar(document, "chTierPopBar", population, Math.max(1, population));
+            return;
+        }
+        int need = TIER_NEEDS[tier + 1];
+        text(document, "chTierNext", TIER_NAMES[tier + 1] + " · 需 " + need + " 人口");
+        text(document, "chTierPopNeed", "/ " + need);
+        bar(document, "chTierPopBar", population, need);
     }
 
     private boolean matches(String name, String sub) {

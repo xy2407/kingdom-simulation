@@ -14,6 +14,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.LongConsumer;
 
 import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.common.map.WorldSurfaceSampler;
@@ -35,7 +36,7 @@ import net.neoforged.fml.loading.FMLPaths;
 public final class ClientMapStore {
 
     private static final int MAGIC = 0x4B4D4150;
-    private static final int VERSION = 1;
+    private static final int VERSION = 3;
     private static final int CHUNK_SIDE = 16;
     private static final int CHUNK_CELLS = CHUNK_SIDE * CHUNK_SIDE;
     private static final byte EMPTY_CELL = 0;
@@ -46,9 +47,16 @@ public final class ClientMapStore {
     private static final Map<ResourceKey<Level>, int[]> CENTERS = new HashMap<>();
     private static final Set<ResourceKey<Level>> DIRTY = new HashSet<>();
 
+    private static final int DIRTY_RING = 1024;
+    private static final long[] DIRTY_KEYS = new long[DIRTY_RING];
+    private static final long[] DIRTY_STAMPS = new long[DIRTY_RING];
+
     private static ResourceKey<Level> focused;
     private static String world = "";
     private static long revision;
+    private static long stamp;
+    private static long focusToken;
+    private static int dirtyCursor;
     private static long lastFlushNanos;
     private static ExecutorService io;
 
@@ -61,17 +69,25 @@ public final class ClientMapStore {
         }
         String current = worldKey();
         if (!current.equals(world)) {
+            ModMain.LOGGER.info("[地图] 世界切换 [{}] → [{}]：落盘旧世界、清空内存地图并作废当前视图",
+                    world, current);
             flushNow();
             CHUNKS.clear();
             CENTERS.clear();
             DIRTY.clear();
             world = current;
+            focused = null;
             revision++;
+            stamp++;
+            focusToken++;
         }
         if (dimension.equals(focused)) {
             return;
         }
+        ModMain.LOGGER.info("[地图] 切换维度 {} → {}，读取该维度的本地地图",
+                focused, dimension.location());
         focused = dimension;
+        focusToken++;
         load(dimension);
     }
 
@@ -112,6 +128,10 @@ public final class ClientMapStore {
         }
         if (changed) {
             DIRTY.add(dimension);
+            stamp++;
+            DIRTY_KEYS[dirtyCursor] = id;
+            DIRTY_STAMPS[dirtyCursor] = stamp;
+            dirtyCursor = (dirtyCursor + 1) % DIRTY_RING;
             revision++;
         }
     }
@@ -154,6 +174,32 @@ public final class ClientMapStore {
 
     public static long revision() {
         return revision;
+    }
+
+    public static long stamp() {
+        return stamp;
+    }
+
+    public static long focusToken() {
+        return focusToken;
+    }
+
+    public static boolean forEachDirtySince(long since, LongConsumer consumer) {
+        if (since <= 0) {
+            return false;
+        }
+        if (since < stamp - DIRTY_RING) {
+            ModMain.LOGGER.info("[地图] 脏区块记录溢出：since={} 仅保留到 {}，改走全量重绘",
+                    since, stamp - DIRTY_RING);
+            return false;
+        }
+        for (int index = 0; index < DIRTY_RING; index++) {
+            long entry = DIRTY_STAMPS[index];
+            if (entry > since && entry <= stamp) {
+                consumer.accept(DIRTY_KEYS[index]);
+            }
+        }
+        return true;
     }
 
     public static int[] center(ResourceKey<Level> dimension) {
@@ -215,6 +261,8 @@ public final class ClientMapStore {
         focused = null;
         world = "";
         revision++;
+        focusToken++;
+        ModMain.LOGGER.info("[地图] 客户端地图仓库已清空（登出）");
     }
 
     private static void flushAsync() {
@@ -249,36 +297,53 @@ public final class ClientMapStore {
     }
 
     private static void load(ResourceKey<Level> dimension) {
+        focusToken++;
         Path path = fileOf(world, dimension);
         if (!Files.isRegularFile(path)) {
+            ModMain.LOGGER.info("[地图] {} 没有本地缓存文件，本次从空白开始：{}",
+                    dimension.location(), path);
             return;
         }
         Map<Long, byte[]> chunks = new ConcurrentHashMap<>();
         int[] center = new int[] {0, 0};
         int loaded = 0;
+        boolean stale = false;
         try (DataInputStream in = new DataInputStream(
                 new BufferedInputStream(Files.newInputStream(path)))) {
             if (in.readInt() != MAGIC || in.readInt() != VERSION) {
-                return;
+                stale = true;
+            } else {
+                center[0] = in.readInt();
+                center[1] = in.readInt();
+                int count = Math.max(0, in.readInt());
+                for (int index = 0; index < count; index++) {
+                    long id = in.readLong();
+                    byte[] cell = new byte[CHUNK_CELLS];
+                    in.readFully(cell);
+                    chunks.put(id, cell);
+                }
+                loaded = count;
             }
-            center[0] = in.readInt();
-            center[1] = in.readInt();
-            int count = Math.max(0, in.readInt());
-            for (int index = 0; index < count; index++) {
-                long id = in.readLong();
-                byte[] cell = new byte[CHUNK_CELLS];
-                in.readFully(cell);
-                chunks.put(id, cell);
-            }
-            loaded = count;
         } catch (IOException failure) {
-            ModMain.LOGGER.warn("[地图] 客户端地图读盘失败 {}：{}", path, failure.toString());
+            ModMain.LOGGER.error("[地图] 客户端地图读盘失败（本次从空白开始，会重新采样）{}：{}",
+                    path, failure.toString());
+            return;
+        }
+        if (stale) {
+            ModMain.LOGGER.warn("[地图] {} 的本地缓存版本不符（当前需要 v{}），已丢弃该文件、本次会重新采样：{}",
+                    dimension.location(), VERSION, path);
+            try {
+                Files.deleteIfExists(path);
+            } catch (IOException ignored) {
+            }
             return;
         }
         CHUNKS.put(dimension, chunks);
         CENTERS.put(dimension, center);
         revision++;
-        ModMain.LOGGER.info("[地图] 载入本地地图 {}：{} 个区块", dimension.location(), loaded);
+        focusToken++;
+        ModMain.LOGGER.info("[地图] 载入本地地图 {}：{} 个区块（中心 {}，{}）",
+                dimension.location(), loaded, center[0], center[1]);
     }
 
     private static void write(String target, ResourceKey<Level> dimension, Map<Long, byte[]> chunks) {
@@ -302,7 +367,8 @@ public final class ClientMapStore {
                 }
             }
         } catch (IOException failure) {
-            ModMain.LOGGER.warn("[地图] 客户端地图写盘失败 {}：{}", path, failure.toString());
+            ModMain.LOGGER.error("[地图] 客户端地图写盘失败（缓存存不下来，下次重进世界会全部重新采样）{}：{}",
+                    path, failure.toString());
         }
     }
 
@@ -310,8 +376,16 @@ public final class ClientMapStore {
         String name = dimension.location().getNamespace() + "_" + dimension.location().getPath();
         return FMLPaths.GAMEDIR.get()
                 .resolve(FOLDER)
-                .resolve(sanitize(target))
+                .resolve(safeFolder(target))
                 .resolve(name + ".bin");
+    }
+
+    private static String safeFolder(String target) {
+        String safe = sanitize(target);
+        if (safe.equals(target)) {
+            return safe;
+        }
+        return safe + "_" + Integer.toHexString(target.hashCode());
     }
 
     private static String worldKey() {
@@ -320,9 +394,12 @@ public final class ClientMapStore {
             return "";
         }
         if (minecraft.hasSingleplayerServer() && minecraft.getSingleplayerServer() != null) {
+            String level = minecraft.getSingleplayerServer().getWorldData().getLevelName();
+            if (level != null && !level.isBlank()) {
+                return "sp_" + level;
+            }
             Path root = minecraft.getSingleplayerServer().getWorldPath(LevelResource.ROOT);
-            Path name = root.getFileName();
-            return name == null ? "singleplayer" : "sp_" + name;
+            return "sp_" + root.toAbsolutePath().normalize();
         }
         ServerData server = minecraft.getCurrentServer();
         if (server != null && server.ip != null && !server.ip.isBlank()) {

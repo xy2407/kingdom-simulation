@@ -58,23 +58,19 @@ public final class WorldSurfaceSampler {
         MapColor[] mapColors = new MapColor[size * size];
 
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
-
         for (int dz = 0; dz < size; dz++) {
             int worldZ = originZ + dz;
             for (int dx = 0; dx < size; dx++) {
                 int worldX = originX + dx;
-                int index = dz * size + dx;
-
                 ChunkPos chunk = new ChunkPos(worldX >> 4, worldZ >> 4);
                 if (!level.getChunkSource().hasChunk(chunk.x, chunk.z)) {
                     continue;
                 }
-
                 int surface = surfaceY(level, cursor, worldX, worldZ);
                 if (surface == NO_SURFACE) {
                     continue;
                 }
-
+                int index = dz * size + dx;
                 cursor.set(worldX, surface, worldZ);
                 heights[index] = surface;
                 mapColors[index] = level.getBlockState(cursor).getMapColor(level, cursor);

@@ -5,19 +5,19 @@ import com.sighs.apricityui.element.Canvas;
 import com.sighs.apricityui.event.Event;
 import com.sighs.apricityui.event.MouseEvent;
 import com.sighs.apricityui.init.Document;
+import com.sighs.apricityui.layout.Box;
 import com.sighs.apricityui.layout.Size;
 import com.sighs.apricityui.registry.annotation.ElementRegister;
 import com.sighs.apricityui.render.Base;
-import com.sighs.apricityui.render.ImageDrawer;
 import com.sighs.apricityui.render.Rect;
 import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.client.map.ClientMapScanner;
 import com.xy2407.kingdom.client.map.ClientMapStore;
-import com.xy2407.kingdom.common.map.WorldSurfaceSampler;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FastColor;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.material.MapColor;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
@@ -25,7 +25,9 @@ import net.neoforged.api.distmarker.OnlyIn;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferInt;
 import java.io.InputStream;
 import java.util.Arrays;
 import java.util.Locale;
@@ -33,7 +35,7 @@ import java.util.Locale;
 import javax.imageio.ImageIO;
 
 /**
- * {@code <world-map>}：AUI 页面里的世界地图元素，把本地地图像素画进位图表面一次提交。
+ * {@code <world-map>}：AUI 页面里的世界地图元素，拖动时平移已有像素、只补新露出的边条。
  */
 @OnlyIn(Dist.CLIENT)
 @ElementRegister(WorldMapElement.TAG_NAME)
@@ -59,7 +61,7 @@ public class WorldMapElement extends Canvas {
     private static final double MAX_ZOOM = 8.0;
     private static final double ZOOM_PER_NOTCH = 1.25;
 
-    private static final int DRAG_STEP = 3;
+    private static final int DRAG_BLOCK_STEP = 16;
 
     private static final int MAX_RADIUS = 512;
 
@@ -83,23 +85,37 @@ public class WorldMapElement extends Canvas {
 
     private static final double DRAG_PIXELS = 4.0;
 
+    private static final long PAINT_STAT_NANOS = 10_000_000_000L;
+
+    private static int failures;
+    private static boolean loggedZeroInner;
+    private static boolean loggedShortBuffer;
+    private static boolean loggedBadSurface;
+    private static long lastPaintStatNanos;
+    private static long paintNanos;
+    private static int paintCalls;
+    private static long chunkPaintNanos;
+    private static int chunkPaintCalls;
+
     private static final int[] PALETTE = new int[256];
     private static boolean paletteReady;
-
-    private int[] rasterBuffer;
-    private BufferedImage rasterImage;
 
     private double zoom = 1.0;
     private double panX;
     private double panZ;
 
-    private double layoutWidth;
-    private double layoutHeight;
-    private String paintedSignature;
-    private long paintedRevision = -1;
+    private int paintedWidth = -1;
+    private int paintedHeight = -1;
+    private int paintedViewX;
+    private int paintedViewZ;
+    private int paintedStep = -1;
+    private long paintedToken = Long.MIN_VALUE;
+    private double paintedBlocks;
+    private double paintedPixelsPerBlock;
+    private int paintedOriginX;
+    private int paintedOriginZ;
+    private long paintedStamp;
     private long nextContentNanos;
-
-    private static boolean colorProbed;
 
     private static BufferedImage markerImage;
     private static long markerLastTryNanos;
@@ -129,32 +145,29 @@ public class WorldMapElement extends Canvas {
             case SHADOW -> rect.drawShadow(poseStack);
             case BODY -> {
                 rect.drawBody(poseStack);
-                Size size = rect.getBodyRectSize();
-                if (size.width() <= 0 || size.height() <= 0) {
-                    return;
+                try {
+                    Size inner = Box.of(this).innerSize();
+                    if (inner.width() <= 0 || inner.height() <= 0) {
+                        reportZeroInner(inner, rect.getBodyRectSize());
+                    }
+                } catch (Throwable failure) {
+                    reportFailure("读取尺寸", failure);
                 }
-                applyAttributeOverrides();
-                ensureData();
-                probeColorOnce((int) Math.round(centerX()), (int) Math.round(centerZ()));
-                repaintIfNeeded(size);
-                drawCanvas(poseStack, rect);
+                try {
+                    applyAttributeOverrides();
+                    ensureData();
+                    repaintIfNeeded();
+                } catch (Throwable failure) {
+                    reportFailure("准备绘制", failure);
+                }
+                try {
+                    drawCanvas(poseStack, rect);
+                } catch (Throwable failure) {
+                    reportFailure("提交纹理", failure);
+                }
             }
             case BORDER -> rect.drawBorder(poseStack);
         }
-    }
-
-    @Override
-    protected void drawCanvas(PoseStack poseStack, Rect rectRenderer) {
-        if (textureLocation == null) {
-            syncTexture();
-        }
-        if (textureLocation == null || layoutWidth <= 0 || layoutHeight <= 0) {
-            return;
-        }
-        ImageDrawer.draw(poseStack, textureLocation,
-                (float) rectRenderer.getContentPosition().x,
-                (float) rectRenderer.getContentPosition().y,
-                (float) layoutWidth, (float) layoutHeight, true);
     }
 
     private void ensureData() {
@@ -164,47 +177,74 @@ public class WorldMapElement extends Canvas {
         ClientMapScanner.requestVisible(viewX - half, viewZ - half, viewX + half, viewZ + half);
     }
 
-    private void repaintIfNeeded(Size size) {
-        int surfaceWidth = Math.max(16, (int) Math.round(size.width()));
-        int surfaceHeight = Math.max(16, (int) Math.round(size.height()));
+    private void repaintIfNeeded() {
+        Size inner = Box.of(this).innerSize();
+        double contentWidth = inner.width();
+        double contentHeight = inner.height();
+        if (contentWidth <= 0 || contentHeight <= 0) {
+            reportZeroInner(inner, null);
+            return;
+        }
+        int wantedWidth = Math.max(16, (int) Math.round(contentWidth));
+        int wantedHeight = Math.max(16, (int) Math.round(contentHeight));
         int viewX = (int) Math.round(centerX() + panX);
         int viewZ = (int) Math.round(centerZ() + panZ);
         double blocksX = (radius() * 2.0 + 1.0) / zoom;
-        double pixelsPerBlock = surfaceWidth / blocksX;
-        int step = sampleStep(surfaceWidth, surfaceHeight, pixelsPerBlock);
-        if (dragging) {
-            step *= DRAG_STEP;
-        }
-        int renderStep = step;
+        double pixelsPerBlock = wantedWidth / blocksX;
+        int step = dragging
+                ? Math.max(1, (int) Math.round(DRAG_BLOCK_STEP * pixelsPerBlock))
+                : sampleStep(wantedWidth, wantedHeight, pixelsPerBlock);
+        long token = ClientMapStore.focusToken();
 
-        long now = System.nanoTime();
-        String signature = surfaceWidth + "|" + surfaceHeight + "|" + viewX + "|" + viewZ
-                + "|" + blocksX + "|" + step;
-        boolean geometry = !signature.equals(paintedSignature);
-        long revision = ClientMapStore.revision();
-        if (!geometry && (revision == paintedRevision || now < nextContentNanos)) {
-            return;
+        boolean geometry = paintedWidth != wantedWidth || paintedHeight != wantedHeight
+                || paintedViewX != viewX || paintedViewZ != viewZ || paintedStep != step
+                || paintedToken != token || Double.compare(paintedBlocks, blocksX) != 0;
+
+        if (!geometry) {
+            long now = System.nanoTime();
+            if (now < nextContentNanos) {
+                return;
+            }
+            nextContentNanos = now + CONTENT_REPAINT_NANOS;
+            long since = paintedStamp;
+            paintedStamp = ClientMapStore.stamp();
+            if (paintedStamp == since) {
+                return;
+            }
+            if (ClientMapStore.forEachDirtySince(since, this::repaintChunk)) {
+                syncTexture();
+                return;
+            }
         }
 
-        paintedSignature = signature;
-        paintedRevision = revision;
-        nextContentNanos = now + CONTENT_REPAINT_NANOS;
-        layoutWidth = surfaceWidth;
-        layoutHeight = surfaceHeight;
-        if (surfaceWidth != getWidth() || surfaceHeight != getHeight()) {
-            resizeSurface(surfaceWidth, surfaceHeight, false);
+        paintedWidth = wantedWidth;
+        paintedHeight = wantedHeight;
+        paintedViewX = viewX;
+        paintedViewZ = viewZ;
+        paintedStep = step;
+        paintedToken = token;
+        paintedBlocks = blocksX;
+        paintedStamp = ClientMapStore.stamp();
+        nextContentNanos = System.nanoTime() + CONTENT_REPAINT_NANOS;
+        if (wantedWidth != getWidth() || wantedHeight != getHeight()) {
+            ModMain.LOGGER.info("[地图] resizeSurface {}x{} → {}x{}",
+                    getWidth(), getHeight(), wantedWidth, wantedHeight);
+            resizeSurface(wantedWidth, wantedHeight, false);
         }
-
-        double blocksY = surfaceHeight / pixelsPerBlock;
-        int originX = viewX - (int) Math.round(blocksX / 2.0);
-        int originZ = viewZ - (int) Math.round(blocksY / 2.0);
-        renderOperation(graphics -> paint(graphics, surfaceWidth, surfaceHeight,
-                originX, originZ, pixelsPerBlock, renderStep));
-        syncTexture();
+        int surfaceWidth = getWidth();
+        int surfaceHeight = getHeight();
+        paintedPixelsPerBlock = surfaceWidth / blocksX;
+        paintedOriginX = viewX - (int) Math.round(blocksX / 2.0);
+        paintedOriginZ = viewZ - (int) Math.round(surfaceHeight / paintedPixelsPerBlock / 2.0);
+        paintAll(surfaceWidth, surfaceHeight);
     }
 
     private static int sampleStep(int surfaceWidth, int surfaceHeight, double pixelsPerBlock) {
-        int step = Math.max(1, (int) Math.ceil(1.0 / Math.max(1e-6, pixelsPerBlock)));
+        if (!Double.isFinite(pixelsPerBlock) || pixelsPerBlock <= 0.0) {
+            ModMain.LOGGER.warn("[地图] 像素/方块非法（{}），按 step=1 处理", pixelsPerBlock);
+            return 1;
+        }
+        int step = Math.max(1, (int) Math.ceil(1.0 / pixelsPerBlock));
         double samples = (double) (surfaceWidth / step) * (surfaceHeight / step);
         if (samples > MAX_SAMPLES) {
             step = (int) Math.ceil(step * Math.sqrt(samples / MAX_SAMPLES));
@@ -212,40 +252,113 @@ public class WorldMapElement extends Canvas {
         return step;
     }
 
-    private void paint(Graphics2D graphics, int surfaceWidth, int surfaceHeight,
-                       int originX, int originZ, double pixelsPerBlock, int step) {
-        int[] raster = rasterOf(surfaceWidth, surfaceHeight, originX, originZ, pixelsPerBlock, step);
-        if (rasterImage == null || rasterImage.getWidth() != surfaceWidth
-                || rasterImage.getHeight() != surfaceHeight) {
-            rasterImage = new BufferedImage(surfaceWidth, surfaceHeight, BufferedImage.TYPE_INT_ARGB);
+    private void paintAll(int surfaceWidth, int surfaceHeight) {
+        int[] pixels = surfacePixels();
+        if (pixels == null) {
+            return;
         }
-        rasterImage.setRGB(0, 0, surfaceWidth, surfaceHeight, raster, 0, surfaceWidth);
-        graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
-                RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
-        graphics.drawImage(rasterImage, 0, 0, null);
-        drawChunkGrid(graphics, surfaceWidth, surfaceHeight, originX, originZ, pixelsPerBlock);
-        drawMarker(graphics, surfaceWidth, surfaceHeight, originX, originZ, pixelsPerBlock);
+        int needed = surfaceWidth * surfaceHeight;
+        if (pixels.length < needed) {
+            if (!loggedShortBuffer) {
+                loggedShortBuffer = true;
+                ModMain.LOGGER.error("[地图] 像素数组不足：pixels={} 需要={}（surface={}x{} bitmap={}x{}）",
+                        pixels.length, needed, surfaceWidth, surfaceHeight, getWidth(), getHeight());
+            }
+            return;
+        }
+        long start = System.nanoTime();
+        fillRaster(pixels, surfaceWidth, surfaceHeight, paintedOriginX, paintedOriginZ,
+                paintedPixelsPerBlock, paintedStep, 0, 0, surfaceWidth, surfaceHeight);
+        markSurfaceDirty();
+        renderOperation(graphics -> {
+            drawChunkGrid(graphics, surfaceWidth, surfaceHeight,
+                    paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
+            drawMarker(graphics, surfaceWidth, surfaceHeight,
+                    paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
+        }, null);
+        syncTexture();
+        paintNanos += System.nanoTime() - start;
+        paintCalls++;
+        reportPaint();
     }
 
-    private int[] rasterOf(int surfaceWidth, int surfaceHeight, int originX, int originZ,
-                           double pixelsPerBlock, int step) {
-        int cells = surfaceWidth * surfaceHeight;
-        if (rasterBuffer == null || rasterBuffer.length < cells) {
-            rasterBuffer = new int[cells];
+    private void repaintChunk(long key) {
+        if (getWidth() != paintedWidth || getHeight() != paintedHeight) {
+            return;
         }
-        int[] raster = rasterBuffer;
-        Arrays.fill(raster, 0, cells, UNEXPLORED_COLOR);
+        int chunkX = ChunkPos.getX(key);
+        int chunkZ = ChunkPos.getZ(key);
+        int surfaceWidth = paintedWidth;
+        int surfaceHeight = paintedHeight;
+        int x0 = Math.max(0, (int) Math.floor(
+                (chunkX * CHUNK_SIZE - paintedOriginX) * paintedPixelsPerBlock));
+        int y0 = Math.max(0, (int) Math.floor(
+                (chunkZ * CHUNK_SIZE - paintedOriginZ) * paintedPixelsPerBlock));
+        int x1 = Math.min(surfaceWidth, (int) Math.ceil(
+                ((chunkX + 1) * CHUNK_SIZE - paintedOriginX) * paintedPixelsPerBlock));
+        int y1 = Math.min(surfaceHeight, (int) Math.ceil(
+                ((chunkZ + 1) * CHUNK_SIZE - paintedOriginZ) * paintedPixelsPerBlock));
+        if (x1 <= x0 || y1 <= y0) {
+            return;
+        }
+        int[] pixels = surfacePixels();
+        if (pixels == null) {
+            return;
+        }
+        int needed = surfaceWidth * surfaceHeight;
+        if (pixels.length < needed) {
+            if (!loggedShortBuffer) {
+                loggedShortBuffer = true;
+                ModMain.LOGGER.error("[地图] 局部重绘像素数组不足：pixels={} 需要={}（surface={}x{}）",
+                        pixels.length, needed, surfaceWidth, surfaceHeight);
+            }
+            return;
+        }
+        fillRaster(pixels, surfaceWidth, surfaceHeight, paintedOriginX, paintedOriginZ,
+                paintedPixelsPerBlock, 1, x0, y0, x1, y1);
+        Rectangle2D bounds = new Rectangle2D.Double(x0, y0, x1 - x0, y1 - y0);
+        renderOperation(graphics -> {
+            graphics.setClip(x0, y0, x1 - x0, y1 - y0);
+            drawChunkGrid(graphics, surfaceWidth, surfaceHeight,
+                    paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
+            drawMarker(graphics, surfaceWidth, surfaceHeight,
+                    paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
+        }, bounds);
+    }
+
+    private void fillRaster(int[] pixels, int surfaceWidth, int surfaceHeight,
+                            int originX, int originZ, double pixelsPerBlock, int step,
+                            int clipX0, int clipY0, int clipX1, int clipY1) {
+        if (pixelsPerBlock <= 0.0 || !Double.isFinite(pixelsPerBlock) || step <= 0) {
+            ModMain.LOGGER.error("[地图] fillRaster 参数非法：像素/方块={} step={}",
+                    pixelsPerBlock, step);
+            return;
+        }
+        int left = Math.max(0, Math.min(clipX0, surfaceWidth));
+        int right = Math.max(0, Math.min(clipX1, surfaceWidth));
+        int top = Math.max(0, Math.min(clipY0, surfaceHeight));
+        int bottom = Math.max(0, Math.min(clipY1, surfaceHeight));
+        if (left >= right || top >= bottom) {
+            return;
+        }
+        for (int y = top; y < bottom; y++) {
+            int row = y * surfaceWidth;
+            Arrays.fill(pixels, row + left, row + right, UNEXPLORED_COLOR);
+        }
         if (!ClientMapStore.hasAnyChunk()) {
-            return raster;
+            return;
         }
-        for (int py = 0; py < surfaceHeight; py += step) {
+        int startY = top - (top % step);
+        for (int py = startY; py < bottom; py += step) {
             int worldZ = originZ + (int) Math.round(py / pixelsPerBlock);
             int chunkZ = worldZ >> 4;
             int offsetInChunk = (worldZ & 15) * CHUNK_SIZE;
-            int rowEnd = Math.min(surfaceHeight, py + step);
+            int rowStart = Math.max(py, top);
+            int rowEnd = Math.min(py + step, bottom);
             byte[] cell = null;
             int loadedChunkX = Integer.MIN_VALUE;
-            for (int px = 0; px < surfaceWidth; px += step) {
+            int startX = left - (left % step);
+            for (int px = startX; px < right; px += step) {
                 int worldX = originX + (int) Math.round(px / pixelsPerBlock);
                 int chunkX = worldX >> 4;
                 if (chunkX != loadedChunkX) {
@@ -260,18 +373,39 @@ public class WorldMapElement extends Canvas {
                     continue;
                 }
                 int color = mapArgb(packed);
-                int columnEnd = Math.min(surfaceWidth, px + step);
-                for (int y = py; y < rowEnd; y++) {
+                int columnStart = Math.max(px, left);
+                int columnEnd = Math.min(px + step, right);
+                for (int y = rowStart; y < rowEnd; y++) {
                     int row = y * surfaceWidth;
-                    Arrays.fill(raster, row + px, row + columnEnd, color);
+                    Arrays.fill(pixels, row + columnStart, row + columnEnd, color);
                 }
             }
         }
-        return raster;
     }
 
-    private static void drawChunkGrid(Graphics2D graphics, int surfaceWidth, int surfaceHeight,
-                                      int originX, int originZ, double pixelsPerBlock) {
+    private int[] surfacePixels() {
+        BufferedImage surface = getSurface();
+        if (surface == null) {
+            if (!loggedBadSurface) {
+                loggedBadSurface = true;
+                ModMain.LOGGER.error("[地图] getSurface() 返回 null");
+            }
+            return null;
+        }
+        if (!(surface.getRaster().getDataBuffer() instanceof DataBufferInt buffer)) {
+            if (!loggedBadSurface) {
+                loggedBadSurface = true;
+                ModMain.LOGGER.error("[地图] surface 像素缓冲不是 DataBufferInt，实际 {}（type={} {}x{}）",
+                        surface.getRaster().getDataBuffer().getClass().getName(),
+                        surface.getType(), surface.getWidth(), surface.getHeight());
+            }
+            return null;
+        }
+        return buffer.getData();
+    }
+
+    private void drawChunkGrid(Graphics2D graphics, int surfaceWidth, int surfaceHeight,
+                               int originX, int originZ, double pixelsPerBlock) {
         if (pixelsPerBlock * CHUNK_SIZE < MIN_CHUNK_GRID_PIXELS) {
             return;
         }
@@ -332,8 +466,7 @@ public class WorldMapElement extends Canvas {
         markerImage = loadMarker();
         if (markerImage == null && !markerFailureLogged) {
             markerFailureLogged = true;
-            ModMain.LOGGER.warn("[地图] 读不到标记图标 {}，地图上不会画标记",
-                    MARKER_TEXTURE);
+            ModMain.LOGGER.warn("[地图] 读不到标记图标 {}，地图上不会画标记", MARKER_TEXTURE);
         }
         return markerImage;
     }
@@ -407,24 +540,6 @@ public class WorldMapElement extends Canvas {
         return PALETTE[packed];
     }
 
-    private static void probeColorOnce(int centerX, int centerZ) {
-        if (colorProbed || !ClientMapStore.hasAnyChunk()) {
-            return;
-        }
-        colorProbed = true;
-        int packed = ClientMapStore.packedAt(centerX, centerZ);
-        int colorId = (packed & 0xFF) >> 2;
-        int brightness = packed & 3;
-        int argb = mapArgb(packed);
-        int woodPacked = MapColor.WOOD.getPackedId(MapColor.Brightness.HIGH) & 0xFF;
-        ModMain.LOGGER.info("[地图] 取色探针 center=({}, {}) packed={} colorId={} brightness={} argb=#{} 未探索={}",
-                centerX, centerZ, packed, colorId, brightness,
-                Integer.toHexString(argb), WorldSurfaceSampler.UNEXPLORED);
-        ModMain.LOGGER.info("[地图] 自检 MapColor.WOOD：col=#{} 经 mapArgb 还原=#{}（两者应一致）",
-                Integer.toHexString(MapColor.WOOD.col & 0xFFFFFF),
-                Integer.toHexString(mapArgb(woodPacked) & 0xFFFFFF));
-    }
-
     private void onMouseDown(Event event) {
         dragging = true;
         dragPixels = 0.0;
@@ -446,7 +561,7 @@ public class WorldMapElement extends Canvas {
         lastY = e.offsetY;
         dragPixels += Math.abs(dx) + Math.abs(dy);
 
-        int width = Math.max(24, (int) Math.round(Rect.of(this).getBodyRectSize().width()));
+        int width = Math.max(24, (int) Math.round(Box.of(this).innerSize().width()));
         double blocksAcross = (radius() * 2.0 + 1.0) / zoom;
         double scale = Math.max(1e-6, width / blocksAcross);
 
@@ -516,5 +631,53 @@ public class WorldMapElement extends Canvas {
     public String toString() {
         return String.format(Locale.ROOT, "WorldMapElement[zoom=%.2f, pan=%.1f,%.1f]",
                 zoom, panX, panZ);
+    }
+
+    private static void reportPaint() {
+        long now = System.nanoTime();
+        if (now - lastPaintStatNanos < PAINT_STAT_NANOS) {
+            return;
+        }
+        lastPaintStatNanos = now;
+        if (paintCalls > 0) {
+            ModMain.LOGGER.info("[地图] 重绘统计：全量 {} 次 共 {} ms（均 {} ms）",
+                    paintCalls,
+                    fmt(paintNanos / 1_000_000.0),
+                    fmt(paintNanos / 1_000_000.0 / paintCalls));
+        }
+        if (chunkPaintCalls > 0) {
+            ModMain.LOGGER.info("[地图] 重绘统计：局部 {} 次 共 {} ms（均 {} ms）",
+                    chunkPaintCalls,
+                    fmt(chunkPaintNanos / 1_000_000.0),
+                    fmt(chunkPaintNanos / 1_000_000.0 / chunkPaintCalls));
+        }
+        paintNanos = 0L;
+        paintCalls = 0;
+        chunkPaintNanos = 0L;
+        chunkPaintCalls = 0;
+    }
+
+    private static void reportFailure(String stage, Throwable failure) {
+        failures++;
+        if (failures <= 8) {
+            ModMain.LOGGER.error("[地图] " + stage + " 抛异常（第 " + failures + " 次）", failure);
+        }
+    }
+
+    private static void reportZeroInner(Size inner, Size body) {
+        if (loggedZeroInner) {
+            return;
+        }
+        loggedZeroInner = true;
+        String bodyText = body == null ? "未取" : (fmt(body.width()) + "x" + fmt(body.height()));
+        ModMain.LOGGER.warn("[地图] 内容尺寸为 0：inner={}x{} bodyRect={} → AUI 的默认 drawCanvas 会直接 return，地图不会绘制",
+                fmt(inner.width()), fmt(inner.height()), bodyText);
+    }
+
+    private static String fmt(double value) {
+        if (!Double.isFinite(value)) {
+            return String.valueOf(value);
+        }
+        return String.format(Locale.ROOT, "%.2f", value);
     }
 }

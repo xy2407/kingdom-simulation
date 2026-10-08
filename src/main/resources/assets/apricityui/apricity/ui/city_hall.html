@@ -984,6 +984,137 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   background:rgba(10,6,4,.45);
   pointer-events:none;
 }
+
+/* ============================================================
+   领地等级：据点 → 村落 → 集镇 → 城池 → 城邦
+   ------------------------------------------------------------
+   五枚徽记横排成一条轨道，节点间用硬线连接。三态：
+     · .is-passed  已达成——金底、暗金描边
+     · .is-current 当前档——亮纸底 + 金环（两层，画在 box-shadow 上）
+     · 默认        未达成——压暗纸底
+   节点一律**方形**：本页回避 transform（rotate 的菱形在 AUI 里不可靠），
+   装饰语汇与 .pane / .rbox / .realm-row 完全同源。
+   轨道用 flex 排、连接线 flex:1 吃剩余宽——不用 grid 分栏、不用 gap。
+   ============================================================ */
+.tier-track{
+  display:flex;
+  align-items:center;
+  flex-shrink:0;
+  margin-top:10px;
+}
+
+.tier-node{
+  flex:0 0 auto;
+  width:48px;
+  height:32px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:12px;
+  line-height:16px;
+  /* 两个字在 flex 居中下会被 letter-spacing 顶偏，用 text-indent 拉回来 */
+  letter-spacing:2px;
+  text-indent:2px;
+  color:rgba(74,50,24,.5);
+  background-color:var(--parchment-lo);
+  border:2px solid var(--border-dark);
+  box-shadow:
+    0 0 0 1px #2a1a08,
+    inset 1px 1px 0 rgba(255,240,200,.26),
+    inset -1px -1px 0 rgba(58,40,20,.34);
+}
+
+/* 已达成：金底 */
+.tier-node.is-passed{
+  color:#1a1208;
+  background-color:var(--gold);
+  border-color:#8a6d17;
+  box-shadow:
+    0 0 0 1px #2a1a08,
+    inset 1px 1px 0 var(--gold-l),
+    inset -1px -1px 0 #8a6d17;
+}
+
+/* 当前档：亮纸 + 金环 */
+.tier-node.is-current{
+  color:var(--ink);
+  background-color:var(--parchment-hi);
+  border-color:var(--border-deep);
+  box-shadow:
+    0 0 0 2px var(--gold),
+    inset 2px 2px 0 #fff6cf,
+    inset -2px -2px 0 var(--border-mid);
+}
+
+.tier-link{
+  flex:1 1 auto;
+  min-width:6px;
+  height:4px;
+  background-color:var(--border-dark);
+  box-shadow:inset 0 1px 0 rgba(255,240,200,.14);
+}
+
+.tier-link.is-passed{
+  background-color:var(--gold);
+  box-shadow:inset 0 1px 0 var(--gold-l);
+}
+
+/* ---------- 当前档 / 下一级：两行小框，照 .realm-row 的语汇 ---------- */
+.tier-info{
+  display:flex;
+  flex-direction:column;
+  flex-shrink:0;
+  margin-top:10px;
+}
+
+.tier-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:6px 10px;
+  background-color:var(--parchment);
+  border:2px solid var(--border-dark);
+  box-shadow:
+    0 0 0 1px var(--border-mid),
+    inset 0 0 0 1px var(--border-light),
+    inset 2px 2px 0 0 var(--border-hi),
+    inset -2px -2px 0 0 var(--border-mid);
+}
+
+.tier-row + .tier-row{margin-top:8px;}
+
+.tier-k{
+  flex-shrink:0;
+  font-size:12px;
+  line-height:16px;
+  letter-spacing:3px;
+  text-indent:3px;
+  color:var(--ink-2);
+  margin-right:12px;
+}
+
+.tier-v{
+  min-width:0;
+  font-size:14px;
+  line-height:18px;
+  color:var(--ink);
+  text-align:right;
+  overflow:hidden;
+  white-space:nowrap;
+}
+
+/* 人口条件条：直接复用 .vital-head / .vital-bar 的语汇与 <npc-bar> */
+.tier-cond{
+  display:flex;
+  flex-direction:column;
+  flex-shrink:0;
+  margin-top:10px;
+}
+
+.tier-cond.is-max .vital-label,
+.tier-cond.is-max .vital-num b,
+.tier-cond.is-max .vital-num i{color:var(--gold);}
+
 </style>
 </head>
 <body>
@@ -1114,6 +1245,48 @@ npc-bar,kingdom-entity-avatar,world-map,img{
           <div class="realm-row">
             <span class="realm-k">当前政策</span>
             <span class="realm-v" id="chRealmPolicy">屯田令</span>
+          </div>
+        </div>
+
+        <div class="sep"></div>
+
+        <div class="eyebrow">领 地 等 级</div>
+
+        <!-- 五级徽记轨道：据点 → 村落 → 集镇 → 城池 → 城邦。
+             等级完全由人口推导（初始即据点），节点三态由 Java 切类：
+               已达成 → .is-passed，当前档 → .is-current，未达成 → 不切。
+             连接线同理切 .is-passed。结构里不预置任何状态。 -->
+        <div class="tier-track" id="chTierTrack">
+          <div class="tier-node" id="chTierNode0">据点</div>
+          <div class="tier-link" id="chTierLink0"></div>
+          <div class="tier-node" id="chTierNode1">村落</div>
+          <div class="tier-link" id="chTierLink1"></div>
+          <div class="tier-node" id="chTierNode2">集镇</div>
+          <div class="tier-link" id="chTierLink2"></div>
+          <div class="tier-node" id="chTierNode3">城池</div>
+          <div class="tier-link" id="chTierLink3"></div>
+          <div class="tier-node" id="chTierNode4">城邦</div>
+        </div>
+
+        <div class="tier-info">
+          <div class="tier-row">
+            <span class="tier-k">当 前</span>
+            <span class="tier-v" id="chTierNow">据点</span>
+          </div>
+          <div class="tier-row">
+            <span class="tier-k">下 一 级</span>
+            <span class="tier-v" id="chTierNext">村落 · 需 24 人口</span>
+          </div>
+        </div>
+
+        <!-- 人口条件：满档时 Java 给 .tier-cond 加 .is-max，整行转金 -->
+        <div class="tier-cond" id="chTierCond">
+          <div class="vital-head">
+            <span class="vital-label">人口条件</span>
+            <span class="vital-num"><b id="chTierPopNow">48</b><i id="chTierPopNeed">/ 24</i></span>
+          </div>
+          <div class="vital-bar">
+            <npc-bar class="vital-canvas" id="chTierPopBar" type="gold" value="48" max="24"></npc-bar>
           </div>
         </div>
 
