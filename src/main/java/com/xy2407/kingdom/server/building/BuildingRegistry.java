@@ -20,6 +20,7 @@ import com.xy2407.kingdom.common.building.BuildingTask;
 import com.xy2407.kingdom.common.building.BuildingType;
 import com.xy2407.kingdom.common.persistence.BuildingSchema;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
+import com.xy2407.kingdom.server.mapoverlay.MapOverlayCollector;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Vec3i;
@@ -68,6 +69,7 @@ public final class BuildingRegistry {
         records.add(building);
         KingdomPersistence.submit(BuildingSchema.TABLE_BUILDING, BuildingSchema.COL_UUID,
                 building.id().toString(), toValues(building));
+        MapOverlayCollector.pushAll();
     }
 
     private static int farmSlotsOf(String blueprintName) {

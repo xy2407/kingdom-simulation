@@ -3,18 +3,19 @@ package com.xy2407.kingdom.common.faction;
 import java.util.UUID;
 
 /**
- * 玩家档案：首登状态、所属国家与领地，按需建行并增量落库。
+ * 玩家档案：玩家名、首登状态、所属国家与领地，按需建行并增量落库。
  */
-public record PlayerProfile(UUID uuid, String nationId, String territoryId,
+public record PlayerProfile(UUID uuid, String playerName, String nationId, String territoryId,
                             boolean onboarded, int firstJoinDay) {
 
     public PlayerProfile {
+        playerName = playerName == null ? "" : playerName;
         nationId = nationId == null ? "" : nationId;
         territoryId = territoryId == null ? "" : territoryId;
     }
 
     public static PlayerProfile fresh(UUID uuid, int day) {
-        return new PlayerProfile(uuid, "", "", false, day);
+        return new PlayerProfile(uuid, "", "", "", false, day);
     }
 
     public boolean hasNation() {
@@ -25,15 +26,19 @@ public record PlayerProfile(UUID uuid, String nationId, String territoryId,
         return !territoryId.isBlank();
     }
 
+    public PlayerProfile withName(String newPlayerName) {
+        return new PlayerProfile(uuid, newPlayerName, nationId, territoryId, onboarded, firstJoinDay);
+    }
+
     public PlayerProfile withNation(String newNationId) {
-        return new PlayerProfile(uuid, newNationId, territoryId, onboarded, firstJoinDay);
+        return new PlayerProfile(uuid, playerName, newNationId, territoryId, onboarded, firstJoinDay);
     }
 
     public PlayerProfile withTerritory(String newTerritoryId) {
-        return new PlayerProfile(uuid, nationId, newTerritoryId, onboarded, firstJoinDay);
+        return new PlayerProfile(uuid, playerName, nationId, newTerritoryId, onboarded, firstJoinDay);
     }
 
     public PlayerProfile withOnboarded() {
-        return new PlayerProfile(uuid, nationId, territoryId, true, firstJoinDay);
+        return new PlayerProfile(uuid, playerName, nationId, territoryId, true, firstJoinDay);
     }
 }

@@ -50,11 +50,12 @@ public record RanchPanelStatePacket(boolean inside, String buildingName, int bui
         }
     }
 
-    public record Worker(UUID id, String name, String skin, String note) {
+    public record Worker(UUID id, String name, String skin, String note, String shift) {
         public Worker {
             name = name == null ? "" : name;
             skin = skin == null ? "" : skin;
             note = note == null ? "" : note;
+            shift = shift == null ? "" : shift;
         }
     }
 
@@ -126,7 +127,7 @@ public record RanchPanelStatePacket(boolean inside, String buildingName, int bui
         int workerCount = buf.readVarInt();
         List<Worker> workers = new ArrayList<>(workerCount);
         for (int index = 0; index < workerCount; index++) {
-            workers.add(new Worker(buf.readUUID(), buf.readUtf(64), buf.readUtf(128), buf.readUtf(16)));
+            workers.add(new Worker(buf.readUUID(), buf.readUtf(64), buf.readUtf(128), buf.readUtf(16), buf.readUtf(16)));
         }
 
         return new RanchPanelStatePacket(inside, buildingName, buildingLevel, position, animals, workers);

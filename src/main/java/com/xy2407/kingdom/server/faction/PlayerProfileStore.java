@@ -134,9 +134,21 @@ public final class PlayerProfileStore {
                 PlayerProfileSchema.COL_UUID, profile.uuid().toString(), toValues(profile));
     }
 
+    public PlayerProfile setName(UUID uuid, String name) {
+        PlayerProfile profile = byId.get(uuid);
+        if (profile == null || name == null || name.isBlank() || name.equals(profile.playerName())) {
+            return profile;
+        }
+        PlayerProfile updated = profile.withName(name);
+        byId.put(uuid, updated);
+        persist(updated);
+        return updated;
+    }
+
     private static PlayerProfile readRow(ResultSet rs) throws SQLException {
         return new PlayerProfile(
                 UUID.fromString(rs.getString(PlayerProfileSchema.COL_UUID)),
+                rs.getString(PlayerProfileSchema.COL_PLAYER_NAME),
                 rs.getString(PlayerProfileSchema.COL_NATION_ID),
                 rs.getString(PlayerProfileSchema.COL_TERRITORY_ID),
                 rs.getInt(PlayerProfileSchema.COL_ONBOARDED) != 0,
@@ -145,6 +157,7 @@ public final class PlayerProfileStore {
 
     private static Map<String, Object> toValues(PlayerProfile profile) {
         Map<String, Object> values = new LinkedHashMap<>();
+        values.put(PlayerProfileSchema.COL_PLAYER_NAME, profile.playerName());
         values.put(PlayerProfileSchema.COL_NATION_ID, profile.nationId());
         values.put(PlayerProfileSchema.COL_TERRITORY_ID, profile.territoryId());
         values.put(PlayerProfileSchema.COL_ONBOARDED, profile.onboarded() ? 1 : 0);

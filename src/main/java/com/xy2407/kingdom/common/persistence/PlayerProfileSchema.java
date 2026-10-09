@@ -10,13 +10,14 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 玩家档案表迁移：首登标记、归属（国家与领地）以及上次看地图的中心点。
+ * 玩家档案表迁移：玩家名、首登标记与归属（国家与领地）。
  */
 public final class PlayerProfileSchema implements Migration {
     private static final Map<String, String> COLUMN_DEFS = buildColumnDefs();
 
     public static final String TABLE_PLAYER_PROFILE = "player_profile";
     public static final String COL_UUID = "uuid";
+    public static final String COL_PLAYER_NAME = "player_name";
     public static final String COL_NATION_ID = "nation_id";
     public static final String COL_TERRITORY_ID = "territory_id";
     public static final String COL_ONBOARDED = "onboarded";
@@ -25,7 +26,7 @@ public final class PlayerProfileSchema implements Migration {
 
     @Override
     public int version() {
-        return 15;
+        return 16;
     }
 
     @Override
@@ -84,6 +85,7 @@ public final class PlayerProfileSchema implements Migration {
     private static Map<String, String> buildColumnDefs() {
         Map<String, String> defs = new LinkedHashMap<>();
         defs.put(COL_UUID, "TEXT PRIMARY KEY");
+        defs.put(COL_PLAYER_NAME, "TEXT NOT NULL DEFAULT ''");
         defs.put(COL_NATION_ID, "TEXT NOT NULL DEFAULT ''");
         defs.put(COL_TERRITORY_ID, "TEXT NOT NULL DEFAULT ''");
         defs.put(COL_ONBOARDED, "INTEGER NOT NULL DEFAULT 0");
@@ -94,7 +96,7 @@ public final class PlayerProfileSchema implements Migration {
 
     public static String columns() {
         return String.join(", ", new String[] {
-                COL_UUID, COL_NATION_ID, COL_TERRITORY_ID, COL_ONBOARDED,
+                COL_UUID, COL_PLAYER_NAME, COL_NATION_ID, COL_TERRITORY_ID, COL_ONBOARDED,
                 COL_FIRST_JOIN_DAY, COL_UPDATED_AT
         });
     }

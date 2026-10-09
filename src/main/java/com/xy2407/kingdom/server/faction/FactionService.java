@@ -16,6 +16,7 @@ import com.xy2407.kingdom.common.network.faction.FactionHooks;
 import com.xy2407.kingdom.common.network.faction.FactionSelectPacket;
 import com.xy2407.kingdom.common.network.faction.FactionStatePacket;
 import com.xy2407.kingdom.common.network.faction.TerritoryCreatePacket;
+import com.xy2407.kingdom.server.mapoverlay.MapOverlayCollector;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
@@ -51,6 +52,7 @@ public final class FactionService {
             UUID uuid = player.getUUID();
             online.add(uuid);
             PlayerProfile profile = PlayerProfileStore.INSTANCE.remember(uuid, day);
+            PlayerProfileStore.INSTANCE.setName(uuid, player.getGameProfile().getName());
             if (profile == null || profile.onboarded() || !PROMPTED.add(uuid)) {
                 continue;
             }
@@ -129,6 +131,7 @@ public final class FactionService {
 
         PlayerProfileStore.INSTANCE.setTerritory(player.getUUID(), territory.id());
         sendState(player);
+        MapOverlayCollector.pushAll();
         ModMain.LOGGER.info("{} 建立了领地 {}，范围区块 X[{}..{}] Z[{}..{}]",
                 player.getName().getString(), name,
                 territory.minChunkX(), territory.maxChunkX(),

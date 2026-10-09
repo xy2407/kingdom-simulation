@@ -5,9 +5,11 @@ import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.client.cityhall.CityHallScreen;
 import com.xy2407.kingdom.client.farm.FarmPanelScreen;
 import com.xy2407.kingdom.client.ranch.RanchPanelScreen;
+import com.xy2407.kingdom.client.map.MapOverlayStore;
 import com.xy2407.kingdom.common.network.building.BuildingPanelHooks;
 import com.xy2407.kingdom.common.network.building.BuildingSiteHooks;
 import com.xy2407.kingdom.common.network.cityhall.CityHallHooks;
+import com.xy2407.kingdom.common.network.mapoverlay.MapOverlayHooks;
 import com.xy2407.kingdom.common.network.farm.FarmPanelHooks;
 import com.xy2407.kingdom.common.network.ranch.RanchPanelHooks;
 
@@ -49,6 +51,7 @@ public final class BuildingClientSetup {
         RanchPanelHooks.stateSink = RanchPanelScreen::accept;
         CityHallHooks.openSink = CityHallScreen::open;
         CityHallHooks.dataSink = CityHallScreen::accept;
+        MapOverlayHooks.dataSink = MapOverlayStore::accept;
     }
 
     @SubscribeEvent

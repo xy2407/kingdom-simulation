@@ -2,11 +2,21 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="aui-viewport" content="mode=fixed,width=1200,height=1182,scale=0.4864,zoom=1,min-zoom=0.5,max-zoom=2,zoom-step=0.1,user-scalable=true">
-<!-- scale 定标说明：0.4864 = 2 × 18/74，即默认槽位 = 36 GUI px（原版 2 倍），
-     整页 = 原设计 ÷2。Ctrl+滚轮范围：min-zoom 0.5（=旧定标 0.2432，槽位=原版）
-     ～ max-zoom 2（=0.9728，槽位≈72），Ctrl+0 回到默认。
-     想回到"撑满窗口"的等比适配就改回 scale=fit。 -->
+<meta name="aui-viewport" content="mode=fixed,width=1200,height=1182,scale=fit,zoom=1,min-zoom=1,max-zoom=1,user-scalable=false">
+<!-- scale=fit：与 city_hall.html 同一套结论 —— 固定数字是"绝对倍率"，
+     窗口一缩文档尺寸不变（不缩放），而居中偏移是按视口算的 ⇒ 偏移失义、文档还会被裁。
+     fit 把倍率交给 min(GUI宽÷1200, GUI高÷1182)，窗口一变就重算，整稿等比放进视口。
+     旧值 0.4864（= 2 × 18/74，槽位 36 GUI px = 原版 2 倍的定标）的代价是"只在某个窗口
+     尺寸下成立"：实测 1920×1080 / GUI Scale 2 下文档已缩放成 583×575，比 540 高的视口还大，
+     底部必被裁；窗口再小只会更糟。槽位坐标侧不用管（SlotDataBinder 用 viewportScaleX 现算，
+     裁剪框与菜单槽位读 Document 的 offset，都随 fit 自动跟着走）。
+     zoom 钉死 1：倍率已归 fit 决定，而 zoom 在 fit 下只改逻辑坐标精度、不改变实际显示大小。 -->
+<!-- 本页**故意不写** aui-mouse-events=intercept（§11 坑 32）：
+     intercept 会让命中区域的鼠标事件不再传给下方的 Minecraft 输入，
+     而容器槽位的取放走的是原版菜单（AbstractContainerScreen.mouseClicked），
+     一拦截就整个界面都点不动（悬停高亮/tooltip 照常显示，只是拿不起来）。
+     本页没有任何需要 DOM 点击的元素（槽位是 pointer-events:none），所以裸奔即可；
+     顺带确认过 Ctrl+滚轮缩放不依赖它（findViewportZoomTargetAtMouse 只要求 hitTest 命中）。 -->
 <!-- 本页**故意不写** aui-mouse-events=intercept（§11 坑 32）：
      intercept 会让命中区域的鼠标事件不再传给下方的 Minecraft 输入，
      而容器槽位的取放走的是原版菜单（AbstractContainerScreen.mouseClicked），

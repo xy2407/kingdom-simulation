@@ -11,6 +11,9 @@ public enum NpcDetail {
     HARVESTING(NpcSubState.WORKING),
     FARMING(NpcSubState.WORKING),
     RANCHING(NpcSubState.WORKING),
+    PRODUCING(NpcSubState.WORKING),
+    LOGGING(NpcSubState.WORKING),
+    COOKING(NpcSubState.WORKING),
     SLEEPING(NpcSubState.RESTING),
     WANDERING(NpcSubState.RESTING),
     FORAGING(NpcSubState.HUNGRY),
@@ -38,7 +41,10 @@ public enum NpcDetail {
             case PLANTING -> "播种";
             case HARVESTING -> "收割";
             case FARMING -> "守着农田";
-            case RANCHING -> "饲养";
+            case RANCHING -> "饲养中";
+            case PRODUCING -> "生产中";
+            case LOGGING -> "伐木中";
+            case COOKING -> "做菜中";
             case SLEEPING -> "睡觉";
             case WANDERING -> "闲逛";
             case FORAGING -> "找吃的";

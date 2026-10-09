@@ -15,6 +15,7 @@ import com.xy2407.kingdom.common.network.ranch.RanchPanelRequestPacket;
 import com.xy2407.kingdom.common.network.ranch.RanchPanelStatePacket;
 import com.xy2407.kingdom.common.network.ranch.RanchPanelStatePacket.Animal;
 import com.xy2407.kingdom.common.network.ranch.RanchPanelStatePacket.Worker;
+import com.xy2407.kingdom.common.npc.NpcShift;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -37,6 +38,8 @@ public final class RanchPanelScreen extends ApricityScreen {
     private static final String ROW = "bp-item";
     private static final String TAG_ITEM = "item";
     private static final String MODE_SLAUGHTER = "slaughter";
+    private static final String SHIFT_DAY = NpcShift.DAY_SHIFT.name();
+    private static final String SHIFT_NIGHT = NpcShift.NIGHT_SHIFT.name();
     private static final int REFRESH_INTERVAL = 40;
 
     private Document boundDocument;
@@ -285,6 +288,8 @@ public final class RanchPanelScreen extends ApricityScreen {
         for (int index = 0; index < visible.size(); index++) {
             Worker worker = visible.get(index);
             boolean hired = keepers.contains(worker.id());
+            boolean onDay = hired && SHIFT_DAY.equals(worker.shift());
+            boolean onNight = hired && SHIFT_NIGHT.equals(worker.shift());
             String state = worker.note().isBlank() ? (hired ? "饲养中" : "空闲") : worker.note();
             html.append("<div class=\"").append(ROW).append(hired ? " " + ON : "")
                     .append("\" id=\"rc-worker-").append(index).append("\">")
@@ -292,15 +297,23 @@ public final class RanchPanelScreen extends ApricityScreen {
                     .append(escape(worker.skin())).append("\"></kingdom-entity-avatar>")
                     .append("<span class=\"bp-name\">").append(escape(worker.name())).append("</span>")
                     .append("<span class=\"bp-sub\">").append(escape(state)).append("</span>")
+                    .append("<span class=\"bp-shift").append(onDay ? " " + ON : "")
+                    .append("\" id=\"rc-worker-").append(index).append("-day\">白天</span>")
+                    .append("<span class=\"bp-shift").append(onNight ? " " + ON : "")
+                    .append("\" id=\"rc-worker-").append(index).append("-night\">夜晚</span>")
                     .append("</div>");
         }
         workersHost.setInnerHTML(html.toString());
 
         for (int index = 0; index < visible.size(); index++) {
             Worker worker = visible.get(index);
-            Element row = boundDocument.getElementById("rc-worker-" + index);
-            if (row != null) {
-                row.addEventListener("click", event -> toggleKeeper(worker.id()));
+            Element day = boundDocument.getElementById("rc-worker-" + index + "-day");
+            if (day != null) {
+                day.addEventListener("click", event -> setKeeper(worker.id(), NpcShift.DAY_SHIFT));
+            }
+            Element night = boundDocument.getElementById("rc-worker-" + index + "-night");
+            if (night != null) {
+                night.addEventListener("click", event -> setKeeper(worker.id(), NpcShift.NIGHT_SHIFT));
             }
         }
     }
@@ -332,12 +345,12 @@ public final class RanchPanelScreen extends ApricityScreen {
         send(RanchPanelActionPacket.toggleRun(selectedPenId));
     }
 
-    private void toggleKeeper(UUID workerId) {
+    private void setKeeper(UUID workerId, NpcShift shift) {
         if (selectedPenId == null) {
             hint("先点一种动物");
             return;
         }
-        send(RanchPanelActionPacket.toggleKeeper(selectedPenId, workerId));
+        send(RanchPanelActionPacket.setKeeper(selectedPenId, workerId, shift));
     }
 
     private void clearKeepers() {

@@ -3,6 +3,7 @@ package com.xy2407.kingdom.common.network.ranch;
 import java.util.UUID;
 
 import com.xy2407.kingdom.ModMain;
+import com.xy2407.kingdom.common.npc.NpcShift;
 import com.xy2407.kingdom.server.ranch.RanchPanelService;
 
 import net.minecraft.network.RegistryFriendlyByteBuf;
@@ -15,7 +16,8 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 /**
  * 客户端 → 服务端：一次养殖操作，行为按 action 区分，作用对象是某一栏
  */
-public record RanchPanelActionPacket(int action, UUID penId, String text) implements CustomPacketPayload {
+public record RanchPanelActionPacket(int action, UUID penId, String text, String shift)
+        implements CustomPacketPayload {
 
     public static final int ACTION_TOGGLE_RUN = 0;
     public static final int ACTION_SET_KEEPER = 1;
@@ -34,16 +36,17 @@ public record RanchPanelActionPacket(int action, UUID penId, String text) implem
     }
 
     public static RanchPanelActionPacket toggleRun(UUID penId) {
-        return new RanchPanelActionPacket(ACTION_TOGGLE_RUN, penId, "");
+        return new RanchPanelActionPacket(ACTION_TOGGLE_RUN, penId, "", "");
     }
 
-    public static RanchPanelActionPacket toggleKeeper(UUID penId, UUID workerId) {
+    public static RanchPanelActionPacket setKeeper(UUID penId, UUID workerId, NpcShift shift) {
         return new RanchPanelActionPacket(ACTION_SET_KEEPER, penId,
-                workerId == null ? "" : workerId.toString());
+                workerId == null ? "" : workerId.toString(),
+                shift == null ? "" : shift.name());
     }
 
     public static RanchPanelActionPacket clearKeepers(UUID penId) {
-        return new RanchPanelActionPacket(ACTION_CLEAR_KEEPERS, penId, "");
+        return new RanchPanelActionPacket(ACTION_CLEAR_KEEPERS, penId, "", "");
     }
 
     public UUID penIdOrNull() {
@@ -62,14 +65,19 @@ public record RanchPanelActionPacket(int action, UUID penId, String text) implem
         }
     }
 
+    public NpcShift shiftOrNull() {
+        return shift == null || shift.isBlank() ? null : NpcShift.parse(shift.trim());
+    }
+
     private static void encode(RegistryFriendlyByteBuf buf, RanchPanelActionPacket packet) {
         buf.writeVarInt(packet.action());
         buf.writeUUID(packet.penId() == null ? new UUID(0L, 0L) : packet.penId());
         buf.writeUtf(packet.text() == null ? "" : packet.text(), 64);
+        buf.writeUtf(packet.shift() == null ? "" : packet.shift(), 16);
     }
 
     private static RanchPanelActionPacket decode(RegistryFriendlyByteBuf buf) {
-        return new RanchPanelActionPacket(buf.readVarInt(), buf.readUUID(), buf.readUtf(64));
+        return new RanchPanelActionPacket(buf.readVarInt(), buf.readUUID(), buf.readUtf(64), buf.readUtf(16));
     }
 
     public static void handle(RanchPanelActionPacket packet, IPayloadContext context) {

@@ -96,6 +96,11 @@ public final class ClientMapStore {
         return chunks != null && chunks.containsKey(ChunkPos.asLong(chunkX, chunkZ));
     }
 
+    public static boolean explored(int chunkX, int chunkZ) {
+        Map<Long, byte[]> chunks = focused == null ? null : CHUNKS.get(focused);
+        return chunks != null && chunks.containsKey(ChunkPos.asLong(chunkX, chunkZ));
+    }
+
     public static void record(ResourceKey<Level> dimension, int chunkX, int chunkZ, int[] colors) {
         if (dimension == null || colors == null || colors.length < CHUNK_CELLS) {
             return;

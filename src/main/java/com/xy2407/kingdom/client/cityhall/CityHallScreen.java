@@ -7,6 +7,7 @@ import com.sighs.apricityui.init.Document;
 import com.sighs.apricityui.init.Element;
 import com.sighs.apricityui.screen.ApricityScreen;
 import com.xy2407.kingdom.client.aui.WorldMapElement;
+import com.xy2407.kingdom.client.map.MapOverlayStore;
 import com.xy2407.kingdom.common.network.cityhall.CityHallDataPacket;
 
 import net.minecraft.client.Minecraft;
@@ -29,6 +30,8 @@ public final class CityHallScreen extends ApricityScreen {
     private boolean viewInitialized;
 
     private static final String[] MAP_VIEW_ATTRIBUTES = {"center-x", "center-z", "zoom"};
+
+    private static final String[] MAP_TIP_IDS = {"chMapTip", "chMapFullTip"};
 
     private static final String[] TIER_NAMES = {"据点", "村落", "集镇", "城池", "城邦"};
 
@@ -172,6 +175,8 @@ public final class CityHallScreen extends ApricityScreen {
         if (fullMap != null) {
             fullMap.addEventListener("wheel", event -> event.preventDefault());
         }
+
+        MapOverlayStore.setChangeListener(() -> refreshMapTip(document));
 
         click(document, "chModalClose", () -> closeModal(document));
         click(document, "chModalDayClose", () -> {
@@ -495,6 +500,40 @@ public final class CityHallScreen extends ApricityScreen {
 
     private static String orDash(String text) {
         return text == null || text.isBlank() ? "—" : text;
+    }
+
+    private static void refreshMapTip(Document document) {
+        String html = mapTipHtml();
+        for (int index = 0; index < MAP_TIP_IDS.length; index++) {
+            Element tip = document.getElementById(MAP_TIP_IDS[index]);
+            if (tip == null) {
+                continue;
+            }
+            if (html.isEmpty()) {
+                tip.getClassList().toggle("is-open", false);
+            } else {
+                tip.setInnerHTML(html);
+                tip.getClassList().toggle("is-open", true);
+            }
+        }
+    }
+
+    private static String mapTipHtml() {
+        MapOverlayStore.BuildingView building = MapOverlayStore.selectedBuilding();
+        if (building != null) {
+            int width = building.maxX() - building.minX() + 1;
+            int depth = building.maxZ() - building.minZ() + 1;
+            return "<span class=\"k\">" + escape(building.name()) + "</span>"
+                    + "<span class=\"v\">占地 " + width + " × " + depth + "</span>";
+        }
+        MapOverlayStore.TerritoryView territory = MapOverlayStore.selectedTerritory();
+        if (territory != null) {
+            return "<span class=\"k\">" + escape(territory.name()) + "</span>"
+                    + "<span class=\"v\">领主 " + escape(territory.ownerName()) + "</span>"
+                    + "<span class=\"v\">" + escape(territory.tier()) + "</span>"
+                    + "<span class=\"v\">" + escape(territory.nationLabel()) + "</span>";
+        }
+        return "";
     }
 
     private static String escape(String text) {

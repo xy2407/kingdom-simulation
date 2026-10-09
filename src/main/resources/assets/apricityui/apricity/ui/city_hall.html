@@ -2,19 +2,24 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<!-- 纯 DOM 页的居中靠**成对的两个 mixin**完成（这正是 backpack 一直正常的原因）：
-     · AuiDocumentCenterMixin（注 Document.applyViewport）把居中偏移写进 Document.viewportTransform
-       —— **只有输入映射消费它**（screenToDocumentPosition / tooltip / 点击热区）；
-     · AuiScreenDocCenterMixin（注 ApricityScreen.render，kingdom 照容器页那套补出来的）
-       在绘制前后成对 translate **同一个偏移** —— 画面这才跟着走。
-     两者一致后，mode=fixed + scale 在纯 DOM 页上也能正确居中，点击与画面不再错位。
-     （容器页一直有对应的 AuiContainerDocCenterMixin，所以 backpack.html 从来不出这个问题；
-     从前纯 DOM 页缺第二个 mixin，一加偏移就变成"画面钉左上、点击按居中算"。）
-     · width/height 是文档逻辑尺寸 1124×854 = 面板 1080×810 + 四周 22px；
-     · scale=0.45 把它缩到约 506×384 GUI px。缩放后文档必须**小于视口**，
-       mixin 的「已占满视口就不动」短路才不会命中——0.45 对常见视口都留有余量。
-     zoom 钉死 1（铁律 1）：像素字体被非整数缩放会糊。 -->
-<meta name="aui-viewport" content="mode=fixed,width=1124,height=854,scale=0.45,zoom=1,min-zoom=1,max-zoom=1,user-scalable=false">
+<!-- 缩放与居中分开处理，两件事各有各的来源：
+     【缩放】AUI 原生 scale=fit（机制与 xy's_nsuk 侧边栏同源：外层按屏幕算锚点、
+     内层固定设计稿整体缩放）：
+     · width/height = 设计稿逻辑尺寸 1124×854（面板 1080×810 + 四周 22px 投影留白）；
+     · scale=fit → renderScale = min(GUI宽÷1124, GUI高÷854)，窗口一变就重算，
+       整页连文字一起等比缩放，四边留白都在稿内，**整稿永不被裁**。
+       旧值 scale=0.45 是**固定倍率**，窗口缩小它不变——那就是"没跟着缩"的根因，已修。
+     【居中】AUI 原生做不到，只能靠成对补丁：
+     · fit 只保证一个方向铺满，另一个方向的余量全落在右/下（Document#applyViewport 把
+       文档偏移恒写成 0,0）——这就是那个"严重左偏"。官方文档没有文档级居中开关，
+       《AUI使用总结》§16 D8 记的就是这条源码事实；
+     · 所以仍需 AuiDocumentCenterMixin（居中偏移写进 viewportTransform，管输入映射：
+       hitTest / tooltip / 点击热区）+ AuiScreenDocCenterMixin（绘制前后成对 translate
+       同一个偏移，管画面）。**两者必须成对**，缺一个就是"画在这里、点在那里"。
+     · 偏移由 AuiDocPlacement.centeredOffset 统一计算；窗口 resize 时 ApricityScreen.init()
+       会重建 Document 并重跑 applyViewport，两侧偏移一起更新，不会失同步。
+     zoom 钉死 1：倍率已由 fit 决定，再叠 zoom 会让像素字体发糊（铁律 1）。 -->
+<meta name="aui-viewport" content="mode=fixed,width=1124,height=854,scale=fit,zoom=1,min-zoom=1,max-zoom=1,user-scalable=false">
 <!-- 纯 DOM 页（没有任何真实槽位），必须写 intercept，否则输入框与按钮点不动。
      有真实槽位的容器页绝不能写这条（§11 坑 32）。 -->
 <meta name="aui-mouse-events" content="intercept">
@@ -139,9 +144,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   background-size:100% 100%;
   background-repeat:no-repeat;
   image-rendering:pixelated;
-  box-shadow:
-    8px 8px 0 0 rgba(0,0,0,.5),
-    16px 16px 0 0 rgba(0,0,0,.28);
+  
 }
 
 /* 三个主框紧贴拼成一块：间距为 0，各栏自己带边框。
@@ -178,11 +181,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   padding:10px 12px;
   background-color:var(--parchment);
   border:2px solid var(--border-dark);
-  box-shadow:
-    0 0 0 1px var(--border-mid),
-    inset 0 0 0 1px var(--border-light),
-    inset 2px 2px 0 0 var(--border-hi),
-    inset -2px -2px 0 0 var(--border-mid);
+  box-shadow: 0 0 0 1px var(--border-mid), inset 0 0 0 1px var(--border-light);
 }
 
 .rbox + .rbox{margin-top:16px;}
@@ -204,14 +203,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   background-size:100% 100%;
   background-repeat:no-repeat;
   image-rendering:pixelated;
-  box-shadow:
-    0 0 0 2px #2a1a08,
-    0 0 0 4px #4a3218,
-    0 0 0 6px #6a4a20,
-    0 0 0 8px #3a2814,
-    inset 0 0 0 2px #8a6e3c,
-    inset 2px 2px 0 0 #d8bc8c,
-    inset -2px -2px 0 0 #4a3218;
+  box-shadow: 0 0 0 2px #2a1a08, 0 0 0 4px #4a3218, 0 0 0 6px #6a4a20, 0 0 0 8px #3a2814, inset 0 0 0 2px #8a6e3c;
 }
 
 .pane-head{
@@ -221,7 +213,6 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   padding-bottom:8px;
   margin-bottom:12px;
   border-bottom:2px solid var(--border-mid);
-  box-shadow:0 1px 0 rgba(255,240,200,.45);
 }
 
 .pane-title{
@@ -244,7 +235,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   height:6px;
   margin-right:9px;
   background:var(--border-mid);
-  box-shadow:0 0 0 1px var(--border-deep);
+  box-shadow: 0 0 0 1px var(--border-deep);
   transform:translateY(-1px) rotate(45deg);
 }
 
@@ -299,11 +290,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   /* 地图框在面板内部，改用原稿 .np-attr 那套「实边 + 内环」：
      不再向外扩，免得和面板自己的 8 环叠成一片 */
   border:2px solid var(--border-dark);
-  box-shadow:
-    0 0 0 1px var(--border-mid),
-    inset 0 0 0 1px var(--border-light),
-    inset 2px 2px 0 0 var(--border-hi),
-    inset -2px -2px 0 0 var(--border-dark);
+  box-shadow: 0 0 0 1px var(--border-mid), inset 0 0 0 1px var(--border-light);
   display:flex;
   align-items:center;
   justify-content:center;
@@ -355,11 +342,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   position:relative;
   height:22px;
   background-color:var(--border-deep);
-  box-shadow:
-    0 0 0 2px #2a1a08,
-    inset 0 0 0 2px var(--border-mid),
-    inset 1px 1px 0 0 var(--border-dark),
-    inset -1px -1px 0 0 var(--border-light);
+  box-shadow: 0 0 0 2px #2a1a08, inset 0 0 0 2px var(--border-mid);
   overflow:hidden;
 }
 
@@ -396,9 +379,6 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   background:repeating-linear-gradient(90deg,
     var(--border-mid) 0 3px,
     transparent 3px 6px);
-  box-shadow:
-    inset 0 1px 0 rgba(255,240,200,.3),
-    inset 0 -1px 0 rgba(74,50,24,.45);
 }
 
 .sep::before{
@@ -410,9 +390,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   height:6px;
   transform:translateX(-50%) rotate(45deg);
   background:var(--border-mid);
-  box-shadow:
-    0 0 0 2px var(--border-deep),
-    0 0 0 3px var(--parchment);
+  box-shadow: 0 0 0 2px var(--border-deep), 0 0 0 3px var(--parchment);
 }
 
 .eyebrow{
@@ -450,11 +428,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   background-color:var(--parchment);
   image-rendering:pixelated;
   border:2px solid var(--border-dark);
-  box-shadow:
-    0 0 0 1px var(--border-mid),
-    inset 0 0 0 1px var(--border-light),
-    inset 2px 2px 0 0 var(--border-hi),
-    inset -2px -2px 0 0 var(--border-mid);
+  box-shadow: 0 0 0 1px var(--border-mid), inset 0 0 0 1px var(--border-light);
   cursor:pointer;
 }
 
@@ -498,11 +472,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   padding:8px 10px;
   background-color:var(--parchment);
   border:2px solid var(--border-dark);
-  box-shadow:
-    0 0 0 1px var(--border-mid),
-    inset 0 0 0 1px var(--border-light),
-    inset 2px 2px 0 0 var(--border-hi),
-    inset -2px -2px 0 0 var(--border-mid);
+  box-shadow: 0 0 0 1px var(--border-mid), inset 0 0 0 1px var(--border-light);
 }
 
 /* 原稿 gap:10px；改 margin【替换 8】 */
@@ -567,9 +537,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   cursor:pointer;
   background-color:var(--parchment);
   border:2px solid var(--border-dark);
-  box-shadow:
-    0 0 0 1px var(--border-mid),
-    inset 0 4px 0 0 var(--border-mid);
+  box-shadow: 0 0 0 1px var(--border-mid), inset 0 4px 0 0 var(--border-mid);
 }
 
 .cal-icon:hover{background-color:var(--gold-l);}
@@ -643,27 +611,19 @@ npc-bar,kingdom-entity-avatar,world-map,img{
 /* 槽：深色内凹 */
 .scroll::-webkit-scrollbar-track{
   background-color:var(--border-deep);
-  box-shadow:
-    inset 1px 1px 0 0 #2a1a08,
-    inset -1px -1px 0 0 var(--border-mid);
+  
 }
 
 /* 滑块：亮褐凸起 */
 .scroll::-webkit-scrollbar-thumb{
   background-color:var(--border-light);
-  box-shadow:
-    0 0 0 1px #2a1a08,
-    inset 1px 1px 0 0 var(--border-hi),
-    inset -1px -1px 0 0 var(--border-dark);
+  box-shadow: 0 0 0 1px #2a1a08;
 }
 
 /* 悬停转金 */
 .scroll::-webkit-scrollbar-thumb:hover{
   background-color:var(--gold);
-  box-shadow:
-    0 0 0 1px #2a1a08,
-    inset 1px 1px 0 0 var(--gold-l),
-    inset -1px -1px 0 0 var(--border-dark);
+  box-shadow: 0 0 0 1px #2a1a08;
 }
 
 /* 两个方向的交汇角，别留出一块白 */
@@ -690,7 +650,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
 /* 选中态由 Java 切 .on */
 .pcard.on{
   background-color:rgba(201,162,39,.26);
-  box-shadow:inset 0 0 0 2px var(--gold);
+  box-shadow: inset 0 0 0 2px var(--gold);
 }
 
 /* 头像位：由 <kingdom-entity-avatar> 贴皮肤上那张 2D 的脸 */
@@ -701,9 +661,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   display:block;
   background-color:var(--parchment-lo);
   border:2px solid var(--border-dark);
-  box-shadow:
-    0 0 0 1px var(--border-mid),
-    inset 1px 1px 0 rgba(255,240,200,.35);
+  box-shadow: 0 0 0 1px var(--border-mid);
   image-rendering:pixelated;
   /* 原稿 .pcard 的 gap:10px；改 margin【替换 8】 */
   margin-right:10px;
@@ -738,7 +696,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
 .bcard:hover{background-color:rgba(201,162,39,.16);}
 .bcard.on{
   background-color:rgba(201,162,39,.26);
-  box-shadow:inset 0 0 0 2px var(--gold);
+  box-shadow: inset 0 0 0 2px var(--gold);
 }
 
 /* 原稿 .bcard 的 gap:10px；改 margin【替换 8】 */
@@ -794,14 +752,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   background-size:100% 100%;
   background-repeat:no-repeat;
   image-rendering:pixelated;
-  box-shadow:
-    0 0 0 2px #2a1a08,
-    0 0 0 4px #4a3218,
-    0 0 0 6px #6a4a20,
-    0 0 0 8px #3a2814,
-    inset 0 0 0 2px #8a6e3c,
-    inset 2px 2px 0 0 #d8bc8c,
-    inset -2px -2px 0 0 #4a3218;
+  box-shadow: 0 0 0 2px #2a1a08, 0 0 0 4px #4a3218, 0 0 0 6px #6a4a20, 0 0 0 8px #3a2814, inset 0 0 0 2px #8a6e3c;
 }
 
 .modal-head{
@@ -812,7 +763,6 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   padding-bottom:8px;
   margin-bottom:10px;
   border-bottom:2px solid var(--border-mid);
-  box-shadow:0 1px 0 rgba(255,240,200,.45);
 }
 
 .modal-title{
@@ -838,9 +788,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   cursor:pointer;
   background-color:var(--parchment);
   border:2px solid var(--border-dark);
-  box-shadow:
-    0 0 0 1px var(--border-mid),
-    inset 1px 1px 0 var(--border-hi);
+  box-shadow: 0 0 0 1px var(--border-mid);
 }
 
 .modal-close:hover{background-color:var(--gold-l);}
@@ -870,9 +818,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   color:var(--ink);
   background-color:var(--parchment-hi);
   border:2px solid var(--border-dark);
-  box-shadow:
-    0 0 0 1px var(--border-mid),
-    inset 1px 1px 0 rgba(0,0,0,.22);
+  box-shadow: 0 0 0 1px var(--border-mid);
   outline:0;
 }
 
@@ -900,9 +846,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   cursor:pointer;
   background-color:var(--parchment);
   border:2px solid var(--border-dark);
-  box-shadow:
-    0 0 0 1px var(--border-mid),
-    inset 1px 1px 0 var(--border-hi);
+  box-shadow: 0 0 0 1px var(--border-mid);
 }
 
 .day-cell:hover{background-color:var(--gold-l);}
@@ -911,9 +855,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
 .day-cell.on{
   background-color:var(--gold);
   color:var(--border-deep);
-  box-shadow:
-    0 0 0 1px var(--gold),
-    inset 1px 1px 0 #fff6cf;
+  box-shadow: 0 0 0 1px var(--gold);
 }
 
 /* ============================================================
@@ -944,11 +886,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   min-height:0;
   cursor:grab;
   background:#000;
-  box-shadow:
-    0 0 0 2px #2a1a08,
-    0 0 0 4px #4a3218,
-    0 0 0 6px #6a4a20,
-    0 0 0 8px #3a2814;
+  box-shadow: 0 0 0 2px #2a1a08, 0 0 0 4px #4a3218, 0 0 0 6px #6a4a20, 0 0 0 8px #3a2814;
 }
 
 .map-full-box.dragging{cursor:grabbing;}
@@ -969,6 +907,38 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   font-size:11px;
   line-height:16px;
   color:rgba(216,188,140,.75);
+}
+
+/* 地图底部信息条：点击图标后显示领地或建筑信息，点空白收起。
+   绝对定位叠在地图上层（不占文档流），所以弹出时不会把下面的金库 / 民情挤下去。 */
+.map-tip{
+  display:none;
+  position:absolute;
+  left:10px;
+  right:10px;
+  bottom:10px;
+  z-index:3;
+  justify-content:center;
+  align-items:center;
+  padding:8px 18px;
+  border:2px solid var(--border-dark);
+  background-color:var(--parchment-hi);
+  font-size:16px;
+  line-height:24px;
+  color:var(--ink-2);
+}
+
+.map-tip.is-open{display:flex;}
+
+.map-tip .k{
+  margin-right:16px;
+  font-size:16px;
+  color:var(--ink);
+}
+
+.map-tip .v{
+  margin-right:16px;
+  font-size:16px;
 }
 
 /* 地图框右上角的放大提示：平时淡，悬停才明显 */
@@ -1018,10 +988,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   color:rgba(74,50,24,.5);
   background-color:var(--parchment-lo);
   border:2px solid var(--border-dark);
-  box-shadow:
-    0 0 0 1px #2a1a08,
-    inset 1px 1px 0 rgba(255,240,200,.26),
-    inset -1px -1px 0 rgba(58,40,20,.34);
+  box-shadow: 0 0 0 1px #2a1a08;
 }
 
 /* 已达成：金底 */
@@ -1029,10 +996,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   color:#1a1208;
   background-color:var(--gold);
   border-color:#8a6d17;
-  box-shadow:
-    0 0 0 1px #2a1a08,
-    inset 1px 1px 0 var(--gold-l),
-    inset -1px -1px 0 #8a6d17;
+  box-shadow: 0 0 0 1px #2a1a08;
 }
 
 /* 当前档：亮纸 + 金环 */
@@ -1040,10 +1004,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   color:var(--ink);
   background-color:var(--parchment-hi);
   border-color:var(--border-deep);
-  box-shadow:
-    0 0 0 2px var(--gold),
-    inset 2px 2px 0 #fff6cf,
-    inset -2px -2px 0 var(--border-mid);
+  box-shadow: 0 0 0 2px var(--gold);
 }
 
 .tier-link{
@@ -1051,12 +1012,10 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   min-width:6px;
   height:4px;
   background-color:var(--border-dark);
-  box-shadow:inset 0 1px 0 rgba(255,240,200,.14);
 }
 
 .tier-link.is-passed{
   background-color:var(--gold);
-  box-shadow:inset 0 1px 0 var(--gold-l);
 }
 
 /* ---------- 当前档 / 下一级：两行小框，照 .realm-row 的语汇 ---------- */
@@ -1074,11 +1033,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   padding:6px 10px;
   background-color:var(--parchment);
   border:2px solid var(--border-dark);
-  box-shadow:
-    0 0 0 1px var(--border-mid),
-    inset 0 0 0 1px var(--border-light),
-    inset 2px 2px 0 0 var(--border-hi),
-    inset -2px -2px 0 0 var(--border-mid);
+  box-shadow: 0 0 0 1px var(--border-mid), inset 0 0 0 1px var(--border-light);
 }
 
 .tier-row + .tier-row{margin-top:8px;}
@@ -1135,8 +1090,11 @@ npc-bar,kingdom-entity-avatar,world-map,img{
              Java 侧不发任何地图包。center-x / center-z 是占位，
              打开界面时由 CityHallScreen 填入上次看的位置，没记过就用市政厅方块位置。 -->
         <div class="model-box ch-map" id="chMapBox">
-          <world-map id="chMap" center-x="0" center-z="0" radius="192" marker-x="0" marker-z="0"></world-map>
+          <world-map id="chMap" center-x="0" center-z="0" radius="192" marker-x="0" marker-z="0" show-buildings="false"></world-map>
           <span class="map-zoom-hint">点 击 放 大</span>
+          <!-- 信息条放在地图框内部：靠 .ch-map 的 position:relative 定位，
+               以绝对定位叠加在地图上层，弹出时不占文档流（不会再挤动下方内容）。 -->
+          <div class="map-tip" id="chMapTip"></div>
         </div>
 
         <div class="sep"></div>
@@ -1363,8 +1321,10 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   <div class="map-full" id="chMapFull">
     <div class="map-full-box" id="chMapFullBox">
       <world-map id="chMapFullView" center-x="0" center-z="0" radius="320" marker-x="0" marker-z="0"></world-map>
+      <!-- 同上：叠在全屏地图上层，与地图框一起定位，不与底部提示行抢空间。 -->
+      <div class="map-tip" id="chMapFullTip"></div>
     </div>
-    <div class="map-full-hint">拖 动 平 移　·　滚 轮 缩 放　·　点 击 外 侧 关 闭</div>
+    <div class="map-full-hint">拖 动 平 移　·　滚 轮 缩 放　·　E S C 关 闭</div>
   </div>
 
 </div>

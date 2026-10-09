@@ -13,6 +13,7 @@ import com.sighs.apricityui.render.Rect;
 import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.client.map.ClientMapScanner;
 import com.xy2407.kingdom.client.map.ClientMapStore;
+import com.xy2407.kingdom.client.map.MapOverlayStore;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceLocation;
@@ -29,13 +30,16 @@ import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 
 import javax.imageio.ImageIO;
 
 /**
- * {@code <world-map>}：AUI 页面里的世界地图元素，拖动时平移已有像素、只补新露出的边条。
+ * {@code <world-map>}：AUI 页面里的世界地图元素。拖动期间按较低的采样密度整屏重绘，
+ * 保证画面完整（放弃"平移绘制"因为新露出的边条会空白）。
  */
 @OnlyIn(Dist.CLIENT)
 @ElementRegister(WorldMapElement.TAG_NAME)
@@ -49,6 +53,7 @@ public class WorldMapElement extends Canvas {
     private static final String ATTR_ZOOM = "zoom";
     private static final String ATTR_MARKER_X = "marker-x";
     private static final String ATTR_MARKER_Z = "marker-z";
+    private static final String ATTR_SHOW_BUILDINGS = "show-buildings";
 
     private static final String MARKER_TEXTURE = "textures/map/decorations/target_x.png";
 
@@ -76,6 +81,22 @@ public class WorldMapElement extends Canvas {
     private static final int CHUNK_GRID_COLOR = 0x55FFFFFF;
 
     private static final int MAX_SAMPLES = 400_000;
+
+    private static final int EDGE_WIDTH = 2;
+
+    private static final int COLOR_SELF = 0x5500E060;
+    private static final int COLOR_OTHER = 0x55E04040;
+    private static final int COLOR_ALLY = 0x554080E0;
+    private static final int BUILDING_FILL = 0x6640A0FF;
+    private static final int BUILDING_EDGE = 0xFF2F7FD0;
+
+    private static final double BUILDING_ICON_MIN_PIXELS_PER_BLOCK = 0.35;
+    private static final int BUILDING_ICON_SIZE = 9;
+    private static final int ICON_BORDER = 1;
+    private static final int ICON_GAP_PIXELS = 12;
+    private static final int ICON_EDGE = 0xFF202020;
+    private static final int ICON_SELECTED_EDGE = 0xFFFFD24A;
+    private static final int ICON_DEFAULT = 0xFF9A7A4A;
 
     private static final long CONTENT_REPAINT_NANOS = 300_000_000L;
 
@@ -175,6 +196,7 @@ public class WorldMapElement extends Canvas {
         int viewZ = (int) Math.round(centerZ() + panZ);
         int half = (int) Math.ceil((radius() * 2.0 + 1.0) / zoom / 2.0);
         ClientMapScanner.requestVisible(viewX - half, viewZ - half, viewX + half, viewZ + half);
+        MapOverlayStore.requestUpdate(viewX, viewZ, half);
     }
 
     private void repaintIfNeeded() {
@@ -271,6 +293,7 @@ public class WorldMapElement extends Canvas {
                 paintedPixelsPerBlock, paintedStep, 0, 0, surfaceWidth, surfaceHeight);
         markSurfaceDirty();
         renderOperation(graphics -> {
+            drawOverlay(graphics, surfaceWidth, surfaceHeight, 0, 0, surfaceWidth, surfaceHeight);
             drawChunkGrid(graphics, surfaceWidth, surfaceHeight,
                     paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
             drawMarker(graphics, surfaceWidth, surfaceHeight,
@@ -314,16 +337,21 @@ public class WorldMapElement extends Canvas {
             }
             return;
         }
+        long start = System.nanoTime();
         fillRaster(pixels, surfaceWidth, surfaceHeight, paintedOriginX, paintedOriginZ,
                 paintedPixelsPerBlock, 1, x0, y0, x1, y1);
         Rectangle2D bounds = new Rectangle2D.Double(x0, y0, x1 - x0, y1 - y0);
         renderOperation(graphics -> {
             graphics.setClip(x0, y0, x1 - x0, y1 - y0);
+            drawOverlay(graphics, surfaceWidth, surfaceHeight, x0, y0, x1, y1);
             drawChunkGrid(graphics, surfaceWidth, surfaceHeight,
                     paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
             drawMarker(graphics, surfaceWidth, surfaceHeight,
                     paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
         }, bounds);
+        chunkPaintNanos += System.nanoTime() - start;
+        chunkPaintCalls++;
+        reportPaint();
     }
 
     private void fillRaster(int[] pixels, int surfaceWidth, int surfaceHeight,
@@ -404,6 +432,263 @@ public class WorldMapElement extends Canvas {
         return buffer.getData();
     }
 
+    private void drawOverlay(Graphics2D graphics, int surfaceWidth, int surfaceHeight,
+                             int clipX0, int clipY0, int clipX1, int clipY1) {
+        drawTerritoryLayer(graphics, surfaceWidth, surfaceHeight, clipX0, clipY0, clipX1, clipY1);
+        drawBuildingLayer(graphics, surfaceWidth, surfaceHeight, clipX0, clipY0, clipX1, clipY1);
+        drawIconLayer(graphics, surfaceWidth, surfaceHeight, clipX0, clipY0, clipX1, clipY1);
+    }
+
+    private void drawTerritoryLayer(Graphics2D graphics, int surfaceWidth, int surfaceHeight,
+                                    int clipX0, int clipY0, int clipX1, int clipY1) {
+        List<MapOverlayStore.TerritoryView> territories = MapOverlayStore.territories();
+        if (territories.isEmpty() || paintedPixelsPerBlock <= 0.0) {
+            return;
+        }
+        String selected = MapOverlayStore.selectedId();
+        for (int index = 0; index < territories.size(); index++) {
+            MapOverlayStore.TerritoryView territory = territories.get(index);
+            boolean active = territory.id().equals(selected);
+            int fill = territoryFill(territory, active);
+            int edge = (fill & 0xFFFFFF) | 0xFF000000;
+            graphics.setColor(new Color(fill, true));
+            for (int chunkX = territory.minChunkX(); chunkX <= territory.maxChunkX(); chunkX++) {
+                for (int chunkZ = territory.minChunkZ(); chunkZ <= territory.maxChunkZ(); chunkZ++) {
+                    if (!ClientMapStore.explored(chunkX, chunkZ)) {
+                        continue;
+                    }
+                    int px0 = Math.max(pixelX(chunkX * CHUNK_SIZE), clipX0);
+                    int py0 = Math.max(pixelZ(chunkZ * CHUNK_SIZE), clipY0);
+                    int px1 = Math.min(pixelX((chunkX + 1) * CHUNK_SIZE), clipX1);
+                    int py1 = Math.min(pixelZ((chunkZ + 1) * CHUNK_SIZE), clipY1);
+                    if (px1 <= px0 || py1 <= py0) {
+                        continue;
+                    }
+                    graphics.fillRect(px0, py0, px1 - px0, py1 - py0);
+                    graphics.setColor(new Color(edge, true));
+                    if (chunkX == territory.minChunkX()) {
+                        graphics.fillRect(px0, py0, EDGE_WIDTH, py1 - py0);
+                    }
+                    if (chunkX == territory.maxChunkX()) {
+                        graphics.fillRect(px1 - EDGE_WIDTH, py0, EDGE_WIDTH, py1 - py0);
+                    }
+                    if (chunkZ == territory.minChunkZ()) {
+                        graphics.fillRect(px0, py0, px1 - px0, EDGE_WIDTH);
+                    }
+                    if (chunkZ == territory.maxChunkZ()) {
+                        graphics.fillRect(px0, py1 - EDGE_WIDTH, px1 - px0, EDGE_WIDTH);
+                    }
+                    graphics.setColor(new Color(fill, true));
+                }
+            }
+        }
+    }
+
+    private void drawBuildingLayer(Graphics2D graphics, int surfaceWidth, int surfaceHeight,
+                                   int clipX0, int clipY0, int clipX1, int clipY1) {
+        MapOverlayStore.BuildingView building = MapOverlayStore.selectedBuilding();
+        if (building == null || paintedPixelsPerBlock <= 0.0) {
+            return;
+        }
+        int px0 = Math.max(pixelX(building.minX()), clipX0);
+        int py0 = Math.max(pixelZ(building.minZ()), clipY0);
+        int px1 = Math.min(pixelX(building.maxX() + 1), clipX1);
+        int py1 = Math.min(pixelZ(building.maxZ() + 1), clipY1);
+        if (px1 <= px0 || py1 <= py0) {
+            return;
+        }
+        graphics.setColor(new Color(BUILDING_FILL, true));
+        graphics.fillRect(px0, py0, px1 - px0, py1 - py0);
+        graphics.setColor(new Color(BUILDING_EDGE, true));
+        graphics.fillRect(px0, py0, px1 - px0, EDGE_WIDTH);
+        graphics.fillRect(px0, py1 - EDGE_WIDTH, px1 - px0, EDGE_WIDTH);
+        graphics.fillRect(px0, py0, EDGE_WIDTH, py1 - py0);
+        graphics.fillRect(px1 - EDGE_WIDTH, py0, EDGE_WIDTH, py1 - py0);
+    }
+
+    private int pixelX(int worldX) {
+        return (int) Math.round((worldX - paintedOriginX) * paintedPixelsPerBlock);
+    }
+
+    private int pixelZ(int worldZ) {
+        return (int) Math.round((worldZ - paintedOriginZ) * paintedPixelsPerBlock);
+    }
+
+    private static int territoryFill(MapOverlayStore.TerritoryView territory, boolean active) {
+        int base = territory.ally() ? COLOR_ALLY : (territory.self() ? COLOR_SELF : COLOR_OTHER);
+        if (!active) {
+            return base;
+        }
+        return (base & 0x00FFFFFF) | 0x88000000;
+    }
+
+    private boolean showBuildings() {
+        String raw = getAttribute(ATTR_SHOW_BUILDINGS);
+        return raw == null || raw.isBlank() || !"false".equalsIgnoreCase(raw.trim());
+    }
+
+    private void drawIconLayer(Graphics2D graphics, int surfaceWidth, int surfaceHeight,
+                               int clipX0, int clipY0, int clipX1, int clipY1) {
+        if (!showBuildings() || paintedPixelsPerBlock < BUILDING_ICON_MIN_PIXELS_PER_BLOCK) {
+            return;
+        }
+        List<MapOverlayStore.BuildingView> buildings = MapOverlayStore.buildings();
+        if (buildings.isEmpty()) {
+            return;
+        }
+        String selected = MapOverlayStore.selectedId();
+        int half = BUILDING_ICON_SIZE / 2;
+        List<int[]> placed = new ArrayList<>();
+        for (int index = 0; index < buildings.size(); index++) {
+            MapOverlayStore.BuildingView building = buildings.get(index);
+            int centerX = pixelX(building.centerBlockX());
+            int centerY = pixelZ(building.centerBlockZ());
+            int left = centerX - half;
+            int top = centerY - half;
+            if (left > clipX1 || top > clipY1
+                    || left + BUILDING_ICON_SIZE < clipX0 || top + BUILDING_ICON_SIZE < clipY0) {
+                continue;
+            }
+            if (tooDense(placed, centerX, centerY)) {
+                continue;
+            }
+            placed.add(new int[] {centerX, centerY});
+            graphics.setColor(new Color(buildingIconColor(building.type()), true));
+            graphics.fillRect(left, top, BUILDING_ICON_SIZE, BUILDING_ICON_SIZE);
+            drawBorder(graphics, left, top, BUILDING_ICON_SIZE, BUILDING_ICON_SIZE,
+                    building.id().equals(selected) ? ICON_SELECTED_EDGE : ICON_EDGE);
+        }
+    }
+
+    private static boolean tooDense(List<int[]> placed, int centerX, int centerY) {
+        for (int index = 0; index < placed.size(); index++) {
+            int[] point = placed.get(index);
+            if (Math.abs(point[0] - centerX) < ICON_GAP_PIXELS
+                    && Math.abs(point[1] - centerY) < ICON_GAP_PIXELS) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void drawBorder(Graphics2D graphics, int x, int y, int width, int height, int color) {
+        graphics.setColor(new Color(color, true));
+        graphics.fillRect(x, y, width, ICON_BORDER);
+        graphics.fillRect(x, y + height - ICON_BORDER, width, ICON_BORDER);
+        graphics.fillRect(x, y, ICON_BORDER, height);
+        graphics.fillRect(x + width - ICON_BORDER, y, ICON_BORDER, height);
+    }
+
+    private static int buildingIconColor(String type) {
+        if (type == null) {
+            return ICON_DEFAULT;
+        }
+        return switch (type) {
+            case "RESIDENTIAL" -> 0xFFB89868;
+            case "AGRICULTURE" -> 0xFF6FA83C;
+            case "LIVESTOCK" -> 0xFFC89A4A;
+            case "INDUSTRY" -> 0xFF8A7A6A;
+            case "COMMERCIAL" -> 0xFFD8A227;
+            case "MILITARY" -> 0xFFA84A3C;
+            case "STORAGE" -> 0xFF7A6A4A;
+            default -> ICON_DEFAULT;
+        };
+    }
+
+    private void handleClick(double screenX, double screenY) {
+        if (paintedPixelsPerBlock <= 0.0) {
+            return;
+        }
+        if (showBuildings() && paintedPixelsPerBlock >= BUILDING_ICON_MIN_PIXELS_PER_BLOCK) {
+            MapOverlayStore.BuildingView building = buildingAt(screenX, screenY);
+            if (building != null) {
+                MapOverlayStore.selectBuilding(building);
+                return;
+            }
+        }
+        MapOverlayStore.TerritoryView hall = hallAt(screenX, screenY);
+        if (hall != null) {
+            MapOverlayStore.selectTerritory(hall);
+            return;
+        }
+        MapOverlayStore.TerritoryView territory = territoryAt(screenX, screenY);
+        if (territory != null) {
+            MapOverlayStore.selectTerritory(territory);
+            return;
+        }
+        MapOverlayStore.clearSelection();
+    }
+
+    private MapOverlayStore.BuildingView buildingAt(double screenX, double screenY) {
+        int half = BUILDING_ICON_SIZE / 2;
+        List<MapOverlayStore.BuildingView> buildings = MapOverlayStore.buildings();
+        MapOverlayStore.BuildingView best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (int index = 0; index < buildings.size(); index++) {
+            MapOverlayStore.BuildingView building = buildings.get(index);
+            double centerX = pixelX(building.centerBlockX());
+            double centerY = pixelZ(building.centerBlockZ());
+            if (Math.abs(screenX - centerX) <= half && Math.abs(screenY - centerY) <= half) {
+                double distance = Math.abs(screenX - centerX) + Math.abs(screenY - centerY);
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    best = building;
+                }
+            }
+        }
+        return best;
+    }
+
+    private MapOverlayStore.TerritoryView hallAt(double screenX, double screenY) {
+        int hallX = markerCoordinate(ATTR_MARKER_X);
+        int hallZ = markerCoordinate(ATTR_MARKER_Z);
+        if (hallX == Integer.MIN_VALUE || hallZ == Integer.MIN_VALUE) {
+            return null;
+        }
+        int left = pixelX(hallX) - MARKER_SIZE / 2;
+        int top = pixelZ(hallZ) - MARKER_SIZE / 2;
+        if (screenX < left || screenY < top
+                || screenX > left + MARKER_SIZE || screenY > top + MARKER_SIZE) {
+            return null;
+        }
+        for (MapOverlayStore.TerritoryView territory : MapOverlayStore.territories()) {
+            if (territory.centerBlockX() == hallX && territory.centerBlockZ() == hallZ) {
+                return territory;
+            }
+        }
+        return null;
+    }
+
+    private MapOverlayStore.TerritoryView territoryAt(double screenX, double screenY) {
+        int worldX = paintedOriginX + (int) Math.round(screenX / paintedPixelsPerBlock);
+        int worldZ = paintedOriginZ + (int) Math.round(screenY / paintedPixelsPerBlock);
+        for (MapOverlayStore.TerritoryView territory : MapOverlayStore.territories()) {
+            if (worldX >= territory.minBlockX() && worldX <= territory.maxBlockX()
+                    && worldZ >= territory.minBlockZ() && worldZ <= territory.maxBlockZ()) {
+                return territory;
+            }
+        }
+        return null;
+    }
+
+    private int markerCoordinate(String attribute) {
+        String raw = getAttribute(attribute);
+        if (raw == null || raw.isBlank()) {
+            return Integer.MIN_VALUE;
+        }
+        try {
+            return (int) Math.round(Double.parseDouble(raw.trim()));
+        } catch (NumberFormatException invalid) {
+            return Integer.MIN_VALUE;
+        }
+    }
+
+    private static boolean isHallSelected(int markerX, int markerZ) {
+        MapOverlayStore.TerritoryView selected = MapOverlayStore.selectedTerritory();
+        return selected != null
+                && selected.centerBlockX() == markerX && selected.centerBlockZ() == markerZ;
+    }
+
     private void drawChunkGrid(Graphics2D graphics, int surfaceWidth, int surfaceHeight,
                                int originX, int originZ, double pixelsPerBlock) {
         if (pixelsPerBlock * CHUNK_SIZE < MIN_CHUNK_GRID_PIXELS) {
@@ -452,6 +737,10 @@ public class WorldMapElement extends Canvas {
         graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
                 RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
         graphics.drawImage(marker, left, top, MARKER_SIZE, MARKER_SIZE, null);
+        if (isHallSelected(markerX, markerZ)) {
+            drawBorder(graphics, left - EDGE_WIDTH, top - EDGE_WIDTH,
+                    MARKER_SIZE + EDGE_WIDTH * 2, MARKER_SIZE + EDGE_WIDTH * 2, ICON_SELECTED_EDGE);
+        }
     }
 
     private static BufferedImage markerImage() {
@@ -574,7 +863,11 @@ public class WorldMapElement extends Canvas {
         dragging = false;
         if (dragPixels > DRAG_PIXELS) {
             lastDragEndNanos = System.nanoTime();
+            commitPan();
+            return;
         }
+        MouseEvent e = (MouseEvent) event;
+        handleClick(e.offsetX, e.offsetY);
         commitPan();
     }
 
@@ -681,3 +974,4 @@ public class WorldMapElement extends Canvas {
         return String.format(Locale.ROOT, "%.2f", value);
     }
 }
+        

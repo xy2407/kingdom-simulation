@@ -650,6 +650,41 @@ body{
   color:var(--border-dark);
 }
 
+/* ---------- 班次按钮：名册行右侧两枚小钮 ----------
+   点哪枚就以哪班雇佣；当前生效的那枚亮金，再点它即解雇。
+   与 .bp-sec-btn / .bp-item 同一套木框语汇，尺寸取 10px 字 + 15px 行高。 */
+.bp-shift{
+  flex:0 0 auto;
+  padding:0 4px;
+  font-size:10px;
+  line-height:15px;
+  color:var(--ink-2);
+  cursor:pointer;
+  background-color:var(--parchment);
+  box-shadow:
+    0 0 0 1px var(--border-mid),
+    inset 1px 1px 0 0 rgba(255,240,200,.5),
+    inset -1px -1px 0 0 rgba(74,50,24,.3);
+}
+
+.bp-shift:hover{
+  color:var(--ink);
+  background-color:var(--parchment-hi);
+  box-shadow:
+    0 0 0 2px var(--gold),
+    inset 1px 1px 0 0 var(--gold-l),
+    inset -1px -1px 0 0 var(--border-mid);
+}
+
+.bp-shift.on{
+  color:#1a1208;
+  background-color:var(--gold);
+  box-shadow:
+    0 0 0 1px var(--border-deep),
+    inset 1px 1px 0 0 var(--gold-l),
+    inset -1px -1px 0 0 #8a6d17;
+}
+
 /* ============================================================
    底部：固定不滚动
    ============================================================ */

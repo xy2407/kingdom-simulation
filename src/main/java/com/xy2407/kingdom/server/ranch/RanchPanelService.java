@@ -11,6 +11,7 @@ import com.xy2407.kingdom.common.network.ranch.RanchPanelStatePacket;
 import com.xy2407.kingdom.common.npc.NpcData;
 import com.xy2407.kingdom.common.npc.NpcManager;
 import com.xy2407.kingdom.common.npc.NpcSchedule;
+import com.xy2407.kingdom.common.npc.NpcShift;
 import com.xy2407.kingdom.common.npc.NpcSubState;
 import com.xy2407.kingdom.common.ranch.RanchPen;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
@@ -55,12 +56,17 @@ public final class RanchPanelService {
             }
             case RanchPanelActionPacket.ACTION_SET_KEEPER -> {
                 UUID workerId = packet.workerIdOrNull();
-                if (pen != null && workerId != null && NpcManager.INSTANCE.getNpc(workerId) != null) {
-                    RanchPenManager.INSTANCE.update(pen.withKeeperIds(toggled(pen.keeperIds(), workerId)));
+                NpcShift shift = packet.shiftOrNull();
+                if (pen != null && workerId != null && shift != null) {
+                    NpcData npc = NpcManager.INSTANCE.getNpc(workerId);
+                    if (npc != null) {
+                        applyKeeper(pen, npc, shift);
+                    }
                 }
             }
             case RanchPanelActionPacket.ACTION_CLEAR_KEEPERS -> {
                 if (pen != null) {
+                    releaseKeepers(pen.keeperIds());
                     RanchPenManager.INSTANCE.update(pen.withKeeperIds(List.of()));
                 }
             }
@@ -68,6 +74,29 @@ public final class RanchPanelService {
             }
         }
         respond(player);
+    }
+
+    private static void applyKeeper(RanchPen pen, NpcData npc, NpcShift shift) {
+        UUID workerId = npc.getId();
+        boolean hired = pen.keeperIds().contains(workerId);
+        if (hired && npc.getShift() == shift) {
+            RanchPenManager.INSTANCE.update(pen.withKeeperIds(without(pen.keeperIds(), workerId)));
+            npc.setShift(NpcShift.DAY_SHIFT);
+            return;
+        }
+        if (!hired) {
+            RanchPenManager.INSTANCE.update(pen.withKeeperIds(with(pen.keeperIds(), workerId)));
+        }
+        npc.setShift(shift);
+    }
+
+    private static void releaseKeepers(List<UUID> keepers) {
+        for (UUID keeper : keepers) {
+            NpcData npc = NpcManager.INSTANCE.getNpc(keeper);
+            if (npc != null) {
+                npc.setShift(NpcShift.DAY_SHIFT);
+            }
+        }
     }
 
     private static void toggleRun(BuildingRecord building, RanchPen pen) {
@@ -80,11 +109,17 @@ public final class RanchPanelService {
         }
     }
 
-    private static List<UUID> toggled(List<UUID> keepers, UUID workerId) {
+    private static List<UUID> with(List<UUID> keepers, UUID workerId) {
         List<UUID> result = new ArrayList<>(keepers);
-        if (!result.remove(workerId)) {
+        if (!result.contains(workerId)) {
             result.add(workerId);
         }
+        return result;
+    }
+
+    private static List<UUID> without(List<UUID> keepers, UUID workerId) {
+        List<UUID> result = new ArrayList<>(keepers);
+        result.remove(workerId);
         return result;
     }
 
@@ -116,7 +151,7 @@ public final class RanchPanelService {
                 continue;
             }
             options.add(new RanchPanelStatePacket.Worker(npc.getId(), npc.getName(), npc.getSkin(),
-                    workerNote(npc)));
+                    workerNote(npc), npc.getShift().name()));
         }
         return options;
     }

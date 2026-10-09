@@ -2,16 +2,17 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<!-- 容器屏整稿，照 backpack.html 的定标思路（《AUI使用总结》§13.3）：
-     mode=fixed 把文档逻辑尺寸钉死，scale 是固定倍率。
-     620×760 × 0.4864 ≈ 302×370 GUI px —— 只有背包页整稿（≈583×575）的一半多一点，
-     而背包页是已验证能正常显示的基准，所以这页一定装得下。
-     0.4864 = 2×18/74 是背包页算好的值：48px 槽位在游戏里 ≈ 23 GUI px。
+<!-- 容器屏整稿，文档逻辑尺寸钉死 620×760（《AUI使用总结》§13.3）。
      高度 760 这个数不是估的：面板 520 宽 / 内容实测 ≈715 高（6 行仓库 + 4 行行囊
      + 两处标签 + 标题），再算上 body 的 20px 内边距——文档尺寸给不够就是整页被裁。
+     scale=fit（与 backpack.html / city_hall.html 同一套结论）：倍率交给
+     min(GUI宽÷620, GUI高÷760)，窗口一变就重算，整稿等比放进视口。
+     旧值 0.4864 是**绝对倍率**——窗口缩小它不变（不缩放），而居中偏移按视口算 ⇒ 偏移失义；
+     旧注释里"620×760 × 0.4864 ≈ 302×370，比背包页小所以一定装得下"只在大窗口下成立。
+     zoom 钉死 1：倍率归 fit 决定，zoom 在 fit 下只改逻辑坐标精度、不改变实际显示大小。
      本页**故意不写** aui-mouse-events=intercept（§0 铁律 5）：
      它会吃掉原生点击 → 槽位全部点不动。本页没有 DOM 点击元素，裸奔即可。 -->
-<meta name="aui-viewport" content="mode=fixed,width=620,height=760,scale=0.4864,zoom=1,min-zoom=0.5,max-zoom=2,zoom-step=0.1,user-scalable=true">
+<meta name="aui-viewport" content="mode=fixed,width=620,height=760,scale=fit,zoom=1,min-zoom=1,max-zoom=1,user-scalable=false">
 <title>建筑仓库</title>
 <style>
 @font-face{

@@ -12,6 +12,7 @@ import com.xy2407.kingdom.server.faction.TerritoryRegistry;
 import com.xy2407.kingdom.server.faction.TerritoryVitalsService;
 import com.xy2407.kingdom.server.faction.TerritoryVitalsStore;
 import com.xy2407.kingdom.server.farm.FarmPlotManager;
+import com.xy2407.kingdom.server.mapoverlay.MapOverlayCollector;
 import com.xy2407.kingdom.server.ranch.RanchPenManager;
 import com.xy2407.kingdom.server.ranch.RanchWorkService;
 
@@ -44,6 +45,7 @@ public final class ServerLifecycle {
         /* 建筑仓库的会话缓存与"上次写库的 SNBT"同理：换存档必须清，
            否则会把上一个世界某个建筑的库存当成这个世界的（建筑 UUID 不会重复，但缓存会串） */
         BuildingStorageStore.INSTANCE.reset();
+        MapOverlayCollector.install(event.getServer());
         SnapshotRepository snapshotRepository = SnapshotRepository.get(event.getServer());
         if (snapshotRepository != null) {
             snapshotRepository.onServerStarting();

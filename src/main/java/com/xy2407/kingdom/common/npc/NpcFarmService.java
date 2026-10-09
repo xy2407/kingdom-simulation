@@ -5,6 +5,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import com.xy2407.kingdom.common.date.DateSystem;
 import com.xy2407.kingdom.common.entity.NpcEntity;
+import com.xy2407.kingdom.common.farm.CropCatalog;
 import com.xy2407.kingdom.common.farm.FarmPlot;
 import com.xy2407.kingdom.common.farm.FarmRegion;
 import com.xy2407.kingdom.common.path.SnapshotRepository;
@@ -12,12 +13,15 @@ import com.xy2407.kingdom.server.farm.FarmLandRegistry;
 import com.xy2407.kingdom.server.farm.FarmPlotManager;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.BlockTags;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -377,6 +381,41 @@ public final class NpcFarmService {
         if (cropId == null || cropId.isBlank()) {
             return null;
         }
+        Block fromCatalog = resolvePlantBlock(CropCatalog.plantBlockId(cropId));
+        if (fromCatalog != null) {
+            return fromCatalog;
+        }
+        ResourceLocation key = ResourceLocation.tryParse(cropId);
+        if (key != null) {
+            if (BuiltInRegistries.BLOCK.containsKey(key)) {
+                Block block = BuiltInRegistries.BLOCK.get(key);
+                if (block != null && block != Blocks.AIR && CropCatalog.isCropPlant(block)) {
+                    return block;
+                }
+            }
+            if (BuiltInRegistries.ITEM.containsKey(key)) {
+                Item item = BuiltInRegistries.ITEM.get(key);
+                if (item instanceof BlockItem blockItem && CropCatalog.isCropPlant(blockItem.getBlock())) {
+                    return blockItem.getBlock();
+                }
+            }
+        }
+        return legacyCropBlock(cropId);
+    }
+
+    private static Block resolvePlantBlock(String plantBlockId) {
+        if (plantBlockId == null || plantBlockId.isBlank()) {
+            return null;
+        }
+        ResourceLocation key = ResourceLocation.tryParse(plantBlockId);
+        if (key == null || !BuiltInRegistries.BLOCK.containsKey(key)) {
+            return null;
+        }
+        Block block = BuiltInRegistries.BLOCK.get(key);
+        return block == null || block == Blocks.AIR ? null : block;
+    }
+
+    private static Block legacyCropBlock(String cropId) {
         return switch (cropId) {
             case "minecraft:wheat", "minecraft:wheat_seeds" -> Blocks.WHEAT;
             case "minecraft:carrot" -> Blocks.CARROTS;
