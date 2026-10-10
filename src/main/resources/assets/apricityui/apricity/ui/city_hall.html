@@ -910,22 +910,31 @@ npc-bar,kingdom-entity-avatar,world-map,img{
 }
 
 /* 地图底部信息条：点击图标后显示领地或建筑信息，点空白收起。
-   绝对定位叠在地图上层（不占文档流），所以弹出时不会把下面的金库 / 民情挤下去。 */
+   默认是**流内**元素 —— 缩略图用这个：弹出时占一行，把下面的金库 / 民情推下去。 */
 .map-tip{
   display:none;
-  position:absolute;
-  left:10px;
-  right:10px;
-  bottom:10px;
-  z-index:3;
+  flex-shrink:0;
   justify-content:center;
   align-items:center;
+  margin-top:10px;
   padding:8px 18px;
   border:2px solid var(--border-dark);
   background-color:var(--parchment-hi);
   font-size:16px;
   line-height:24px;
   color:var(--ink-2);
+}
+
+/* 全屏地图的信息条：绝对定位**叠在地图上层**，不占文档流。
+   它若留在流内会把 .map-full-box（flex:1 1 auto）压矮 —— 那就是"大地图被往上挤"的成因。
+   缩略图不加这个类，保持上面的流内行为。 */
+.map-tip.is-overlay{
+  position:absolute;
+  left:10px;
+  right:10px;
+  bottom:10px;
+  margin-top:0;
+  z-index:3;
 }
 
 .map-tip.is-open{display:flex;}
@@ -1092,10 +1101,9 @@ npc-bar,kingdom-entity-avatar,world-map,img{
         <div class="model-box ch-map" id="chMapBox">
           <world-map id="chMap" center-x="0" center-z="0" radius="192" marker-x="0" marker-z="0" show-buildings="false"></world-map>
           <span class="map-zoom-hint">点 击 放 大</span>
-          <!-- 信息条放在地图框内部：靠 .ch-map 的 position:relative 定位，
-               以绝对定位叠加在地图上层，弹出时不占文档流（不会再挤动下方内容）。 -->
-          <div class="map-tip" id="chMapTip"></div>
         </div>
+        <!-- 缩略图信息条：流内元素（保持原行为：弹出占一行，把下面内容推下去），不加 is-overlay。 -->
+        <div class="map-tip" id="chMapTip"></div>
 
         <div class="sep"></div>
 
@@ -1321,8 +1329,9 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   <div class="map-full" id="chMapFull">
     <div class="map-full-box" id="chMapFullBox">
       <world-map id="chMapFullView" center-x="0" center-z="0" radius="320" marker-x="0" marker-z="0"></world-map>
-      <!-- 同上：叠在全屏地图上层，与地图框一起定位，不与底部提示行抢空间。 -->
-      <div class="map-tip" id="chMapFullTip"></div>
+      <!-- 全屏地图信息条：is-overlay 让它绝对定位叠在地图上层，不再压缩 .map-full-box 的高度。
+           放在框内是为了拿到 .map-full-box 的 position:relative 作为定位基准。 -->
+      <div class="map-tip is-overlay" id="chMapFullTip"></div>
     </div>
     <div class="map-full-hint">拖 动 平 移　·　滚 轮 缩 放　·　E S C 关 闭</div>
   </div>

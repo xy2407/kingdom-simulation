@@ -14,6 +14,7 @@ import org.slf4j.Logger;
 
 import com.mojang.logging.LogUtils;
 import com.xy2407.kingdom.common.entity.NpcEntity;
+import com.xy2407.kingdom.common.home.HomeBeds;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.persistence.NpcSchema;
 
@@ -22,6 +23,7 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.AABB;
 
@@ -30,6 +32,9 @@ import net.minecraft.world.phys.AABB;
  */
 public final class NpcManager {
     public static final NpcManager INSTANCE = new NpcManager();
+
+    /** 诊断报告最多列几名市民，免得大城里刷屏。 */
+    private static final int MAX_DEBUG_NPCS = 40;
 
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final int FLUSH_INTERVAL_TICKS = 60;
@@ -190,6 +195,69 @@ public final class NpcManager {
         return byId.get(id);
     }
 
+    /**
+     * 诊断用：把玩家所在维度里市民的作息状态链逐行吐出来，用来定位"为什么不去睡觉"。
+     * 每行给出 状态/子状态/行为 + 班次 + 排班表算出的期望子状态 + 住处与床的有效性 + 控制位。
+     */
+    public List<String> debugReport(ServerPlayer player) {
+        List<String> lines = new ArrayList<>();
+        long dayTime = player.level().getDayTime() % NpcSchedule.DAY_LENGTH;
+        lines.add("世界时刻=" + dayTime
+                + "　白班此刻应=" + NpcSchedule.subState(NpcShift.DAY_SHIFT, dayTime)
+                + "　夜班此刻应=" + NpcSchedule.subState(NpcShift.NIGHT_SHIFT, dayTime));
+        String dimension = player.level().dimension().location().toString();
+        ServerLevel level = player.level() instanceof ServerLevel server ? server : null;
+        int shown = 0;
+        for (NpcData npc : byId.values()) {
+            if (npc.isDead() || !dimension.equals(npc.getDimension())) {
+                continue;
+            }
+            if (shown++ >= MAX_DEBUG_NPCS) {
+                lines.add("…… 同维度还有更多市民，只列前 " + MAX_DEBUG_NPCS + " 名");
+                break;
+            }
+            lines.add(describe(npc, dayTime, level));
+        }
+        if (shown == 0) {
+            lines.add("这个维度还没有市民");
+        }
+        return lines;
+    }
+
+    private String describe(NpcData npc, long dayTime, ServerLevel level) {
+        NpcSubState expected = NpcSchedule.subState(npc.getShift(), dayTime);
+        StringBuilder text = new StringBuilder(npc.getName())
+                .append("　").append(npc.getState())
+                .append(" / ").append(npc.getSubState())
+                .append(" / ").append(npc.getDetail())
+                .append("　班次=").append(npc.getShift())
+                .append("　排班应=").append(expected);
+        if (expected != npc.getSubState()) {
+            text.append("　← 与当前子状态不符");
+        }
+        text.append("\n    饥饿=").append(String.format(java.util.Locale.ROOT, "%.1f", npc.getHunger()));
+        text.append("　住处=");
+        String homeId = npc.getHomeId();
+        if (homeId == null || homeId.isBlank()) {
+            text.append("无");
+        } else {
+            BlockPos bed = new BlockPos(npc.getHomeX(), npc.getHomeY(), npc.getHomeZ());
+            text.append(short8(homeId)).append(" 床=").append(bed.toShortString());
+            if (level != null) {
+                text.append(HomeBeds.assignedBed(level, npc) == null ? " 床已失效" : " 床有效");
+            }
+        }
+        String workplace = npc.getWorkplaceId();
+        text.append("　岗位=").append(workplace == null || workplace.isBlank() ? "无" : short8(workplace));
+        text.append("　配方=").append(npc.getWorkRecipeId().isBlank() ? "无" : npc.getWorkRecipeId());
+        text.append("\n    ").append(npc.getBrain().debugLine());
+        return text.toString();
+    }
+
+    private static String short8(String id) {
+        return id.length() <= 8 ? id : id.substring(0, 8);
+    }
+
     public Collection<NpcData> allNpcs() {
         return byId.values();
     }
@@ -298,11 +366,13 @@ public final class NpcManager {
                 rs.getInt(NpcSchema.COL_HOME_Z),
                 rs.getInt(NpcSchema.COL_WORK_X),
                 rs.getInt(NpcSchema.COL_WORK_Y),
-                rs.getInt(NpcSchema.COL_WORK_Z));
+                rs.getInt(NpcSchema.COL_WORK_Z),
+                rs.getInt(NpcSchema.COL_WORK_TICKS));
         npc.setState(NpcState.parse(rs.getString(NpcSchema.COL_STATE)));
         npc.setSubState(NpcSubState.parse(rs.getString(NpcSchema.COL_SUB_STATE)));
         npc.setDetail(NpcDetail.parse(rs.getString(NpcSchema.COL_DETAIL)));
         npc.setShift(NpcShift.parse(rs.getString(NpcSchema.COL_SHIFT)));
+        npc.setWorkRecipeId(rs.getString(NpcSchema.COL_WORK_RECIPE_ID));
         npc.setInventoryJson(rs.getString(NpcSchema.COL_INVENTORY));
         npc.setSkin(rs.getString(NpcSchema.COL_SKIN));
         return npc;

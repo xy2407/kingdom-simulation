@@ -1,8 +1,11 @@
 package com.xy2407.kingdom.server.building;
 
 import com.xy2407.kingdom.ModMain;
+import com.xy2407.kingdom.common.npc.NpcIndustryService;
+import com.xy2407.kingdom.common.npc.NpcRestaurantService;
 import com.xy2407.kingdom.server.farm.FarmPlotManager;
 import com.xy2407.kingdom.server.ranch.RanchPenManager;
+import com.xy2407.kingdom.server.restaurant.RestaurantOrderStore;
 
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -17,6 +20,9 @@ import net.neoforged.neoforge.event.tick.ServerTickEvent;
 @EventBusSubscriber(modid = ModMain.MOD_ID)
 public final class BuildingServerTick {
 
+    private static final int INDUSTRY_ASSIGN_INTERVAL_TICKS = 100;
+    private static int industryAssignCounter;
+
     private BuildingServerTick() {
     }
 
@@ -26,6 +32,12 @@ public final class BuildingServerTick {
         BuildingRegistry.INSTANCE.tick(event.getServer());
         FarmPlotManager.INSTANCE.tick(event.getServer());
         RanchPenManager.INSTANCE.tick(event.getServer());
+        RestaurantOrderStore.INSTANCE.tick(event.getServer());
+        // 工业/餐厅员工名单与换班移交：低频刷新即可（生产本身由 NPC 状态机逐 tick 推进）。
+        if (++industryAssignCounter % INDUSTRY_ASSIGN_INTERVAL_TICKS == 0) {
+            NpcIndustryService.assignWorkers(event.getServer());
+            NpcRestaurantService.assignWorkers(event.getServer());
+        }
     }
 
     @SubscribeEvent

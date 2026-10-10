@@ -28,6 +28,8 @@ public final class NpcData {
     private UUID spouseId;
     private String job = "";
     private String workplaceId;
+    /** 工业工人负责的那张配方 id（对应蓝图 json 里 recipe 的 id）；空串表示没分工。 */
+    private String workRecipeId = "";
     private String homeId;
     private int age;
     private String lifecycle = "BORN";
@@ -39,6 +41,7 @@ public final class NpcData {
     private int strength;
     private int intelligence;
     private int agility;
+    private int workTicks;
     private double health = 100.0;
     private double mood = 100.0;
     private double hunger = 20.0;
@@ -78,7 +81,7 @@ public final class NpcData {
             String hobbiesJson, String likedItemsJson, String personality, int strength, int intelligence,
             int agility, double health, double mood, double hunger, double stamina, long wealth, boolean dead,
             int birthDay, int deathDay, long updatedAt, String dimension, double x, double y, double z,
-            int homeX, int homeY, int homeZ, int workX, int workY, int workZ) {
+            int homeX, int homeY, int homeZ, int workX, int workY, int workZ, int workTicks) {
         this.id = id;
         this.entityUuid = entityUuid;
         this.name = name;
@@ -220,6 +223,15 @@ public final class NpcData {
         markDirty();
     }
 
+    public String getWorkRecipeId() {
+        return workRecipeId;
+    }
+
+    public void setWorkRecipeId(String workRecipeId) {
+        this.workRecipeId = workRecipeId == null ? "" : workRecipeId;
+        markDirty();
+    }
+
     public String getHomeId() {
         return homeId;
     }
@@ -315,6 +327,15 @@ public final class NpcData {
 
     public void setAgility(int agility) {
         this.agility = agility;
+        markDirty();
+    }
+
+    public int getWorkTicks() {
+        return workTicks;
+    }
+
+    public void setWorkTicks(int workTicks) {
+        this.workTicks = workTicks;
         markDirty();
     }
 
@@ -569,6 +590,7 @@ public final class NpcData {
         values.put(NpcSchema.COL_SPOUSE_ID, spouseId != null ? spouseId.toString() : null);
         values.put(NpcSchema.COL_JOB, job);
         values.put(NpcSchema.COL_WORKPLACE_ID, workplaceId);
+        values.put(NpcSchema.COL_WORK_RECIPE_ID, workRecipeId);
         values.put(NpcSchema.COL_HOME_ID, homeId);
         values.put(NpcSchema.COL_AGE, age);
         values.put(NpcSchema.COL_LIFECYCLE, lifecycle);
@@ -577,6 +599,7 @@ public final class NpcData {
         values.put(NpcSchema.COL_PERSONALITY, personality);
         values.put(NpcSchema.COL_INVENTORY, getInventoryJson());
         values.put(NpcSchema.COL_SKIN, getSkin());
+        values.put(NpcSchema.COL_WORK_TICKS, workTicks);
         values.put(NpcSchema.COL_STRENGTH, strength);
         values.put(NpcSchema.COL_INTELLIGENCE, intelligence);
         values.put(NpcSchema.COL_AGILITY, agility);

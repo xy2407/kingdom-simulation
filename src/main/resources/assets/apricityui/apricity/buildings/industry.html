@@ -713,6 +713,48 @@ body{
     <div class="bp-btn" id="bp-close">关闭</div>
   </div>
 
+  <!-- ======================= 二级：单条配方详情（看配方 + 雇工人） =======================
+       与 ranch.html 的 rc-* 同一套：一级点配方卡片进来，一级三件套整体挂 bp-*-off 让位。
+       工人名册点一行即上岗/离岗，改动立刻生效（不需要保存）。 -->
+  <div class="bp-head bp-head-off" id="ic-head">
+    <span class="bp-type">工业</span>
+    <span class="bp-title" id="ic-name">—</span>
+    <span class="bp-back" id="ic-back">返回</span>
+  </div>
+
+  <div class="bp-body bp-body-off" id="ic-body">
+
+    <div class="bp-info">
+      <div class="bp-info-row"><span class="bp-k">配方</span><span class="bp-v" id="ic-recipe">—</span></div>
+      <div class="bp-info-row"><span class="bp-k">耗时</span><span class="bp-v" id="ic-ticks">—</span></div>
+      <div class="bp-info-row"><span class="bp-k">原料</span><span class="bp-v" id="ic-inputs">—</span></div>
+      <div class="bp-info-row"><span class="bp-k">产物</span><span class="bp-v" id="ic-outputs">—</span></div>
+      <div class="bp-info-row"><span class="bp-k">状态</span><span class="bp-v" id="ic-status">未开始</span></div>
+    </div>
+
+    <div class="bp-block">
+      <div class="bp-sec">
+        <span class="bp-sec-title">工人</span>
+        <span class="bp-sec-actions">
+          <span class="bp-sec-btn" id="ic-clear-workers">全部离岗</span>
+          <span class="bp-sec-note" id="ic-workers-note">0 人</span>
+        </span>
+      </div>
+      <div class="bp-search">
+        <span class="bp-search-icon">⌕</span>
+        <input type="text" id="ic-worker-search" maxlength="16" placeholder="搜索附近居民…">
+        <span class="bp-search-clear" id="ic-worker-search-clear">✕</span>
+      </div>
+      <div class="bp-list" id="ic-workers"></div>
+      <div class="bp-empty" id="ic-workers-empty">城里还没有可雇的市民</div>
+    </div>
+
+  </div>
+
+  <div class="bp-foot bp-foot-off" id="ic-foot">
+    <div class="bp-btn" id="ic-close">返回</div>
+  </div>
+
   <!-- 与 farm.html 的 fd-foot 同款：打开仓库独占底栏第二行，不与主操作挤在一起 -->
   <div class="bp-foot bp-foot-off" id="bp-warehouse-row">
     <div class="bp-btn bp-btn-main" id="bp-warehouse">打开仓库</div>

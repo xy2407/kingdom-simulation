@@ -29,8 +29,9 @@ public final class SnapshotRepository {
     private static final Set<MinecraftServer> SHUTDOWN = ConcurrentHashMap.newKeySet();
 
     private static final int BLOCKS_PER_TICK = 4096;
-    private static final int REBUILD_BLOCKS_PER_TICK = 2048;
     private static final int ESTIMATED_BLOCKS_PER_CHUNK = 2048;
+    /** 单区块最低记账成本，避免空区块把预算扣成 0 导致一 tick 无限建快照。 */
+    private static final int MIN_BLOCKS_PER_CHUNK = 256;
     private static final int PENDING_QUEUE_CAP = 4096;
     private static final int MAX_TRACKED_CHUNKS = 4096;
     private static final int MAX_SEARCHES_PER_TICK = 20;
@@ -124,6 +125,10 @@ public final class SnapshotRepository {
     }
 
     public Future<List<BlockPos>> submitSearch(ServerLevel level, BlockPos start, BlockPos end) {
+        return submitSearch(level, start, end, NpcPathfinder.DEFAULT_PADDING);
+    }
+
+    public Future<List<BlockPos>> submitSearch(ServerLevel level, BlockPos start, BlockPos end, int padding) {
         ExecutorService current = executor;
         if (current == null || current.isShutdown()) {
             return null;
@@ -135,15 +140,44 @@ public final class SnapshotRepository {
         if (!tryAcquireSearch()) {
             return null;
         }
-        NpcPathfinder.requestChunks(this, dimension, start, end);
+        NpcPathfinder.requestChunks(this, dimension, start, end, padding);
         try {
-            return current.submit(() -> NpcPathfinder.find(this, dimension, start, end));
+            return current.submit(() -> NpcPathfinder.find(this, dimension, start, end, padding));
+        } catch (RejectedExecutionException rejected) {
+            return null;
+        }
+    }
+
+    /**
+     * 提交一次可续跑的会话搜索：升档重试时 Session 会接着上次的搜索图往下跑，
+     * 而不是从起点重算。调用方必须保证同一个 Session 不被并发提交。
+     */
+    public Future<NpcPathfinder.PathResult> submitSessionSearch(ServerLevel level, NpcPathfinder.Session session,
+                                                                BlockPos start, BlockPos end, int padding) {
+        ExecutorService current = executor;
+        if (current == null || current.isShutdown()) {
+            return null;
+        }
+        ResourceKey<Level> dimension = level.dimension();
+        if (!NpcPathfinder.isViable(this, dimension, start, end)) {
+            return null;
+        }
+        if (!tryAcquireSearch()) {
+            return null;
+        }
+        NpcPathfinder.requestChunks(this, dimension, start, end, padding);
+        try {
+            return current.submit(() -> session.advance(this, dimension, padding));
         } catch (RejectedExecutionException rejected) {
             return null;
         }
     }
 
     public Future<List<BlockPos>> submitCommuteSearch(ServerLevel level, BlockPos start, BlockPos end) {
+        return submitCommuteSearch(level, start, end, NpcPathfinder.DEFAULT_PADDING);
+    }
+
+    public Future<List<BlockPos>> submitCommuteSearch(ServerLevel level, BlockPos start, BlockPos end, int padding) {
         ExecutorService current = executor;
         if (current == null || current.isShutdown()) {
             return null;
@@ -155,9 +189,9 @@ public final class SnapshotRepository {
         if (!tryAcquireCommuteSearch()) {
             return null;
         }
-        NpcPathfinder.requestChunks(this, dimension, start, end);
+        NpcPathfinder.requestChunks(this, dimension, start, end, padding);
         try {
-            return current.submit(() -> NpcPathfinder.find(this, dimension, start, end));
+            return current.submit(() -> NpcPathfinder.find(this, dimension, start, end, padding));
         } catch (RejectedExecutionException rejected) {
             return null;
         }
@@ -166,11 +200,10 @@ public final class SnapshotRepository {
     public void tick(ServerLevel level) {
         searchesThisTick = 0;
         Store store = store(level.dimension());
-        int budget = drain(level, store, BLOCKS_PER_TICK);
-        if (budget > 0) {
-            enqueueRotation(store);
-            drain(level, store, budget);
-        }
+        // 只重建被"打脏"的区块（markDirty / LevelChunkMixin）。
+        // 原来这里还有一段"无条件轮转重建全部快照"的兜底，它让主线程只要有寻路需求
+        // 就恒定以 1 区块/tick 的速度空转；现在方块变化有了全量覆盖，那段轮转纯属浪费。
+        drain(level, store, BLOCKS_PER_TICK);
     }
 
     public ChunkSnapshot getSnapshot(ResourceKey<Level> dimension, int chunkX, int chunkZ) {
@@ -201,6 +234,11 @@ public final class SnapshotRepository {
     public void markDirty(ServerLevel level, int chunkX, int chunkZ) {
         Store store = store(level.dimension());
         long id = ChunkPos.asLong(chunkX, chunkZ);
+        // 这个入口挂在所有方块变化上（LevelChunkMixin，每次挖掘/放置/爆炸都会进），
+        // 必须让绝大多数调用在这里就掉头：没建过快照的区块压根不用记录。
+        if (!store.snapshots.containsKey(id)) {
+            return;
+        }
         long now = level.getGameTime();
         Long last = store.dirtyAt.get(id);
         if (last != null && now - last < DIRTY_COOLDOWN_TICKS) {
@@ -246,29 +284,14 @@ public final class SnapshotRepository {
             if (chunk == null) {
                 continue;
             }
-            store.snapshots.put(id, ChunkSnapshot.build(chunk));
-            budget -= ESTIMATED_BLOCKS_PER_CHUNK;
+            ChunkSnapshot snapshot = ChunkSnapshot.build(chunk);
+            store.snapshots.put(id, snapshot);
+            // 按实际扫描量扣预算：原来固定扣 2048，可高楼区块真实要扫到 8192，
+            // 分帧就失真了 —— 一 tick 内可能吃掉 4 倍的预算。
+            budget -= Math.max(snapshot.scanCost(), MIN_BLOCKS_PER_CHUNK);
         }
         trim(store);
         return budget;
-    }
-
-    private void enqueueRotation(Store store) {
-        if (store.snapshots.isEmpty()) {
-            return;
-        }
-        if (store.cycleCursor >= store.cycle.size()) {
-            store.cycle.clear();
-            store.cycle.addAll(store.snapshots.keySet());
-            store.cycleCursor = 0;
-            if (store.cycle.isEmpty()) {
-                return;
-            }
-        }
-        int quota = Math.min(REBUILD_BLOCKS_PER_TICK / ESTIMATED_BLOCKS_PER_CHUNK, store.cycle.size() - store.cycleCursor);
-        for (int i = 0; i < quota; i++) {
-            offer(store, store.cycle.get(store.cycleCursor++));
-        }
     }
 
     private void trim(Store store) {
@@ -291,8 +314,7 @@ public final class SnapshotRepository {
         private final Map<Long, ChunkSnapshot> snapshots = new ConcurrentHashMap<>();
         private final ArrayDeque<Long> pending = new ArrayDeque<>();
         private final Set<Long> pendingIds = new HashSet<>();
-        private final List<Long> cycle = new ArrayList<>();
+        /** 上次打脏的时间戳，用于 DIRTY_COOLDOWN_TICKS 防抖（同一区块 4 tick 内只重建一次）。 */
         private final Map<Long, Long> dirtyAt = new ConcurrentHashMap<>();
-        private int cycleCursor;
     }
 }

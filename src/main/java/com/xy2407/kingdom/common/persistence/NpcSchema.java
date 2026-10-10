@@ -61,10 +61,14 @@ public final class NpcSchema implements Migration {
     public static final String COL_SHIFT = "shift";
     public static final String COL_INVENTORY = "inventory";
     public static final String COL_SKIN = "skin";
+    public static final String COL_WORK_TICKS = "work_ticks";
+    public static final String COL_WORK_RECIPE_ID = "work_recipe_id";
 
     @Override
     public int version() {
-        return 5;
+        // 迁移版本全局线性（各 Schema 之间不能重复），当前最大是本表上一版的 18。
+        // 本次新增 work_recipe_id 列（工业工人负责哪张配方），取 19。
+        return 19;
     }
 
     @Override
@@ -170,6 +174,8 @@ public final class NpcSchema implements Migration {
         defs.put(COL_SHIFT, "TEXT NOT NULL DEFAULT 'DAY_SHIFT'");
         defs.put(COL_INVENTORY, "TEXT NOT NULL DEFAULT ''");
         defs.put(COL_SKIN, "TEXT NOT NULL DEFAULT ''");
+        defs.put(COL_WORK_TICKS, "INTEGER NOT NULL DEFAULT 0");
+        defs.put(COL_WORK_RECIPE_ID, "TEXT NOT NULL DEFAULT ''");
         return defs;
     }
 
@@ -181,7 +187,8 @@ public final class NpcSchema implements Migration {
                 COL_HEALTH, COL_MOOD, COL_HUNGER, COL_STAMINA, COL_WEALTH, COL_DEAD, COL_BIRTH_DAY,
                 COL_DEATH_DAY, COL_UPDATED_AT, COL_DIMENSION, COL_POS_X, COL_POS_Y, COL_POS_Z,
                 COL_HOME_X, COL_HOME_Y, COL_HOME_Z, COL_WORK_X, COL_WORK_Y, COL_WORK_Z,
-                COL_STATE, COL_SUB_STATE, COL_DETAIL, COL_SHIFT, COL_INVENTORY, COL_SKIN
+                COL_STATE, COL_SUB_STATE, COL_DETAIL, COL_SHIFT, COL_INVENTORY, COL_SKIN,
+                COL_WORK_TICKS, COL_WORK_RECIPE_ID
         });
     }
 }

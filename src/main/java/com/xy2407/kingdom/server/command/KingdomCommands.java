@@ -20,6 +20,7 @@ import com.xy2407.kingdom.common.map.WorldSurfaceSampler;
 import com.xy2407.kingdom.common.npc.NpcData;
 import com.xy2407.kingdom.common.npc.NpcFarmService;
 import com.xy2407.kingdom.common.npc.NpcManager;
+import com.xy2407.kingdom.common.npc.NpcTalent;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.ranch.RanchPen;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
@@ -60,7 +61,10 @@ public final class KingdomCommands {
                         .then(Commands.literal("npc")
                                 .then(Commands.literal("spawn")
                                         .then(Commands.argument("count", IntegerArgumentType.integer(1, MAX_SPAWN))
-                                                .executes(KingdomCommands::spawn))))
+                                                .executes(KingdomCommands::spawn)))
+                                // 诊断：为什么这个市民不回家/不睡觉
+                                .then(Commands.literal("why")
+                                        .executes(KingdomCommands::npcWhy)))
                         .then(Commands.literal("test")
                                 .then(Commands.literal("move")
                                         .then(Commands.literal("clear")
@@ -113,6 +117,17 @@ public final class KingdomCommands {
         return Commands.literal("ranch")
                 .then(Commands.literal("keeper")
                         .executes(KingdomCommands::hireKeeper));
+    }
+
+    /** 诊断：把玩家所在维度市民的作息状态链打出来，用于定位"为什么不回家/不睡觉"。 */
+    private static int npcWhy(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        CommandSourceStack source = ctx.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        source.sendSuccess(() -> Component.literal("—— 市民作息诊断 ——"), false);
+        for (String line : NpcManager.INSTANCE.debugReport(player)) {
+            source.sendSuccess(() -> Component.literal(line), false);
+        }
+        return 1;
     }
 
     private static int hireKeeper(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
@@ -223,6 +238,7 @@ public final class KingdomCommands {
             NpcData data = new NpcData(UUID.randomUUID());
             data.setName("市民" + (i + 1));
             data.setGender(level.random.nextBoolean() ? "MALE" : "FEMALE");
+            NpcTalent.roll(data, level.random);
             data.setEntityUuid(entity.getUUID());
             NpcManager.INSTANCE.registerNpc(data);
             entity.setCitizenId(data.getId());

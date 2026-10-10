@@ -105,6 +105,25 @@ public final class BuildingRegistry {
         return null;
     }
 
+    /**
+     * 建筑整体迁移后整体替换一条登记：id 与其余字段照旧，只有包围盒落在新位置。
+     * 内存与数据库同步更新（走 {@link #toValues} 同一套落库口径），并广播地图叠层。
+     */
+    public void update(BuildingRecord building) {
+        if (building == null) {
+            return;
+        }
+        for (int i = 0; i < records.size(); i++) {
+            if (records.get(i).id().equals(building.id())) {
+                records.set(i, building);
+                break;
+            }
+        }
+        KingdomPersistence.submit(BuildingSchema.TABLE_BUILDING, BuildingSchema.COL_UUID,
+                building.id().toString(), toValues(building));
+        MapOverlayCollector.pushAll();
+    }
+
     public void tick(MinecraftServer server) {
         if (!loaded) {
             if (loadRetryCooldown > 0) {

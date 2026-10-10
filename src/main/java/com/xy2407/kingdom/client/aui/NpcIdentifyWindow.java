@@ -10,6 +10,8 @@ import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.common.entity.NpcEntity;
 import com.xy2407.kingdom.common.npc.NpcData;
 import com.xy2407.kingdom.common.npc.NpcIdentifyInfo;
+import com.xy2407.kingdom.common.npc.NpcManager;
+import com.xy2407.kingdom.common.npc.NpcTalent;
 
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -371,6 +373,8 @@ public final class NpcIdentifyWindow {
         if (maxHealth <= 0.0D) {
             return NpcIdentifyInfo.EMPTY;
         }
+        // 天赋取实体的同步字段（服务端把 NpcData 的三项同步过来）。客户端拿不到 NpcData，
+        // 以前在这里直接读 NpcManager 恒为 null，于是三角面板永远画成退化形状。
         return new NpcIdentifyInfo(
                 null,
                 null,
@@ -378,12 +382,20 @@ public final class NpcIdentifyWindow {
                 null,
                 null,
                 null,
-                NpcIdentifyInfo.Stat.ABSENT,
-                NpcIdentifyInfo.Stat.ABSENT,
-                NpcIdentifyInfo.Stat.ABSENT,
+                talent(npc.getSyncedStrength(), NpcTalent.STRENGTH_MAX),
+                talent(npc.getSyncedIntelligence(), NpcTalent.INTELLIGENCE_MAX),
+                talent(npc.getSyncedAgility(), NpcTalent.AGILITY_MAX),
                 npc.getSyncedStatus(),
                 new NpcIdentifyInfo.Stat((double) npc.getHealth(), maxHealth),
                 new NpcIdentifyInfo.Stat(npc.getSyncedHunger(), NpcData.HUNGER_MAX));
+    }
+
+    /** 同步值 0 表示"还没拿到"（天赋下限是 40，0 不可能是真值），这时走 ABSENT 而不是画成 0。 */
+    private static NpcIdentifyInfo.Stat talent(int value, int max) {
+        if (value <= 0) {
+            return NpcIdentifyInfo.Stat.ABSENT;
+        }
+        return new NpcIdentifyInfo.Stat((double) value, (double) max);
     }
 
     private static void text(Document document, String id, String value) {

@@ -61,6 +61,8 @@ public final class RtsClientEvents {
         Minecraft minecraft = Minecraft.getInstance();
         while (TOGGLE_RTS_MODE.consumeClick()) {
             RtsModeManager.toggle();
+            // 进 RTS 拉一份建筑清单（迁移点选要用）；退出时把迁移状态收干净
+            ClientBuildingController.onModeChanged(RtsModeManager.isActive());
         }
         while (TOGGLE_RTS_ORTHO.consumeClick()) {
             if (RtsModeManager.isActive()) {
@@ -86,6 +88,7 @@ public final class RtsClientEvents {
             minecraft.mouseHandler.releaseMouse();
         }
         RtsModeManager.tickCamera();
+        ClientBuildingController.tick();
     }
 
     private static boolean overAui() {
@@ -123,22 +126,37 @@ public final class RtsClientEvents {
         boolean press = event.getAction() == InputConstants.PRESS;
         switch (event.getButton()) {
             case GLFW.GLFW_MOUSE_BUTTON_LEFT -> {
+                double[] mouse = RtsModeManager.getGuiScaledMouse();
                 if (press) {
                     if (BuildingPlacementManager.beginPendingDrag()) {
                         event.setCanceled(true);
                         return;
                     }
+                    // 迁移中：按下即起拖；否则记下按下点，等松开时判断是不是"短按点选"
+                    if (ClientBuildingController.onLeftPress(mouse[0], mouse[1])) {
+                        event.setCanceled(true);
+                        return;
+                    }
                     RtsModeManager.onLeftMouseDown();
-                } else if (BuildingPlacementManager.isDragging()) {
-                    BuildingPlacementManager.endPendingDrag();
-                } else {
-                    RtsModeManager.onLeftMouseUp();
+                } else if (!ClientBuildingController.onLeftRelease(mouse[0], mouse[1])) {
+                    // 迁移控制器没吃掉这次松开，就还给原来的框选/点选
+                    if (BuildingPlacementManager.isDragging()) {
+                        // 拖动已放置的投影只归放置链管，但 RTS 的框选状态同样要收掉，
+                        // 否则会留下一个关不掉的框挂在屏幕上（与点选建筑同一类问题）
+                        RtsModeManager.cancelLeftClick();
+                        BuildingPlacementManager.endPendingDrag();
+                    } else {
+                        RtsModeManager.onLeftMouseUp();
+                    }
                 }
                 event.setCanceled(true);
             }
             case GLFW.GLFW_MOUSE_BUTTON_RIGHT -> {
                 if (press) {
-                    if (BuildingPlacementManager.isActive()) {
+                    if (ClientBuildingController.isMoving()) {
+                        // 迁移中：右键取消，跟原版结构方块一个习惯
+                        ClientBuildingController.cancel();
+                    } else if (BuildingPlacementManager.isActive()) {
                         BuildingPlacementManager.confirmPlace();
                     } else {
                         RtsModeManager.issueMoveCommand();
@@ -168,6 +186,12 @@ public final class RtsClientEvents {
             event.setCanceled(true);
             return;
         }
+        if (ClientBuildingController.isMoving()) {
+            // 迁移中：滚轮调投影的离地高度（照 nsuk）
+            ClientBuildingController.adjustHeight(event.getScrollDeltaY() > 0 ? 1 : -1);
+            event.setCanceled(true);
+            return;
+        }
         if (BuildingPlacementManager.isActive() || BuildingPlacementManager.isDragging()) {
             BuildingPlacementManager.adjustTargetHeight(event.getScrollDeltaY() > 0 ? 1 : -1);
             event.setCanceled(true);
@@ -190,8 +214,18 @@ public final class RtsClientEvents {
         if (event.getAction() != GLFW.GLFW_PRESS) {
             return;
         }
-        if (key == GLFW.GLFW_KEY_R) {
-            BuildingPlacementManager.rotateTarget();
+        if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) {
+            // 迁移中：Enter 确认落地（不占用原来的 R/X 两个投影键）
+            if (ClientBuildingController.isMoving()) {
+                ClientBuildingController.confirm();
+            }
+        } else if (key == GLFW.GLFW_KEY_R) {
+            if (ClientBuildingController.isMoving()) {
+                // 迁移中：R 旋转投影
+                ClientBuildingController.rotate();
+            } else {
+                BuildingPlacementManager.rotateTarget();
+            }
         } else if (key == GLFW.GLFW_KEY_X) {
             BuildingPlacementManager.undoLastPlacement();
         }

@@ -15,6 +15,7 @@ import com.xy2407.kingdom.server.farm.FarmPlotManager;
 import com.xy2407.kingdom.server.mapoverlay.MapOverlayCollector;
 import com.xy2407.kingdom.server.ranch.RanchPenManager;
 import com.xy2407.kingdom.server.ranch.RanchWorkService;
+import com.xy2407.kingdom.server.restaurant.RestaurantOrderStore;
 
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
@@ -35,6 +36,8 @@ public final class ServerLifecycle {
         FarmPlotManager.INSTANCE.reset();
         RanchPenManager.INSTANCE.reset();
         RanchWorkService.reset();
+        /* 餐厅订单与座位占用同理：换存档不能把上一局的订单带进来 */
+        RestaurantOrderStore.INSTANCE.reset();
         /* 阵营与领地：跟着世界一起清，避免换存档时读到上一个世界的国家 */
         NationRegistry.INSTANCE.reset();
         TerritoryRegistry.INSTANCE.reset();

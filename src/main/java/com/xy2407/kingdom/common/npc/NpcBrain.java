@@ -10,7 +10,6 @@ public final class NpcBrain {
     public static final int MAIN_LOOP_INTERVAL = 240;
     public static final double HUNGER_TRIGGER = 2.0;
     private static final double SLACK_CHANCE = 0.15D;
-    private static final double SLEEP_CHANCE = 0.5D;
 
     public enum WanderStyle { RANDOM_WALK, SOCIALIZE, SIT }
 
@@ -19,6 +18,8 @@ public final class NpcBrain {
     private boolean constructionControlled;
     private boolean farmControlled;
     private boolean ranchControlled;
+    private boolean industryControlled;
+    private boolean restaurantControlled;
     private WanderStyle wanderStyle = WanderStyle.RANDOM_WALK;
     private boolean forageDue;
     private int tickCounter = ThreadLocalRandom.current().nextInt(MAIN_LOOP_INTERVAL);
@@ -66,6 +67,19 @@ public final class NpcBrain {
                 return;
             }
         }
+        if (industryControlled) {
+            if (NpcSchedule.subState(owner.getShift(), owner.getDayTime()) == NpcSubState.WORKING) {
+                setPlan(phase(), NpcSubState.WORKING, NpcDetail.PRODUCING);
+                return;
+            }
+        }
+        if (restaurantControlled) {
+            if (NpcSchedule.subState(owner.getShift(), owner.getDayTime()) == NpcSubState.WORKING) {
+                // 后厨里做菜和上菜是两个行为，具体干哪个由餐厅服务按员工分工决定
+                setPlan(phase(), NpcSubState.WORKING, NpcRestaurantService.detailFor(owner));
+                return;
+            }
+        }
         if (tickCounter % MAIN_LOOP_INTERVAL != 0) {
             return;
         }
@@ -81,7 +95,8 @@ public final class NpcBrain {
     }
 
     private void correctDrift() {
-        if (rtsControlled || constructionControlled || farmControlled || ranchControlled) {
+        if (rtsControlled || constructionControlled || farmControlled || ranchControlled
+                || industryControlled || restaurantControlled) {
             return;
         }
         NpcSubState subState = owner.getSubState();
@@ -109,7 +124,12 @@ public final class NpcBrain {
         }
         if (detail == null) {
             NpcDetail current = owner.getDetail();
-            if (owner.getSubState() == subState && current != null && current.subState() == subState) {
+            // 休息时段特意不沿用 WANDERING：SLEEPING 与 WANDERING 的子状态都是 RESTING，
+            // 沿用的话会让人一直闲逛下去、永远回不到睡觉（房子刚分配时尤其明显）。
+            boolean restarted = subState == NpcSubState.RESTING
+                    && current == NpcDetail.WANDERING && hasHome();
+            if (owner.getSubState() == subState && current != null
+                    && current.subState() == subState && !restarted) {
                 detail = current;
             } else {
                 detail = rollDetail(subState);
@@ -122,8 +142,10 @@ public final class NpcBrain {
         ThreadLocalRandom random = ThreadLocalRandom.current();
         return switch (subState) {
             case WORKING -> random.nextDouble() < SLACK_CHANCE ? NpcDetail.SLACKING : NpcDetail.WORKING_FOCUS;
-            case RESTING -> hasHome() && random.nextDouble() < SLEEP_CHANCE
-                    ? NpcDetail.SLEEPING : NpcDetail.WANDERING;
+            // 有家就回家睡：睡觉本身就是回家的理由，不该先掷骰子决定睡不睡、输了就整晚在街上闲逛。
+            // 而且回家窗口只有 1000 tick，SLEEPING 走的是 sleepAtHome（走到床边再躺下），
+            // 所以哪怕这时人还在半路也会接着走回家，不会像以前那样卡在闲逛上。
+            case RESTING -> hasHome() ? NpcDetail.SLEEPING : NpcDetail.WANDERING;
             case HUNGRY -> NpcDetail.FORAGING;
             case MOVING -> NpcDetail.GOING_WORK;
         };
@@ -207,6 +229,22 @@ public final class NpcBrain {
         return wanderStyle;
     }
 
+    /**
+     * 诊断用一行：当前 tick 计数、距下一次状态机检查还有多久，以及全部控制位。
+     * 任何一位为 true，{@link #tick()} 都会在进入 mainLoop 之前提前返回，
+     * 排班表就再也改不动这个人 —— 排查"为什么不睡觉"第一个要看的就是这里。
+     */
+    public String debugLine() {
+        return "tick=" + tickCounter
+                + " 距检查=" + (MAIN_LOOP_INTERVAL - Math.floorMod(tickCounter, MAIN_LOOP_INTERVAL)) + "t"
+                + " 控制位[rts=" + rtsControlled
+                + " 施工=" + constructionControlled
+                + " 农=" + farmControlled
+                + " 牧=" + ranchControlled
+                + " 工=" + industryControlled
+                + " 餐=" + restaurantControlled + "]";
+    }
+
     public boolean isRtsControlled() {
         return rtsControlled;
     }
@@ -237,5 +275,21 @@ public final class NpcBrain {
 
     public void setRanchControlled(boolean ranchControlled) {
         this.ranchControlled = ranchControlled;
+    }
+
+    public boolean isIndustryControlled() {
+        return industryControlled;
+    }
+
+    public void setIndustryControlled(boolean industryControlled) {
+        this.industryControlled = industryControlled;
+    }
+
+    public boolean isRestaurantControlled() {
+        return restaurantControlled;
+    }
+
+    public void setRestaurantControlled(boolean restaurantControlled) {
+        this.restaurantControlled = restaurantControlled;
     }
 }

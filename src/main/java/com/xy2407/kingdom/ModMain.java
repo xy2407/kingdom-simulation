@@ -11,6 +11,7 @@ import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.persistence.NationSchema;
 import com.xy2407.kingdom.common.persistence.NpcSchema;
 import com.xy2407.kingdom.common.persistence.PlayerProfileSchema;
+import com.xy2407.kingdom.common.persistence.RestaurantOrderSchema;
 import com.xy2407.kingdom.common.persistence.TerritoryVitalsSchema;
 import com.xy2407.kingdom.common.persistence.RanchSchema;
 import com.xy2407.kingdom.common.persistence.TerritorySchema;
@@ -51,6 +52,8 @@ public final class ModMain {
         KingdomPersistence.registerMigration(new TerritoryVitalsSchema());
         /* 建筑仓库：一座建筑一行、物品整包存 SNBT，接在 16 之后 */
         KingdomPersistence.registerMigration(new BuildingStorageSchema());
+        /* 餐厅订单：一名顾客一行，接在现有最大值 18 之后 */
+        KingdomPersistence.registerMigration(new RestaurantOrderSchema());
         NeoForge.EVENT_BUS.register(ServerLifecycle.class);
         NeoForge.EVENT_BUS.register(DateServerTick.class);
         NeoForge.EVENT_BUS.register(NpcJoinWorldHandler.class);

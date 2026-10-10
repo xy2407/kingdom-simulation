@@ -5,9 +5,15 @@ import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.client.cityhall.CityHallScreen;
 import com.xy2407.kingdom.client.farm.FarmPanelScreen;
 import com.xy2407.kingdom.client.ranch.RanchPanelScreen;
+import com.xy2407.kingdom.client.industry.IndustryPanelScreen;
 import com.xy2407.kingdom.client.map.MapOverlayStore;
+import com.xy2407.kingdom.client.rts.ClientBuildingStore;
+import com.xy2407.kingdom.common.network.industry.IndustryPanelHooks;
+import com.xy2407.kingdom.common.network.building.BuildingMoveHooks;
 import com.xy2407.kingdom.common.network.building.BuildingPanelHooks;
 import com.xy2407.kingdom.common.network.building.BuildingSiteHooks;
+import com.xy2407.kingdom.common.network.building.ResidentHooks;
+import com.xy2407.kingdom.common.network.building.RestaurantHooks;
 import com.xy2407.kingdom.common.network.cityhall.CityHallHooks;
 import com.xy2407.kingdom.common.network.mapoverlay.MapOverlayHooks;
 import com.xy2407.kingdom.common.network.farm.FarmPanelHooks;
@@ -47,6 +53,10 @@ public final class BuildingClientSetup {
     public static void onClientSetup(FMLClientSetupEvent event) {
         BuildingSiteHooks.siteSink = BuildingSiteManager::accept;
         BuildingPanelHooks.stateSink = BuildingPanelClient::accept;
+        ResidentHooks.listSink = BuildingPanelClient::acceptResidents;
+        RestaurantHooks.menuSink = BuildingPanelClient::acceptRestaurantMenu;
+        BuildingMoveHooks.syncSink = ClientBuildingStore::accept;
+        IndustryPanelHooks.stateSink = IndustryPanelScreen::accept;
         FarmPanelHooks.stateSink = FarmPanelScreen::accept;
         RanchPanelHooks.stateSink = RanchPanelScreen::accept;
         CityHallHooks.openSink = CityHallScreen::open;

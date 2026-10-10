@@ -183,17 +183,14 @@ public final class CommuteScheduler {
             return 0;
         }
         BlockPos target = task.target();
+        // 这里只做"离得太远的人直接送过去"这一段错峰调度。
+        // 走路本身交给 GOING_WORK / GOING_HOME / SLEEPING 分支里的自定义 A*（多层寻路）——
+        // 之前这里用 submitCommuteSearch + applyPath 派路，applyPath 会把 brain 打成
+        // rtsControlled，detail 随即变成 COMMANDED_MOVE，排班表再也改不动这个人，
+        // 结果就是上下班只走一次、回家睡觉全程不发生。
         if (npc.distanceToSqr(Vec3.atCenterOf(target)) > TELEPORT_DISTANCE_SQR) {
             npc.teleportTo(target.getX() + 0.5D, target.getY(), target.getZ() + 0.5D);
-            return 1;
         }
-        Future<List<BlockPos>> future = repository.submitCommuteSearch(level, npc.blockPosition(), target);
-        if (future == null) {
-            PENDING.addLast(task);
-            QUEUED.add(task.citizenId());
-            return -1;
-        }
-        IN_FLIGHT.put(task.citizenId(), new InFlight(task.entityUuid(), future, tickCounter));
         return 1;
     }
 

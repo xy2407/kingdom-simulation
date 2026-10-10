@@ -4,7 +4,9 @@
   "package": "com.xy2407.kingdom.mixin",
   "compatibilityLevel": "JAVA_17",
   "mixins": [
-    "FarmBlockMoistureMixin"
+    "FarmBlockMoistureMixin",
+    "BedBlockMixin",
+    "LevelChunkMixin"
   ],
   "client": [
     "MaskStencilSuppressMixin",
