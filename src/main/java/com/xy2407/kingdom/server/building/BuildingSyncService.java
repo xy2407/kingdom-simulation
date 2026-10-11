@@ -28,7 +28,7 @@ public final class BuildingSyncService {
                 continue;
             }
             entries.add(new BuildingSyncPacket.Entry(building.id(), building.name(),
-                    building.min(), building.max()));
+                    building.min(), building.max(), building.rotation()));
         }
         PacketDistributor.sendToPlayer(player, new BuildingSyncPacket(entries));
     }

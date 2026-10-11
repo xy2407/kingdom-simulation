@@ -9,7 +9,9 @@ import com.xy2407.kingdom.client.ranch.RanchPanelScreen;
 import com.xy2407.kingdom.client.industry.IndustryPanelScreen;
 import com.xy2407.kingdom.client.map.MapOverlayStore;
 import com.xy2407.kingdom.client.rts.ClientBuildingStore;
+import com.xy2407.kingdom.client.structure.StructureDebugKeybind;
 import com.xy2407.kingdom.common.network.debug.NpcPathDebugHooks;
+import com.xy2407.kingdom.common.network.npc.NpcRosterHooks;
 import com.xy2407.kingdom.common.network.industry.IndustryPanelHooks;
 import com.xy2407.kingdom.common.network.building.BuildingMoveHooks;
 import com.xy2407.kingdom.common.network.building.BuildingPanelHooks;
@@ -65,6 +67,7 @@ public final class BuildingClientSetup {
         CityHallHooks.dataSink = CityHallScreen::accept;
         MapOverlayHooks.dataSink = MapOverlayStore::accept;
         NpcPathDebugHooks.sink = NpcPathDebugRenderer::accept;
+        NpcRosterHooks.rosterSink = StructureDebugKeybind::acceptRoster;
     }
 
     @SubscribeEvent

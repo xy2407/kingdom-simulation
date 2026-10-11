@@ -19,6 +19,9 @@ public final class FactionHooks {
     public static BiConsumer<ServerPlayer, TerritoryCreatePacket> territoryCreateHandler = (player, packet) -> {
     };
 
+    public static BiConsumer<ServerPlayer, TerritoryBuyPacket> territoryBuyHandler = (player, packet) -> {
+    };
+
     private FactionHooks() {
     }
 }

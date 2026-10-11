@@ -2,6 +2,7 @@ package com.xy2407.kingdom.server.faction;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -15,10 +16,12 @@ import com.xy2407.kingdom.common.faction.Territory;
 import com.xy2407.kingdom.common.network.faction.FactionHooks;
 import com.xy2407.kingdom.common.network.faction.FactionSelectPacket;
 import com.xy2407.kingdom.common.network.faction.FactionStatePacket;
+import com.xy2407.kingdom.common.network.faction.TerritoryBuyPacket;
 import com.xy2407.kingdom.common.network.faction.TerritoryCreatePacket;
 import com.xy2407.kingdom.server.mapoverlay.MapOverlayCollector;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -31,9 +34,12 @@ public final class FactionService {
 
     private static final Set<UUID> PROMPTED = new HashSet<>();
 
+    private static final int MAX_PURCHASE_CHUNKS = 4096;
+
     static {
         FactionHooks.selectHandler = FactionService::onSelect;
         FactionHooks.territoryCreateHandler = FactionService::onCreateTerritory;
+        FactionHooks.territoryBuyHandler = FactionService::onBuyTerritory;
     }
 
     private FactionService() {
@@ -132,10 +138,63 @@ public final class FactionService {
         PlayerProfileStore.INSTANCE.setTerritory(player.getUUID(), territory.id());
         sendState(player);
         MapOverlayCollector.pushAll();
-        ModMain.LOGGER.info("{} 建立了领地 {}，范围区块 X[{}..{}] Z[{}..{}]",
-                player.getName().getString(), name,
-                territory.minChunkX(), territory.maxChunkX(),
-                territory.minChunkZ(), territory.maxChunkZ());
+        ModMain.LOGGER.info("{} 建立了领地 {}，初始 {} 个区块",
+                player.getName().getString(), name, territory.chunkCount());
+    }
+
+
+    private static void onBuyTerritory(ServerPlayer player, TerritoryBuyPacket packet) {
+        Territory own = TerritoryRegistry.INSTANCE.byOwner(player.getUUID());
+        if (own == null) {
+            notice(player, "还没有领地，先去市政厅立国建邦");
+            return;
+        }
+        String dimension = player.level().dimension().location().toString();
+        if (!dimension.equals(own.dimension())) {
+            notice(player, "只能在本维度扩张领地");
+            return;
+        }
+        Set<Long> wanted = new LinkedHashSet<>();
+        for (long key : packet.chunks()) {
+            wanted.add(key);
+        }
+        if (wanted.isEmpty()) {
+            return;
+        }
+        if (wanted.size() > MAX_PURCHASE_CHUNKS) {
+            notice(player, "选区过大，一次最多扩张 " + MAX_PURCHASE_CHUNKS + " 个区块");
+            return;
+        }
+        int fresh = 0;
+        for (long key : wanted) {
+            if (own.chunks().contains(key)) {
+                continue;
+            }
+            Territory other = TerritoryRegistry.INSTANCE.byChunk(dimension,
+                    Territory.chunkKeyX(key), Territory.chunkKeyZ(key));
+            if (other != null) {
+                notice(player, "选区包含其他领地，无法扩张");
+                return;
+            }
+            fresh++;
+        }
+        if (fresh == 0) {
+            notice(player, "这些区块已经在你的领地里了");
+            return;
+        }
+        Territory updated = TerritoryRegistry.INSTANCE.addChunks(own, wanted);
+        if (updated == null) {
+            return;
+        }
+        sendState(player);
+        MapOverlayCollector.pushAll();
+        ModMain.LOGGER.info("{} 扩张领地 {}：新增 {} 个区块，现共 {} 个",
+                player.getName().getString(), updated.name(), fresh, updated.chunkCount());
+    }
+
+
+    private static void notice(ServerPlayer player, String message) {
+        player.displayClientMessage(Component.literal(message), true);
     }
 
 

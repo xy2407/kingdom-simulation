@@ -25,5 +25,7 @@ public final class FactionPayloadRegistration {
                 FactionSelectPacket.STREAM_CODEC, FactionSelectPacket::handle);
         registrar.playToServer(TerritoryCreatePacket.TYPE,
                 TerritoryCreatePacket.STREAM_CODEC, TerritoryCreatePacket::handle);
+        registrar.playToServer(TerritoryBuyPacket.TYPE,
+                TerritoryBuyPacket.STREAM_CODEC, TerritoryBuyPacket::handle);
     }
 }

@@ -1,6 +1,7 @@
 package com.xy2407.kingdom.client.cityhall;
 
 import java.util.List;
+import java.util.Set;
 
 import com.sighs.apricityui.element.Input;
 import com.sighs.apricityui.init.Document;
@@ -8,11 +9,15 @@ import com.sighs.apricityui.init.Element;
 import com.sighs.apricityui.screen.ApricityScreen;
 import com.xy2407.kingdom.client.aui.WorldMapElement;
 import com.xy2407.kingdom.client.map.MapOverlayStore;
+import com.xy2407.kingdom.common.network.cityhall.CityHallAffairActionPacket;
 import com.xy2407.kingdom.common.network.cityhall.CityHallDataPacket;
+import com.xy2407.kingdom.common.network.cityhall.CityHallRequestPacket;
+import com.xy2407.kingdom.common.network.faction.TerritoryBuyPacket;
 
 import net.minecraft.client.Minecraft;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
+import net.neoforged.neoforge.network.PacketDistributor;
 
 import org.lwjgl.glfw.GLFW;
 
@@ -24,10 +29,20 @@ public final class CityHallScreen extends ApricityScreen {
 
     public static final String PAGE = "ui/city_hall.html";
 
+    private static final String TODO_HOST = "chTodoList";
+
+    private static final String AFFAIR_ROW_PREFIX = "chAffair-";
+
+    private static final int REFRESH_INTERVAL_TICKS = 100;
+
     private static int hallX;
     private static int hallZ;
 
     private boolean viewInitialized;
+
+    private int refreshCounter;
+
+    private Set<Long> buySelection;
 
     private static final String[] MAP_VIEW_ATTRIBUTES = {"center-x", "center-z", "zoom"};
 
@@ -80,6 +95,24 @@ public final class CityHallScreen extends ApricityScreen {
         if (boundDocument == null) {
             bind();
         }
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (++refreshCounter < REFRESH_INTERVAL_TICKS) {
+            return;
+        }
+        refreshCounter = 0;
+        PacketDistributor.sendToServer(new CityHallRequestPacket(hallX, hallZ));
+    }
+
+    @Override
+    public void onClose() {
+        WorldMapElement.clearSelection();
+        WorldMapElement.setSelectionListener(null);
+        buySelection = null;
+        super.onClose();
     }
 
     private void bind() {
@@ -135,7 +168,7 @@ public final class CityHallScreen extends ApricityScreen {
         text(document, "chRealmPolicy", orDash(packet.policy()));
 
         fillLines(document, "chEventList", packet.events(), "最近没有值得记一笔的事");
-        fillLines(document, "chTodoList", packet.todos(), "暂无待办");
+        fillAffairs(document, packet.affairs());
         fillLines(document, "chLedgerList", packet.ledger(), "暂无进出账");
 
         applyTier(document, packet.population());
@@ -161,6 +194,11 @@ public final class CityHallScreen extends ApricityScreen {
 
         click(document, "chCalBtn", this::showDayModal);
 
+        WorldMapElement.setSelectionListener(this::openBuyModal);
+        click(document, "chBuyClose", this::closeBuyModal);
+        click(document, "chBuyCancel", this::closeBuyModal);
+        click(document, "chBuyConfirm", this::confirmBuy);
+
         click(document, "chMapBox", () -> {
             if (WorldMapElement.draggedRecently()) {
                 return;
@@ -176,7 +214,10 @@ public final class CityHallScreen extends ApricityScreen {
             fullMap.addEventListener("wheel", event -> event.preventDefault());
         }
 
-        MapOverlayStore.setChangeListener(() -> refreshMapTip(document));
+        MapOverlayStore.setChangeListener(() -> {
+            refreshMapTip(document);
+            WorldMapElement.requestRepaint();
+        });
 
         click(document, "chModalClose", () -> closeModal(document));
         click(document, "chModalDayClose", () -> {
@@ -245,6 +286,44 @@ public final class CityHallScreen extends ApricityScreen {
         toggleClass(document, "chModal", "is-open", false);
     }
 
+    private void openBuyModal(Set<Long> chunks) {
+        Document document = boundDocument;
+        if (document == null) {
+            return;
+        }
+        buySelection = Set.copyOf(chunks);
+        Element body = document.getElementById("chBuyBody");
+        if (body != null) {
+            body.setInnerHTML("<div class=\"rline\"><span class=\"rline-k\">已选区块</span>"
+                    + "<span class=\"rline-v\">" + chunks.size() + " 个</span></div>"
+                    + "<div class=\"rline\"><span class=\"rline-k\">操作</span>"
+                    + "<span class=\"rline-v\">确认后并入你的领地</span></div>");
+        }
+        toggleClass(document, "chBuyModal", "is-open", true);
+    }
+
+    private void closeBuyModal() {
+        buySelection = null;
+        WorldMapElement.clearSelection();
+        if (boundDocument != null) {
+            toggleClass(boundDocument, "chBuyModal", "is-open", false);
+        }
+    }
+
+    private void confirmBuy() {
+        Set<Long> selection = buySelection;
+        closeBuyModal();
+        if (selection == null || selection.isEmpty()) {
+            return;
+        }
+        long[] chunks = new long[selection.size()];
+        int index = 0;
+        for (long key : selection) {
+            chunks[index++] = key;
+        }
+        PacketDistributor.sendToServer(new TerritoryBuyPacket(chunks));
+    }
+
     private void showDayModal() {
         Document document = boundDocument;
         if (document == null) {
@@ -272,6 +351,10 @@ public final class CityHallScreen extends ApricityScreen {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == GLFW.GLFW_KEY_ESCAPE && boundDocument != null) {
+            if (buySelection != null) {
+                closeBuyModal();
+                return true;
+            }
             if (mapFullOpen) {
                 mapFullOpen = false;
                 toggleClass(boundDocument, "chMapFull", "is-open", false);
@@ -360,6 +443,38 @@ public final class CityHallScreen extends ApricityScreen {
                     .append("</div>");
         }
         host.setInnerHTML(html.toString());
+    }
+
+    private void fillAffairs(Document document, List<CityHallDataPacket.Affair> affairs) {
+        Element host = document.getElementById(TODO_HOST);
+        if (host == null) {
+            return;
+        }
+        if (affairs.isEmpty()) {
+            host.setInnerHTML("<div class=\"empty-note\">暂无待办政务</div>");
+            return;
+        }
+        StringBuilder html = new StringBuilder();
+        for (CityHallDataPacket.Affair affair : affairs) {
+            html.append("<div class=\"rline rline--affair\" id=\"")
+                    .append(AFFAIR_ROW_PREFIX).append(affair.id()).append("\">")
+                    .append("<span class=\"rline-k\">").append(escape(affair.scope()))
+                    .append(" · 剩 ").append(affair.daysLeft()).append(" 天</span>")
+                    .append("<span class=\"rline-v\">").append(escape(affair.title())).append("</span>")
+                    .append("</div>");
+        }
+        host.setInnerHTML(html.toString());
+        for (CityHallDataPacket.Affair affair : affairs) {
+            Element row = document.getElementById(AFFAIR_ROW_PREFIX + affair.id());
+            if (row != null) {
+                String affairId = affair.id();
+                row.addEventListener("click", event -> resolveAffair(affairId));
+            }
+        }
+    }
+
+    private static void resolveAffair(String affairId) {
+        PacketDistributor.sendToServer(new CityHallAffairActionPacket(hallX, hallZ, affairId));
     }
 
     private static void applyTier(Document document, int population) {

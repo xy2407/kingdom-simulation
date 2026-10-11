@@ -4,7 +4,6 @@
     <meta charset="utf-8">
     <meta name="aui-viewport" content="mode=gui">
     <meta name="aui-mouse-events" content="intercept">
-    <link rel="stylesheet" href="/apricityui/theme/ore/ore.css">
     <style>
         @font-face {
             font-family: 'Zpix';
@@ -12,20 +11,28 @@
             font-display: block;
         }
 
-        /* 配色与身份卡(identify.html)、信封页同一套：羊皮纸 + 木框 + 金 */
+        /* ============================================================
+           主题令牌：内联自 aui经验/theme/pixel-medieval.css（只取本页用到的部分）。
+           配色/间距/边框环宽与主题一一对应，改数值前先看主题文件，别另造一套。
+           ============================================================ */
         :root {
             --parchment: #c8ac7c;
             --parchment-lo: #b89868;
-            --parchment-hi: #d6bb8c;
-            --border-mid: #6a4a20;
-            --border-dark: #4a3218;
+            --parchment-hi: #d6bc94;
+            --parchment-max: #e8d2a8;
             --border-deep: #3a2814;
+            --border-dark: #4a3218;
+            --border-mid: #6a4a20;
             --border-light: #8a6e3c;
             --border-hi: #d8bc8c;
             --ink: #1a0e04;
             --ink-2: #4a3218;
             --gold: #c9a227;
             --gold-l: #f5e08a;
+            --shine: rgba(255, 240, 200, .45);
+            --shine-soft: rgba(255, 240, 200, .28);
+            --shade-soft: rgba(74, 50, 24, .3);
+            --ring: 2px;
             /* 3D 预览的"窗口"暗底：方块要在暗背景上才有轮廓 */
             --hole-hi: #302213;
             --hole-lo: #221808;
@@ -39,7 +46,7 @@
 
         /* 不要给 html/body 加 overflow。AUI 里根元素盒子高度是 0，根元素上的 overflow 会生成
            一条零尺寸裁剪遮罩 → currentClip.isValid() 变 false → 整页每个节点都被静默剔掉。
-           需要裁剪就写在自己有确定尺寸的元素上（下面 .viewer-cards / .viewer-card / .card-cap）。 */
+           需要裁剪就写在自己有确定尺寸的元素上（下面 .dock / .side / .band-list 等）。 */
         html, body {
             margin: 0;
             padding: 0;
@@ -53,99 +60,324 @@
         }
 
         /* ============================================================
-           底部 HUD 栏：羊皮纸底 + 木框 + 内斜角
+           贴边面板配方 = 主题 .frame--flat：木框 + 1px 外环 + 四角浮雕，
+           但去掉硬投影（2px 2px）—— 贴屏幕边时投影会溢出视口，看着像缺角。
            ============================================================ */
-        .viewer-bar {
-            position: fixed;
-            left: 6px;
-            right: 6px;
-            bottom: 6px;
-            height: 150px;
-            display: flex;
-            flex-direction: column;
-
-            /* 原版 HUD 的深度测试全程开着，聊天先画先写深度，文档面只在 z≈1；
-               不抬 z 就会被聊天文字盖住。z 只能挂在有确定尺寸的容器上（根盒子高度为 0，挂 body 无效），
-               400 与原版 tooltip 同层，稳压聊天栏又不至于穿到 UI 之外。 */
-            transform: translateZ(400px);
-
-            /* 长条羊皮纸纹理：与 identify.html 用同一套噪声算法 + 同一组 13 级调色烘出来的
-               （1080x150，按当前逻辑视口宽基本 1:1），自带边缘渐暗与水渍斑驳。 */
-            background-image: url('/tex/parchment_bar.png');
-            background-size: 100% 100%;
-            background-repeat: no-repeat;
+        .dock, .side {
             background-color: var(--parchment);
-
-            border: 3px solid var(--border-dark);
+            border: var(--ring) solid var(--border-dark);
             box-shadow:
                 0 0 0 1px var(--border-mid),
                 inset 0 0 0 1px var(--border-light),
                 inset 2px 2px 0 0 var(--border-hi),
-                inset -2px -2px 0 0 var(--border-mid),
-                4px 4px 0 0 rgba(0, 0, 0, .45);
+                inset -2px -2px 0 0 var(--border-mid);
         }
 
-        .viewer-bar-head {
+        /* 把手：收起状态唯一露出来的东西。底色比面板亮一档，中间一根金条提示"可以拉出来" */
+        .grip-pip {
+            display: block;
+            width: 104px;
+            height: 5px;
+            background: var(--gold);
+            box-shadow: 0 0 0 1px var(--border-deep);
+        }
+
+        .grip-pip--v {
+            width: 5px;
+            height: 104px;
+        }
+
+        /* ============================================================
+           底部栏：收起时只剩顶部 18px 的把手（= 2px 边框 ×2 + 14px 把手），
+           鼠标贴到屏幕下边缘即向上展开。
+           展开靠改自身 height（fixed 元素，不动其它元素的布局），
+           不用 transition —— AUI 只对白名单属性做过渡，高度是直接跳变的。
+           ============================================================ */
+        .dock {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 18px;
+            overflow: hidden;
+
+            display: flex;
+            flex-direction: column;
+
+            /* 原版 HUD 的深度测试全程开着，聊天先画先写深度，文档面只在 z≈1；
+               不抬 z 就会被聊天文字盖住。z 只能挂在有确定尺寸的容器上（根盒子高度为 0，挂 body 无效）。
+               底栏取 405，比左侧栏的 400 高 —— 两者重叠时底栏压住左栏。 */
+            transform: translateZ(405px);
+
+            /* 长条羊皮纸纹理：与 identify.html 用同一套噪声算法 + 同一组 13 级调色烘出来的 */
+            background-image: url('/tex/parchment_bar.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+        }
+
+        .dock:hover {
+            height: 210px;
+        }
+
+        /* 点进分类后底栏固定展开：不再靠 hover 吊着，鼠标去点卡片或往搜索框里打字时不会突然收回去 */
+        .dock.is-cards {
+            height: 210px;
+        }
+
+        .dock-grip {
+            position: absolute;
+            left: 0;
+            top: 0;
+            right: 0;
+            height: 14px;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(255, 240, 200, .16);
+        }
+
+        .dock-body {
+            position: absolute;
+            left: 0;
+            top: 14px;
+            right: 0;
+            bottom: 0;
+            padding: 6px 8px;
+
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ============================================================
+           底栏有两种形态，靠 .dock 上的 is-cards 切换：
+           ① 分类态（默认）：8 等分分类卡，点一格进该分类；
+           ② 卡片态：左上角搜索框 + 该分类的建筑卡片列表。
+           ============================================================ */
+        .band-row {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
+        }
+
+        .card-view {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: none;
+            flex-direction: column;
+        }
+
+        .dock.is-cards .band-row {
+            display: none;
+        }
+
+        .dock.is-cards .card-view {
+            display: flex;
+        }
+
+        /* ============================================================
+           底栏 8 等分：住宅 / 农业 / 养殖 / 商业 / 工业 / 军事 / 仓库 / 其它。
+           格子宽度由 Java 按视口宽度算好后写进 style（不写 %，AUI 里 % 宽会塌），
+           这里只给 flex:0 0 auto 锁死尺寸，默认值仅供算出来之前顶着用。
+           ============================================================ */
+        .band {
+            flex: 0 0 auto;
+            width: 120px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+
+            background-color: var(--parchment-hi);
+            background-image: url('/tex/card_gen.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            border: 2px solid var(--border-dark);
+            box-shadow:
+                inset 1px 1px 0 0 var(--border-hi),
+                inset -1px -1px 0 0 var(--border-mid);
+        }
+
+        .band-head {
             flex: 0 0 auto;
             display: flex;
-            align-items: baseline;
-            gap: 10px;
-            padding: 5px 10px 6px;
+            align-items: center;
+            padding: 3px 6px;
 
-            /* 与身份卡 .np-name 同款：木色下沿线 + 一道浅高光 */
+            background-image: url('/tex/parchment_status.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            background-color: var(--parchment-lo);
             border-bottom: 2px solid var(--border-mid);
-            box-shadow: 0 1px 0 rgba(255, 240, 200, .38);
+            box-shadow: inset 0 1px 0 var(--shine-soft);
         }
 
-        .bar-title {
-            font-size: 14px;
+        .band-name {
+            flex: 1 1 auto;
+            min-width: 0;
+            font-size: 12px;
             line-height: 16px;
-            letter-spacing: 1px;
+            color: var(--ink);
+            white-space: nowrap;
+            overflow: hidden;
+        }
+
+        .band-count {
+            flex: 0 0 auto;
+            font-size: 11px;
+            line-height: 14px;
             color: var(--gold);
-            /* AUI 原生 text-stroke：多层 text-shadow 只会取第一层 */
             text-stroke: 1px var(--border-deep);
         }
 
-        .bar-hint {
-            font-size: 12px;
-            line-height: 16px;
+        .band-list {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            padding: 4px;
+            overflow-y: auto;
+        }
+
+        /* 格内的结构条目：点一下即进该分类的卡片视图 */
+        .band-item {
+            flex: 0 0 auto;
+            padding: 2px 4px;
+            font-size: 11px;
+            line-height: 15px;
+            color: var(--ink);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            cursor: pointer;
+        }
+
+        .band-item:hover {
+            background-color: var(--parchment-max);
+        }
+
+        .band-empty {
+            flex: 0 0 auto;
+            padding: 2px 4px;
+            font-size: 11px;
+            line-height: 15px;
             color: var(--ink-2);
         }
 
+        /* ============================================================
+           卡片态顶部条：返回 + 搜索框 + 当前分类名。
+           搜索框用 AUI 的 Input 元素（Java 每 tick 轮询 getValue 做过滤，
+           与 BuildingPanelScreen 的搜索框同一条路子）。
+           ============================================================ */
+        .card-bar {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            padding-bottom: 6px;
+        }
+
+        .card-back {
+            flex: 0 0 auto;
+            padding: 2px 8px;
+            margin-right: 8px;
+            font-size: 11px;
+            line-height: 16px;
+            color: var(--ink);
+
+            background-image: url('/tex/parchment_status.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            background-color: var(--parchment-lo);
+            border: 2px solid var(--border-dark);
+            box-shadow:
+                0 0 0 1px var(--border-mid),
+                inset 0 1px 0 var(--shine-soft);
+            cursor: pointer;
+        }
+
+        .card-back:hover {
+            color: var(--gold-l);
+            text-stroke: 1px var(--border-deep);
+        }
+
+        .viewer-search {
+            flex: 0 0 auto;
+            width: 220px;
+            height: 22px;
+            margin-right: 8px;
+            padding: 0 6px;
+
+            font-family: 'Zpix', monospace;
+            font-size: 12px;
+            color: var(--ink);
+            background-color: var(--parchment-max);
+            border: 2px solid var(--border-dark);
+            box-shadow:
+                0 0 0 1px var(--border-mid),
+                inset 2px 2px 0 0 var(--shade-soft);
+        }
+
+        /* 点中搜索框后才接管键盘打字（否则 RTS 的操作键会被吃掉），金边表示已在输入态 */
+        .viewer-search.search-on {
+            border-color: var(--gold);
+            box-shadow:
+                0 0 0 1px var(--gold),
+                inset 2px 2px 0 0 var(--shade-soft);
+        }
+
+        .card-title {
+            flex: 1 1 auto;
+            min-width: 0;
+            font-size: 12px;
+            line-height: 16px;
+            color: var(--gold);
+            text-stroke: 1px var(--border-deep);
+            white-space: nowrap;
+            overflow: hidden;
+        }
+
+        /* 卡片横滚区：卡片按分类目录顺序排列，超出靠横向滚动查看 */
         .viewer-cards {
             flex: 1 1 auto;
             min-height: 0;
             display: flex;
-            gap: 8px;
-            padding: 6px 8px;
+            padding-bottom: 2px;
 
             /* 自带裁剪：这是有确定尺寸的元素，写 overflow 安全 */
             overflow-x: auto;
             overflow-y: hidden;
         }
 
+        /* 分类筛完 / 搜不到任何卡片时的空态 */
+        .card-empty {
+            flex: 1 1 auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            line-height: 16px;
+            color: var(--ink-2);
+        }
+
         /* ============================================================
-           卡片：羊皮纸面 + 木框；上半是 3D 预览窗口，下半是名字条
+           建筑卡片：羊皮纸面 + 木框；上半是 3D 预览窗口，下半是名字条，再下是 [加载]
            ============================================================ */
         .viewer-card {
-            flex: 0 0 176px;
-            width: 176px;
-            height: 100%;
+            flex: 0 0 auto;
+            width: 132px;
+            margin-right: 8px;
             display: flex;
             flex-direction: column;
+            overflow: hidden;
 
-            /* 与其余页面同款像素化羊皮纸：贴图自带烘焙边框，靠最近邻采样保像素 */
             background-image: url('/tex/card_gen.png');
             background-size: 100% 100%;
             background-repeat: no-repeat;
-            background-color: #c8ac7c;
+            background-color: var(--parchment);
             border: 2px solid var(--border-dark);
             box-shadow:
                 0 0 0 1px var(--border-mid),
                 inset 1px 1px 0 0 var(--border-hi),
                 inset -1px -1px 0 0 var(--border-mid);
-
-            overflow: hidden;
         }
 
         .viewer-card .card-preview {
@@ -169,9 +401,9 @@
             background-image: url('/tex/parchment_status.png');
             background-size: 100% 100%;
             background-repeat: no-repeat;
-            background-color: #b89a6a;
+            background-color: var(--parchment-lo);
             border-top: 2px solid var(--border-mid);
-            box-shadow: inset 0 1px 0 rgba(255, 240, 200, .35);
+            box-shadow: inset 0 1px 0 var(--shine-soft);
 
             white-space: nowrap;
             text-overflow: ellipsis;
@@ -184,7 +416,6 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: 4px;
             cursor: pointer;
         }
 
@@ -201,11 +432,345 @@
             color: var(--parchment-hi);
         }
 
-        /* 卡片悬停详情：固定在底栏上方，逐行铺开蓝图元数据 */
+        /* [加载]：把这张卡片的建筑投影放进世界，随后跟随鼠标选点 */
+        .viewer-card .card-load {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 18px;
+            font-size: 11px;
+            line-height: 14px;
+            color: var(--ink);
+
+            background-image: url('/tex/parchment_status.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            background-color: var(--parchment-lo);
+            border-top: 2px solid var(--border-mid);
+            box-shadow: inset 0 1px 0 var(--shine-soft);
+            cursor: pointer;
+        }
+
+        .viewer-card .card-load:hover {
+            color: var(--gold-l);
+            text-stroke: 1px var(--border-deep);
+        }
+
+        structure-preview {
+            display: block;
+            width: 100%;
+            height: 100%;
+            /* 暗底由 .card-preview 提供，元素自身不再铺一层 */
+            background: transparent;
+            overflow: hidden;
+        }
+
+        /* ============================================================
+           左侧栏：与底栏同一套把手交互（收起只留左边缘 18px）。
+           bottom 抬到底栏展开高度之上 —— 两者同时展开时在左下角不重叠：
+           底栏优先并压在上层（translateZ 405 > 400），左栏让位往上缩。
+           4 等分（人口 / 建筑 / 队伍 / 道路），格子高度同样由 Java 算好后写进 style。
+           ============================================================ */
+        .side {
+            position: fixed;
+            left: 0;
+            top: 0;
+            bottom: 216px;
+            width: 18px;
+            overflow: hidden;
+
+            display: flex;
+            flex-direction: column;
+
+            transform: translateZ(400px);
+
+            /* 竖向面板不用那条 1080x150 的横纹理（拉成竖条会糊），改用块状底纹 */
+            background-image: url('/tex/pane_gen.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+        }
+
+        .side:hover {
+            width: 260px;
+        }
+
+        .side-grip {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 14px;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(255, 240, 200, .16);
+        }
+
+        .side-body {
+            position: absolute;
+            left: 14px;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            padding: 8px;
+
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sect-list {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sect {
+            flex: 0 0 auto;
+            height: 120px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+
+            background-color: var(--parchment-hi);
+            background-image: url('/tex/card_gen.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            border: 2px solid var(--border-dark);
+            box-shadow:
+                inset 1px 1px 0 0 var(--border-hi),
+                inset -1px -1px 0 0 var(--border-mid);
+        }
+
+        .sect-head {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            padding: 3px 6px;
+
+            background-image: url('/tex/parchment_status.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            background-color: var(--parchment-lo);
+            border-bottom: 2px solid var(--border-mid);
+            box-shadow: inset 0 1px 0 var(--shine-soft);
+        }
+
+        .sect-title {
+            flex: 1 1 auto;
+            min-width: 0;
+            font-size: 13px;
+            line-height: 16px;
+            letter-spacing: 1px;
+            color: var(--gold);
+            text-stroke: 1px var(--border-deep);
+            white-space: nowrap;
+            overflow: hidden;
+        }
+
+        .sect-rows {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            padding: 4px 6px;
+            overflow-y: auto;
+        }
+
+        .sect-row {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            padding: 1px 0;
+            font-size: 11px;
+            line-height: 15px;
+        }
+
+        .sect-key {
+            flex: 1 1 auto;
+            min-width: 0;
+            color: var(--ink-2);
+            white-space: nowrap;
+            overflow: hidden;
+        }
+
+        .sect-val {
+            flex: 0 0 auto;
+            margin-left: 6px;
+            color: var(--ink);
+        }
+
+        /* ============================================================
+           左栏也有两态（.side 上的 is-page 切换）：
+           ① 索引态：上面那 4 个等分分区；
+           ② 内容页：点人口 / 建筑后整栏换成"搜索框 + 该分类的卡片列表"。
+           ============================================================ */
+        .side-page {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: none;
+            flex-direction: column;
+        }
+
+        .side.is-page .sect-list {
+            display: none;
+        }
+
+        .side.is-page .side-page {
+            display: flex;
+        }
+
+        .page-bar {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            padding-bottom: 6px;
+        }
+
+        .page-back {
+            flex: 0 0 auto;
+            padding: 2px 6px;
+            margin-right: 6px;
+            font-size: 11px;
+            line-height: 16px;
+            color: var(--ink);
+
+            background-image: url('/tex/parchment_status.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            background-color: var(--parchment-lo);
+            border: 2px solid var(--border-dark);
+            box-shadow:
+                0 0 0 1px var(--border-mid),
+                inset 0 1px 0 var(--shine-soft);
+            cursor: pointer;
+        }
+
+        .page-back:hover {
+            color: var(--gold-l);
+            text-stroke: 1px var(--border-deep);
+        }
+
+        .page-search {
+            flex: 1 1 auto;
+            min-width: 0;
+            height: 22px;
+            margin-right: 6px;
+            padding: 0 6px;
+
+            font-family: 'Zpix', monospace;
+            font-size: 12px;
+            color: var(--ink);
+            background-color: var(--parchment-max);
+            border: 2px solid var(--border-dark);
+            box-shadow:
+                0 0 0 1px var(--border-mid),
+                inset 2px 2px 0 0 var(--shade-soft);
+        }
+
+        /* 点中后才接管键盘打字（与底栏搜索框同一套保险） */
+        .page-search.search-on {
+            border-color: var(--gold);
+            box-shadow:
+                0 0 0 1px var(--gold),
+                inset 2px 2px 0 0 var(--shade-soft);
+        }
+
+        .page-title {
+            flex: 0 0 auto;
+            font-size: 11px;
+            line-height: 16px;
+            color: var(--gold);
+            text-stroke: 1px var(--border-deep);
+            white-space: nowrap;
+        }
+
+        .page-list {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            padding-right: 2px;
+        }
+
+        /* 人口 / 建筑页的条形卡片：整行可点，选中后跳相机 */
+        .side-item {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            margin-bottom: 4px;
+            padding: 3px 4px;
+
+            background-image: url('/tex/parchment_card.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            background-color: var(--parchment-hi);
+            box-shadow:
+                0 0 0 1px var(--border-mid),
+                inset 1px 1px 0 0 var(--shine),
+                inset -1px -1px 0 0 var(--shade-soft);
+            cursor: pointer;
+        }
+
+        .side-item:hover {
+            background-color: var(--parchment);
+            box-shadow:
+                0 0 0 2px var(--gold),
+                inset 1px 1px 0 0 var(--gold-l),
+                inset -1px -1px 0 0 var(--border-mid);
+        }
+
+        .side-item.on {
+            background-color: var(--parchment-lo);
+            box-shadow:
+                0 0 0 2px var(--gold),
+                inset 1px 1px 0 0 var(--gold-l),
+                inset -1px -1px 0 0 var(--border-mid);
+        }
+
+        /* 行内方形头像一律 24×24，与建筑面板的 .bp-face 同规格 */
+        .side-face {
+            flex: 0 0 auto;
+            display: block;
+            width: 24px;
+            height: 24px;
+            margin-right: 6px;
+        }
+
+        .side-name {
+            flex: 1 1 auto;
+            min-width: 0;
+            font-size: 12px;
+            line-height: 16px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .side-sub {
+            flex: 0 0 auto;
+            margin-left: 6px;
+            font-size: 10px;
+            line-height: 14px;
+            color: var(--ink-2);
+        }
+
+        .side-empty {
+            flex: 0 0 auto;
+            padding: 4px;
+            font-size: 11px;
+            line-height: 15px;
+            color: var(--ink-2);
+        }
+
+        /* 卡片悬停详情：浮在底栏展开后的上沿之上，逐行铺开蓝图元数据 */
         .building-tip {
             position: fixed;
             right: 10px;
-            bottom: 162px;
+            bottom: 216px;
             display: none;
             flex-direction: column;
             gap: 2px;
@@ -239,53 +804,9 @@
             color: var(--border-mid);
         }
 
-        /* 卡片名前的类型徽章：住宅 / 农业 / 养殖 / 工业 / 商业 / 军事 */
-        .viewer-card .card-type {
-            display: inline-block;
-            margin-right: 4px;
-            padding: 0 3px;
-            font-size: 10px;
-            line-height: 12px;
-            color: var(--parchment-hi);
-            background: var(--border-mid);
-        }
-
-        /* [加载]：把这张卡片的建筑投影放进世界，随后跟随鼠标选点 */
-        .viewer-card .card-load {
-            flex: 0 0 auto;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 18px;
-            font-size: 11px;
-            line-height: 14px;
-            color: var(--ink);
-
-            background-image: url('/tex/parchment_status.png');
-            background-size: 100% 100%;
-            background-repeat: no-repeat;
-            background-color: #b89a6a;
-            border-top: 2px solid var(--border-mid);
-            box-shadow: inset 0 1px 0 rgba(255, 240, 200, .35);
-            cursor: pointer;
-        }
-
-        .viewer-card .card-load:hover {
-            color: var(--gold-l);
-            text-stroke: 1px var(--border-deep);
-        }
-
-        structure-preview {
-            display: block;
-            width: 100%;
-            height: 100%;
-            /* 暗底由 .card-preview 提供，元素自身不再铺一层 */
-            background: transparent;
-            overflow: hidden;
-        }
-
-        /* 横向滚动条：木色，不做圆角 */
+        /* 滚动条：木色，不做圆角 */
         ::-webkit-scrollbar {
+            width: 7px;
             height: 7px;
         }
 
@@ -301,18 +822,52 @@
 </head>
 <body>
 
-<div class="viewer-bar" id="viewer-bar">
-    <div class="viewer-bar-head">
-        <span class="bar-title">KINGDOM</span>
-        <span class="bar-hint">结构预览 · 左键拖动旋转 / 右键平移 / 滚轮缩放</span>
-    </div>
+<!-- 底部栏：鼠标贴到屏幕下边缘即向上展开；收起时露出的那条边就是把手 -->
+<div class="dock" id="viewer-dock">
+    <div class="dock-grip"><span class="grip-pip"></span></div>
+    <div class="dock-body">
 
-    <!-- 卡片由 Java 按 structures/*.nbt 扫描结果注入，默认约 5 张，超出靠横向滚动查看 -->
-    <div class="viewer-cards" id="viewer-cards">
+        <!-- 形态一（默认）：8 等分分类卡由 Java 注入，点一格进该分类的卡片视图 -->
+        <div class="band-row" id="viewer-bands">
+        </div>
+
+        <!-- 形态二：某分类的建筑卡片。左上角搜索框按 json 的 name 过滤 -->
+        <div class="card-view">
+            <div class="card-bar">
+                <span class="card-back" id="viewer-back">← 返回</span>
+                <input class="viewer-search" id="viewer-search" placeholder="搜索建筑名称">
+                <span class="card-title" id="viewer-title"></span>
+            </div>
+
+            <div class="viewer-cards" id="viewer-cards">
+            </div>
+        </div>
     </div>
 </div>
 
-<!-- 卡片悬停详情：内容由 Java 从蓝图元数据填充；放在底栏之外，避免被 .viewer-cards 的裁剪切掉 -->
+<!-- 左侧栏：鼠标贴到屏幕左边缘即向右展开；bottom 抬到底栏展开高度之上 -->
+<aside class="side" id="viewer-side">
+    <div class="side-grip"><span class="grip-pip grip-pip--v"></span></div>
+    <div class="side-body">
+
+        <!-- 索引态：4 等分分区（人口 / 建筑 / 队伍 / 道路）由 Java 注入 -->
+        <div class="sect-list" id="viewer-sections">
+        </div>
+
+        <!-- 内容页：点人口 / 建筑后整栏换成这个（搜索框 + 该分类的卡片列表） -->
+        <div class="side-page" id="viewer-page">
+            <div class="page-bar">
+                <span class="page-back" id="side-back">←</span>
+                <input class="page-search" id="side-search" placeholder="搜索名字">
+                <span class="page-title" id="side-title"></span>
+            </div>
+            <div class="page-list" id="side-list">
+            </div>
+        </div>
+    </div>
+</aside>
+
+<!-- 卡片悬停详情：内容由 Java 从蓝图元数据填充；放在底栏之外，避免被卡片区的裁剪切掉 -->
 <div class="building-tip" id="building-tip"></div>
 
 </body>

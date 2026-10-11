@@ -556,6 +556,10 @@ npc-bar,kingdom-entity-avatar,world-map,img{
 
 .rline:last-child{border-bottom:0;}
 
+/* 政务行：整行可点，点一下即办理，服务端处理后回发新数据重绘 */
+.rline--affair{cursor:pointer;}
+.rline--affair:hover{background-color:rgba(166,124,48,.14);}
+
 .rline-k{
   flex-shrink:0;
   font-size:11px;
@@ -808,6 +812,43 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   overflow-y:auto;
 }
 
+/* ---------- 购买确认弹窗 ----------
+   内容比通用列表弹窗少，框矮一点；两个按钮横排，
+   间距用 margin 不用 gap（AUI 的横排 gap 不可靠，【替换 8】同款）。 */
+.modal-box--buy{height:230px;}
+
+.modal-actions{
+  display:flex;
+  justify-content:flex-end;
+  flex-shrink:0;
+  margin-top:12px;
+}
+
+.modal-btn{
+  flex-shrink:0;
+  padding:6px 16px;
+  font-size:13px;
+  line-height:18px;
+  /* 原稿用 em 字距，这里同样改 px【替换 9】 */
+  letter-spacing:2px;
+  text-indent:2px;
+  color:var(--ink);
+  cursor:pointer;
+  background-color:var(--parchment);
+  border:2px solid var(--border-dark);
+  box-shadow:0 0 0 1px var(--border-mid), inset 0 2px 0 0 rgba(255,255,255,.32);
+  margin-left:10px;
+}
+
+.modal-btn:hover{background-color:var(--gold-l);}
+
+.modal-btn--main{
+  color:#f4e6c6;
+  background-color:#8a5a22;
+}
+
+.modal-btn--main:hover{background-color:#a66c28;}
+
 /* 输入框：照原稿 .np-attr 的凹槽语汇 */
 .field input{
   width:100%;
@@ -886,6 +927,9 @@ npc-bar,kingdom-entity-avatar,world-map,img{
   min-height:0;
   cursor:grab;
   background:#000;
+  /* 地图光栅四周带 256px 预存量（拖动时靠挪 uv 窗口平移），
+     靠 overflow 保证它绝不画到框外 */
+  overflow:hidden;
   box-shadow: 0 0 0 2px #2a1a08, 0 0 0 4px #4a3218, 0 0 0 6px #6a4a20, 0 0 0 8px #3a2814;
 }
 
@@ -1321,6 +1365,21 @@ npc-bar,kingdom-entity-avatar,world-map,img{
       </header>
       <div class="scroll modal-body">
         <div class="day-grid" id="chDayGrid"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 购买区块确认：地图上右键点选 / 框选后弹出，内容与开合都由 Java 控制 -->
+  <div class="modal" id="chBuyModal">
+    <div class="modal-box modal-box--buy">
+      <header class="modal-head">
+        <span class="modal-title">购 买 区 块</span>
+        <span class="modal-close" id="chBuyClose">✕</span>
+      </header>
+      <div class="modal-body" id="chBuyBody"></div>
+      <div class="modal-actions">
+        <span class="modal-btn" id="chBuyCancel">取 消</span>
+        <span class="modal-btn modal-btn--main" id="chBuyConfirm">确 认 购 买</span>
       </div>
     </div>
   </div>

@@ -15,7 +15,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 /**
- * 服务端 → 客户端：市政厅界面要显示的城镇数据（人口、建筑数与两份名录）。
+ * 服务端 → 客户端：市政厅界面的城镇数据、名录与待办政务
  */
 public record CityHallDataPacket(
         String townName,
@@ -39,7 +39,8 @@ public record CityHallDataPacket(
         List<Structure> structures,
         List<Line> events,
         List<Line> todos,
-        List<Line> ledger
+        List<Line> ledger,
+        List<Affair> affairs
 ) implements CustomPacketPayload {
 
     public static final CustomPacketPayload.Type<CityHallDataPacket> TYPE =
@@ -52,7 +53,7 @@ public record CityHallDataPacket(
     public static final CityHallDataPacket EMPTY = new CityHallDataPacket(
             "", 0, 0, 0, 0, 0, 0, 0, 0L, 0L, 0, 0, 0,
             "", "", "", "",
-            List.of(), List.of(), List.of(), List.of(), List.of());
+            List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
 
     public CityHallDataPacket {
         citizens = citizens == null ? List.of() : List.copyOf(citizens);
@@ -60,6 +61,7 @@ public record CityHallDataPacket(
         events = events == null ? List.of() : List.copyOf(events);
         todos = todos == null ? List.of() : List.copyOf(todos);
         ledger = ledger == null ? List.of() : List.copyOf(ledger);
+        affairs = affairs == null ? List.of() : List.copyOf(affairs);
     }
 
     @Override
@@ -74,6 +76,9 @@ public record CityHallDataPacket(
     }
 
     public record Line(String key, String value, int tone) {
+    }
+
+    public record Affair(String id, String title, String scope, int daysLeft) {
     }
 
     private static void encode(RegistryFriendlyByteBuf buf, CityHallDataPacket packet) {
@@ -131,6 +136,7 @@ public record CityHallDataPacket(
         root.put("events", linesToTag(events));
         root.put("todos", linesToTag(todos));
         root.put("ledger", linesToTag(ledger));
+        root.put("affairs", affairsToTag(affairs));
         return root;
     }
 
@@ -141,6 +147,19 @@ public record CityHallDataPacket(
             item.putString("key", line.key());
             item.putString("value", line.value());
             item.putInt("tone", line.tone());
+            tags.add(item);
+        }
+        return tags;
+    }
+
+    private static ListTag affairsToTag(List<Affair> affairs) {
+        ListTag tags = new ListTag();
+        for (Affair affair : affairs) {
+            CompoundTag item = new CompoundTag();
+            item.putString("id", affair.id());
+            item.putString("title", affair.title());
+            item.putString("scope", affair.scope());
+            item.putInt("daysLeft", affair.daysLeft());
             tags.add(item);
         }
         return tags;
@@ -192,7 +211,8 @@ public record CityHallDataPacket(
                 structures,
                 linesFromTag(root.getList("events", Tag.TAG_COMPOUND)),
                 linesFromTag(root.getList("todos", Tag.TAG_COMPOUND)),
-                linesFromTag(root.getList("ledger", Tag.TAG_COMPOUND)));
+                linesFromTag(root.getList("ledger", Tag.TAG_COMPOUND)),
+                affairsFromTag(root.getList("affairs", Tag.TAG_COMPOUND)));
     }
 
     private static List<Line> linesFromTag(ListTag tags) {
@@ -202,6 +222,19 @@ public record CityHallDataPacket(
             lines.add(new Line(item.getString("key"), item.getString("value"), item.getInt("tone")));
         }
         return lines;
+    }
+
+    private static List<Affair> affairsFromTag(ListTag tags) {
+        List<Affair> affairs = new ArrayList<>(tags.size());
+        for (int index = 0; index < tags.size(); index++) {
+            CompoundTag item = tags.getCompound(index);
+            affairs.add(new Affair(
+                    item.getString("id"),
+                    item.getString("title"),
+                    item.getString("scope"),
+                    item.getInt("daysLeft")));
+        }
+        return affairs;
     }
 
     public static void handle(CityHallDataPacket packet, IPayloadContext context) {

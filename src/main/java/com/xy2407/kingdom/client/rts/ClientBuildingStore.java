@@ -21,7 +21,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 @OnlyIn(Dist.CLIENT)
 public final class ClientBuildingStore {
 
-    public record Entry(UUID id, String name, BlockPos min, BlockPos max) {
+    public record Entry(UUID id, String name, BlockPos min, BlockPos max, int rotation) {
 
         public Vec3i size() {
             return new Vec3i(max.getX() - min.getX() + 1,
@@ -48,7 +48,7 @@ public final class ClientBuildingStore {
     public static void accept(BuildingSyncPacket packet) {
         ENTRIES.clear();
         for (BuildingSyncPacket.Entry entry : packet.entries()) {
-            ENTRIES.add(new Entry(entry.id(), entry.name(), entry.min(), entry.max()));
+            ENTRIES.add(new Entry(entry.id(), entry.name(), entry.min(), entry.max(), entry.rotation()));
         }
         if (movingId != null) {
             Entry live = byId(movingId);

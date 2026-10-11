@@ -1,7 +1,9 @@
 package com.xy2407.kingdom.client.map;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import com.xy2407.kingdom.common.network.mapoverlay.MapOverlayDataPacket;
 import com.xy2407.kingdom.common.network.mapoverlay.MapOverlayRequestPacket;
@@ -23,23 +25,14 @@ public final class MapOverlayStore {
 
     public record TerritoryView(String id, String name, String ownerName, String nationLabel,
                                 String tier, int population, int centerX, int centerZ,
-                                int minChunkX, int minChunkZ, int maxChunkX, int maxChunkZ,
-                                boolean self, boolean ally) {
+                                Set<Long> chunks, boolean self, boolean ally) {
 
-        public int minBlockX() {
-            return minChunkX << 4;
+        public boolean containsChunk(int chunkX, int chunkZ) {
+            return chunks.contains(((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL));
         }
 
-        public int minBlockZ() {
-            return minChunkZ << 4;
-        }
-
-        public int maxBlockX() {
-            return (maxChunkX << 4) + 15;
-        }
-
-        public int maxBlockZ() {
-            return (maxChunkZ << 4) + 15;
+        public int chunkCount() {
+            return chunks.size();
         }
 
         public int centerBlockX() {
@@ -88,11 +81,14 @@ public final class MapOverlayStore {
         List<MapOverlayDataPacket.TerritoryEntry> territories = packet.territories();
         for (int index = 0; index < territories.size(); index++) {
             MapOverlayDataPacket.TerritoryEntry entry = territories.get(index);
+            Set<Long> chunkSet = new HashSet<>();
+            for (long key : entry.chunks()) {
+                chunkSet.add(key);
+            }
             TERRITORIES.add(new TerritoryView(entry.id(), entry.name(), entry.ownerName(),
                     entry.nationLabel(), entry.tier(), entry.population(),
                     entry.centerX(), entry.centerZ(),
-                    entry.minChunkX(), entry.minChunkZ(), entry.maxChunkX(), entry.maxChunkZ(),
-                    entry.self(), entry.ally()));
+                    chunkSet, entry.self(), entry.ally()));
         }
         List<MapOverlayDataPacket.BuildingEntry> buildings = packet.buildings();
         for (int index = 0; index < buildings.size(); index++) {

@@ -15,7 +15,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 /**
- * 服务端 → 客户端：地图叠层数据——领地列表（名称/领主/等级/阵营/边界）与可视范围内的建筑列表。
+ * 服务端 → 客户端：地图叠层数据——领地列表（含区块集合）与可视范围内的建筑列表
  */
 public record MapOverlayDataPacket(
         long revision,
@@ -44,8 +44,11 @@ public record MapOverlayDataPacket(
 
     public record TerritoryEntry(String id, String name, String ownerName, String nationLabel,
                                  String tier, int population, int centerX, int centerZ,
-                                 int minChunkX, int minChunkZ, int maxChunkX, int maxChunkZ,
-                                 boolean self, boolean ally) {
+                                 long[] chunks, boolean self, boolean ally) {
+
+        public TerritoryEntry {
+            chunks = chunks == null ? new long[0] : chunks;
+        }
     }
 
     public record BuildingEntry(String id, String name, String type,
@@ -76,10 +79,7 @@ public record MapOverlayDataPacket(
             item.putInt("population", entry.population());
             item.putInt("centerX", entry.centerX());
             item.putInt("centerZ", entry.centerZ());
-            item.putInt("minChunkX", entry.minChunkX());
-            item.putInt("minChunkZ", entry.minChunkZ());
-            item.putInt("maxChunkX", entry.maxChunkX());
-            item.putInt("maxChunkZ", entry.maxChunkZ());
+            item.putLongArray("chunks", entry.chunks());
             item.putBoolean("self", entry.self());
             item.putBoolean("ally", entry.ally());
             territoryTags.add(item);
@@ -113,8 +113,7 @@ public record MapOverlayDataPacket(
                     item.getString("ownerName"), item.getString("nationLabel"),
                     item.getString("tier"), item.getInt("population"),
                     item.getInt("centerX"), item.getInt("centerZ"),
-                    item.getInt("minChunkX"), item.getInt("minChunkZ"),
-                    item.getInt("maxChunkX"), item.getInt("maxChunkZ"),
+                    item.getLongArray("chunks"),
                     item.getBoolean("self"), item.getBoolean("ally")));
         }
 

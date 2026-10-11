@@ -10,6 +10,8 @@ import com.sighs.apricityui.layout.Position;
 import com.sighs.apricityui.layout.Size;
 import com.sighs.apricityui.registry.annotation.ElementRegister;
 import com.sighs.apricityui.render.Base;
+import com.sighs.apricityui.render.Drawer;
+import com.sighs.apricityui.render.ImageDrawer;
 import com.sighs.apricityui.render.Rect;
 import com.sighs.apricityui.ui.Tooltip;
 import com.xy2407.kingdom.ModMain;
@@ -17,6 +19,7 @@ import com.xy2407.kingdom.client.map.ClientMapScanner;
 import com.xy2407.kingdom.client.map.ClientMapStore;
 import com.xy2407.kingdom.client.map.MapOverlayStore;
 import com.xy2407.kingdom.common.building.BuildingType;
+import com.xy2407.kingdom.common.faction.Territory;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceLocation;
@@ -36,8 +39,10 @@ import java.awt.image.DataBufferInt;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 import javax.imageio.ImageIO;
 
@@ -70,7 +75,7 @@ public class WorldMapElement extends Canvas {
     private static final double MAX_ZOOM = 8.0;
     private static final double ZOOM_PER_NOTCH = 1.25;
 
-    private static final int DRAG_BLOCK_STEP = 16;
+    private static final int SURFACE_MARGIN = 256;
 
     private static final int MAX_RADIUS = 512;
 
@@ -78,15 +83,21 @@ public class WorldMapElement extends Canvas {
 
     private static final int CHUNK_SIZE = 16;
 
-    private static final double MIN_CHUNK_GRID_PIXELS = 10.0;
+    private static final double MIN_CHUNK_GRID_PIXELS = 32.0;
 
     private static final int CHUNK_GRID_THICKNESS = 2;
 
-    private static final int CHUNK_GRID_COLOR = 0x55FFFFFF;
+    private static final int CHUNK_GRID_COLOR = 0x24FFFFFF;
 
-    private static final int MAX_SAMPLES = 400_000;
+    private static final int MAX_SAMPLES = 600_000;
 
     private static final int EDGE_WIDTH = 2;
+
+    private static final int RIGHT_BUTTON = 1;
+
+    private static final int SELECTION_FILL = 0x66FFD24A;
+
+    private static final int SELECTION_EDGE = 0xFFFFD24A;
 
     private static final int COLOR_SELF = 0x5500E060;
     private static final int COLOR_OTHER = 0x55E04040;
@@ -149,11 +160,32 @@ public class WorldMapElement extends Canvas {
 
     private static long lastDragEndNanos;
 
+    private static boolean selecting;
+
+    private static boolean selectionDirty;
+
+    private static int brushChunkX;
+
+    private static int brushChunkZ;
+
+    private static final Set<Long> SELECTION = new LinkedHashSet<>();
+
+    private static SelectionListener selectionListener;
+
+    public interface SelectionListener {
+        void onSelection(Set<Long> chunks);
+    }
+
     private boolean dragging;
     private double dragPixels;
     private double lastX;
     private double lastY;
     private long lastDragNanos;
+    private double dragPixelX;
+    private double dragPixelY;
+    private double dragAnchorX;
+    private double dragAnchorY;
+    private boolean dragRebuild;
     private double hoverX;
     private double hoverY;
 
@@ -204,6 +236,25 @@ public class WorldMapElement extends Canvas {
         }
     }
 
+    @Override
+    protected void drawCanvas(PoseStack poseStack, Rect rectRenderer) {
+        syncTexture();
+        if (textureLocation == null) {
+            return;
+        }
+        Position contentPos = rectRenderer.getContentPosition();
+        Size contentSize = Box.of(this).innerSize();
+        if (contentSize.width() <= 0 || contentSize.height() <= 0) {
+            return;
+        }
+        ImageDrawer.drawWithUvWindow(poseStack, textureLocation,
+                (float) contentPos.x, (float) contentPos.y,
+                (float) contentSize.width(), (float) contentSize.height(), true,
+                getWidth(), getHeight(),
+                (float) (SURFACE_MARGIN - dragPixelX), (float) (SURFACE_MARGIN - dragPixelY),
+                (float) contentSize.width(), (float) contentSize.height());
+    }
+
     private void ensureData() {
         int viewX = (int) Math.round(centerX() + panX);
         int viewZ = (int) Math.round(centerZ() + panZ);
@@ -220,20 +271,28 @@ public class WorldMapElement extends Canvas {
             reportZeroInner(inner, null);
             return;
         }
-        int wantedWidth = Math.max(16, (int) Math.round(contentWidth));
-        int wantedHeight = Math.max(16, (int) Math.round(contentHeight));
+        int contentW = Math.max(16, (int) Math.round(contentWidth));
+        int contentH = Math.max(16, (int) Math.round(contentHeight));
+        int wantedWidth = contentW + SURFACE_MARGIN * 2;
+        int wantedHeight = contentH + SURFACE_MARGIN * 2;
+        boolean resized = wantedWidth != getWidth() || wantedHeight != getHeight();
+
+        boolean forceRebuild = dragRebuild;
+        dragRebuild = false;
+        if (dragging && !resized && !forceRebuild) {
+            return;
+        }
+
         int viewX = (int) Math.round(centerX() + panX);
         int viewZ = (int) Math.round(centerZ() + panZ);
         double blocksX = (radius() * 2.0 + 1.0) / zoom;
-        double pixelsPerBlock = wantedWidth / blocksX;
-        int step = dragging
-                ? Math.max(1, (int) Math.round(DRAG_BLOCK_STEP * pixelsPerBlock))
-                : sampleStep(wantedWidth, wantedHeight, pixelsPerBlock);
+        double pixelsPerBlock = (double) contentW / blocksX;
+        int step = sampleStep(wantedWidth, wantedHeight, pixelsPerBlock);
         long token = ClientMapStore.focusToken();
 
-        boolean geometry = paintedWidth != wantedWidth || paintedHeight != wantedHeight
-                || paintedViewX != viewX || paintedViewZ != viewZ || paintedStep != step
-                || paintedToken != token || Double.compare(paintedBlocks, blocksX) != 0;
+        boolean geometry = resized || forceRebuild || paintedViewX != viewX || paintedViewZ != viewZ
+                || paintedStep != step || paintedToken != token
+                || Double.compare(paintedBlocks, blocksX) != 0 || selectionDirty;
 
         if (!geometry) {
             long now = System.nanoTime();
@@ -261,16 +320,15 @@ public class WorldMapElement extends Canvas {
         paintedBlocks = blocksX;
         paintedStamp = ClientMapStore.stamp();
         nextContentNanos = System.nanoTime() + CONTENT_REPAINT_NANOS;
-        if (wantedWidth != getWidth() || wantedHeight != getHeight()) {
-            ModMain.LOGGER.info("[地图] resizeSurface {}x{} → {}x{}",
-                    getWidth(), getHeight(), wantedWidth, wantedHeight);
+        selectionDirty = false;
+        if (resized) {
             resizeSurface(wantedWidth, wantedHeight, false);
         }
         int surfaceWidth = getWidth();
         int surfaceHeight = getHeight();
-        paintedPixelsPerBlock = surfaceWidth / blocksX;
-        paintedOriginX = viewX - (int) Math.round(blocksX / 2.0);
-        paintedOriginZ = viewZ - (int) Math.round(surfaceHeight / paintedPixelsPerBlock / 2.0);
+        paintedPixelsPerBlock = pixelsPerBlock;
+        paintedOriginX = viewX - (int) Math.round((SURFACE_MARGIN + contentW / 2.0) / pixelsPerBlock);
+        paintedOriginZ = viewZ - (int) Math.round((SURFACE_MARGIN + contentH / 2.0) / pixelsPerBlock);
         paintAll(surfaceWidth, surfaceHeight);
     }
 
@@ -309,6 +367,7 @@ public class WorldMapElement extends Canvas {
             drawOverlay(graphics, surfaceWidth, surfaceHeight, 0, 0, surfaceWidth, surfaceHeight);
             drawChunkGrid(graphics, surfaceWidth, surfaceHeight,
                     paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
+            drawSelection(graphics, 0, 0, surfaceWidth, surfaceHeight);
             drawMarker(graphics, surfaceWidth, surfaceHeight,
                     paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
         }, null);
@@ -359,6 +418,7 @@ public class WorldMapElement extends Canvas {
             drawOverlay(graphics, surfaceWidth, surfaceHeight, x0, y0, x1, y1);
             drawChunkGrid(graphics, surfaceWidth, surfaceHeight,
                     paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
+            drawSelection(graphics, x0, y0, x1, y1);
             drawMarker(graphics, surfaceWidth, surfaceHeight,
                     paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
         }, bounds);
@@ -465,34 +525,34 @@ public class WorldMapElement extends Canvas {
             int fill = territoryFill(territory, active);
             int edge = (fill & 0xFFFFFF) | 0xFF000000;
             graphics.setColor(new Color(fill, true));
-            for (int chunkX = territory.minChunkX(); chunkX <= territory.maxChunkX(); chunkX++) {
-                for (int chunkZ = territory.minChunkZ(); chunkZ <= territory.maxChunkZ(); chunkZ++) {
-                    if (!ClientMapStore.explored(chunkX, chunkZ)) {
-                        continue;
-                    }
-                    int px0 = Math.max(pixelX(chunkX * CHUNK_SIZE), clipX0);
-                    int py0 = Math.max(pixelZ(chunkZ * CHUNK_SIZE), clipY0);
-                    int px1 = Math.min(pixelX((chunkX + 1) * CHUNK_SIZE), clipX1);
-                    int py1 = Math.min(pixelZ((chunkZ + 1) * CHUNK_SIZE), clipY1);
-                    if (px1 <= px0 || py1 <= py0) {
-                        continue;
-                    }
-                    graphics.fillRect(px0, py0, px1 - px0, py1 - py0);
-                    graphics.setColor(new Color(edge, true));
-                    if (chunkX == territory.minChunkX()) {
-                        graphics.fillRect(px0, py0, EDGE_WIDTH, py1 - py0);
-                    }
-                    if (chunkX == territory.maxChunkX()) {
-                        graphics.fillRect(px1 - EDGE_WIDTH, py0, EDGE_WIDTH, py1 - py0);
-                    }
-                    if (chunkZ == territory.minChunkZ()) {
-                        graphics.fillRect(px0, py0, px1 - px0, EDGE_WIDTH);
-                    }
-                    if (chunkZ == territory.maxChunkZ()) {
-                        graphics.fillRect(px0, py1 - EDGE_WIDTH, px1 - px0, EDGE_WIDTH);
-                    }
-                    graphics.setColor(new Color(fill, true));
+            for (long key : territory.chunks()) {
+                int chunkX = Territory.chunkKeyX(key);
+                int chunkZ = Territory.chunkKeyZ(key);
+                if (!ClientMapStore.explored(chunkX, chunkZ)) {
+                    continue;
                 }
+                int px0 = Math.max(pixelX(chunkX * CHUNK_SIZE), clipX0);
+                int py0 = Math.max(pixelZ(chunkZ * CHUNK_SIZE), clipY0);
+                int px1 = Math.min(pixelX((chunkX + 1) * CHUNK_SIZE), clipX1);
+                int py1 = Math.min(pixelZ((chunkZ + 1) * CHUNK_SIZE), clipY1);
+                if (px1 <= px0 || py1 <= py0) {
+                    continue;
+                }
+                graphics.fillRect(px0, py0, px1 - px0, py1 - py0);
+                graphics.setColor(new Color(edge, true));
+                if (!territory.containsChunk(chunkX - 1, chunkZ)) {
+                    graphics.fillRect(px0, py0, EDGE_WIDTH, py1 - py0);
+                }
+                if (!territory.containsChunk(chunkX + 1, chunkZ)) {
+                    graphics.fillRect(px1 - EDGE_WIDTH, py0, EDGE_WIDTH, py1 - py0);
+                }
+                if (!territory.containsChunk(chunkX, chunkZ - 1)) {
+                    graphics.fillRect(px0, py0, px1 - px0, EDGE_WIDTH);
+                }
+                if (!territory.containsChunk(chunkX, chunkZ + 1)) {
+                    graphics.fillRect(px0, py1 - EDGE_WIDTH, px1 - px0, EDGE_WIDTH);
+                }
+                graphics.setColor(new Color(fill, true));
             }
         }
     }
@@ -634,6 +694,8 @@ public class WorldMapElement extends Canvas {
 
     private MapOverlayStore.BuildingView buildingAt(double screenX, double screenY) {
         int half = BUILDING_ICON_SIZE / 2;
+        double surfaceX = toSurfaceX(screenX);
+        double surfaceY = toSurfaceY(screenY);
         List<MapOverlayStore.BuildingView> buildings = MapOverlayStore.buildings();
         MapOverlayStore.BuildingView best = null;
         double bestDistance = Double.MAX_VALUE;
@@ -641,8 +703,8 @@ public class WorldMapElement extends Canvas {
             MapOverlayStore.BuildingView building = buildings.get(index);
             double centerX = pixelX(building.centerBlockX());
             double centerY = pixelZ(building.centerBlockZ());
-            if (Math.abs(screenX - centerX) <= half && Math.abs(screenY - centerY) <= half) {
-                double distance = Math.abs(screenX - centerX) + Math.abs(screenY - centerY);
+            if (Math.abs(surfaceX - centerX) <= half && Math.abs(surfaceY - centerY) <= half) {
+                double distance = Math.abs(surfaceX - centerX) + Math.abs(surfaceY - centerY);
                 if (distance < bestDistance) {
                     bestDistance = distance;
                     best = building;
@@ -658,10 +720,12 @@ public class WorldMapElement extends Canvas {
         if (hallX == Integer.MIN_VALUE || hallZ == Integer.MIN_VALUE) {
             return null;
         }
+        double surfaceX = toSurfaceX(screenX);
+        double surfaceY = toSurfaceY(screenY);
         int left = pixelX(hallX) - MARKER_SIZE / 2;
         int top = pixelZ(hallZ) - MARKER_SIZE / 2;
-        if (screenX < left || screenY < top
-                || screenX > left + MARKER_SIZE || screenY > top + MARKER_SIZE) {
+        if (surfaceX < left || surfaceY < top
+                || surfaceX > left + MARKER_SIZE || surfaceY > top + MARKER_SIZE) {
             return null;
         }
         for (MapOverlayStore.TerritoryView territory : MapOverlayStore.territories()) {
@@ -673,11 +737,12 @@ public class WorldMapElement extends Canvas {
     }
 
     private MapOverlayStore.TerritoryView territoryAt(double screenX, double screenY) {
-        int worldX = paintedOriginX + (int) Math.round(screenX / paintedPixelsPerBlock);
-        int worldZ = paintedOriginZ + (int) Math.round(screenY / paintedPixelsPerBlock);
+        int worldX = paintedOriginX + (int) Math.round(toSurfaceX(screenX) / paintedPixelsPerBlock);
+        int worldZ = paintedOriginZ + (int) Math.round(toSurfaceY(screenY) / paintedPixelsPerBlock);
+        int chunkX = Math.floorDiv(worldX, CHUNK_SIZE);
+        int chunkZ = Math.floorDiv(worldZ, CHUNK_SIZE);
         for (MapOverlayStore.TerritoryView territory : MapOverlayStore.territories()) {
-            if (worldX >= territory.minBlockX() && worldX <= territory.maxBlockX()
-                    && worldZ >= territory.minBlockZ() && worldZ <= territory.maxBlockZ()) {
+            if (territory.containsChunk(chunkX, chunkZ)) {
                 return territory;
             }
         }
@@ -719,6 +784,48 @@ public class WorldMapElement extends Canvas {
              worldZ <= bottomWorld; worldZ += CHUNK_SIZE) {
             int py = (int) Math.round((worldZ - originZ) * pixelsPerBlock);
             graphics.fillRect(0, py, surfaceWidth, CHUNK_GRID_THICKNESS);
+        }
+    }
+
+    private void drawSelection(Graphics2D graphics, int clipX0, int clipY0, int clipX1, int clipY1) {
+        if (SELECTION.isEmpty() || paintedPixelsPerBlock <= 0.0) {
+            return;
+        }
+        graphics.setColor(new Color(SELECTION_FILL, true));
+        for (long key : SELECTION) {
+            int chunkX = Territory.chunkKeyX(key);
+            int chunkZ = Territory.chunkKeyZ(key);
+            int px0 = Math.max(pixelX(chunkX * CHUNK_SIZE), clipX0);
+            int py0 = Math.max(pixelZ(chunkZ * CHUNK_SIZE), clipY0);
+            int px1 = Math.min(pixelX((chunkX + 1) * CHUNK_SIZE), clipX1);
+            int py1 = Math.min(pixelZ((chunkZ + 1) * CHUNK_SIZE), clipY1);
+            if (px1 > px0 && py1 > py0) {
+                graphics.fillRect(px0, py0, px1 - px0, py1 - py0);
+            }
+        }
+        graphics.setColor(new Color(SELECTION_EDGE, true));
+        for (long key : SELECTION) {
+            int chunkX = Territory.chunkKeyX(key);
+            int chunkZ = Territory.chunkKeyZ(key);
+            int px0 = Math.max(pixelX(chunkX * CHUNK_SIZE), clipX0);
+            int py0 = Math.max(pixelZ(chunkZ * CHUNK_SIZE), clipY0);
+            int px1 = Math.min(pixelX((chunkX + 1) * CHUNK_SIZE), clipX1);
+            int py1 = Math.min(pixelZ((chunkZ + 1) * CHUNK_SIZE), clipY1);
+            if (px1 <= px0 || py1 <= py0) {
+                continue;
+            }
+            if (!SELECTION.contains(Territory.chunkKey(chunkX - 1, chunkZ))) {
+                graphics.fillRect(px0, py0, EDGE_WIDTH, py1 - py0);
+            }
+            if (!SELECTION.contains(Territory.chunkKey(chunkX + 1, chunkZ))) {
+                graphics.fillRect(px1 - EDGE_WIDTH, py0, EDGE_WIDTH, py1 - py0);
+            }
+            if (!SELECTION.contains(Territory.chunkKey(chunkX, chunkZ - 1))) {
+                graphics.fillRect(px0, py0, px1 - px0, EDGE_WIDTH);
+            }
+            if (!SELECTION.contains(Territory.chunkKey(chunkX, chunkZ + 1))) {
+                graphics.fillRect(px0, py1 - EDGE_WIDTH, px1 - px0, EDGE_WIDTH);
+            }
         }
     }
 
@@ -865,6 +972,13 @@ public class WorldMapElement extends Canvas {
     private void onMouseLeave(Event event) {
         hideTooltip();
         dragging = false;
+        dragPixelX = 0.0;
+        dragPixelY = 0.0;
+        dragRebuild = true;
+        if (selecting) {
+            selecting = false;
+            selectionDirty = true;
+        }
     }
 
     private void hideTooltip() {
@@ -883,19 +997,38 @@ public class WorldMapElement extends Canvas {
     }
 
     private void onMouseDown(Event event) {
+        MouseEvent e = (MouseEvent) event;
+        hideTooltip();
+        if (e.button == RIGHT_BUTTON) {
+            selecting = true;
+            SELECTION.clear();
+            brushChunkX = chunkAtX(e.offsetX);
+            brushChunkZ = chunkAtZ(e.offsetY);
+            SELECTION.add(Territory.chunkKey(brushChunkX, brushChunkZ));
+            selectionDirty = true;
+            lastDragNanos = System.nanoTime();
+            return;
+        }
         dragging = true;
         dragPixels = 0.0;
-        MouseEvent e = (MouseEvent) event;
+        dragPixelX = 0.0;
+        dragPixelY = 0.0;
+        dragAnchorX = e.offsetX;
+        dragAnchorY = e.offsetY;
         lastX = e.offsetX;
         lastY = e.offsetY;
         lastDragNanos = System.nanoTime();
-        hideTooltip();
     }
 
     private void onMouseMove(Event event) {
         MouseEvent e = (MouseEvent) event;
         hoverX = e.offsetX;
         hoverY = e.offsetY;
+        if (selecting) {
+            lastDragNanos = System.nanoTime();
+            paintSelection(e.offsetX, e.offsetY);
+            return;
+        }
         if (!dragging) {
             updateTooltip(e);
             return;
@@ -913,23 +1046,113 @@ public class WorldMapElement extends Canvas {
 
         panX -= dx / scale;
         panZ -= dy / scale;
+
+        dragPixelX = e.offsetX - dragAnchorX;
+        dragPixelY = e.offsetY - dragAnchorY;
+        if (document != null) {
+            document.markDirty(this, Drawer.REPAINT);
+        }
+        if (dragOutOfMargin()) {
+            commitPan();
+            dragAnchorX = e.offsetX;
+            dragAnchorY = e.offsetY;
+            dragPixelX = 0.0;
+            dragPixelY = 0.0;
+            dragRebuild = true;
+        }
         clearStaleDrag();
     }
 
+    private boolean dragOutOfMargin() {
+        Size inner = Box.of(this).innerSize();
+        double u = SURFACE_MARGIN - dragPixelX;
+        double v = SURFACE_MARGIN - dragPixelY;
+        return u < 0.0 || v < 0.0
+                || u + inner.width() > getWidth() || v + inner.height() > getHeight();
+    }
+
     private void onMouseUp(Event event) {
+        MouseEvent e = (MouseEvent) event;
+        if (selecting) {
+            selecting = false;
+            selectionDirty = true;
+            if (e.button == RIGHT_BUTTON && selectionListener != null && !SELECTION.isEmpty()) {
+                selectionListener.onSelection(Set.copyOf(SELECTION));
+            }
+            return;
+        }
         dragging = false;
+        dragPixelX = 0.0;
+        dragPixelY = 0.0;
         if (dragPixels > DRAG_PIXELS) {
             lastDragEndNanos = System.nanoTime();
+            dragRebuild = true;
             commitPan();
             return;
         }
-        MouseEvent e = (MouseEvent) event;
         handleClick(e.offsetX, e.offsetY);
+        selectionDirty = true;
+        dragRebuild = true;
         commitPan();
     }
 
     public static boolean draggedRecently() {
         return System.nanoTime() - lastDragEndNanos < DRAG_SUPPRESS_NANOS;
+    }
+
+    public static void setSelectionListener(SelectionListener listener) {
+        selectionListener = listener;
+    }
+
+    public static void clearSelection() {
+        selecting = false;
+        SELECTION.clear();
+        selectionDirty = true;
+    }
+
+    public static void requestRepaint() {
+        selectionDirty = true;
+    }
+
+    private void paintSelection(double screenX, double screenY) {
+        int chunkX = chunkAtX(screenX);
+        int chunkZ = chunkAtZ(screenY);
+        if (chunkX == brushChunkX && chunkZ == brushChunkZ) {
+            return;
+        }
+        int steps = Math.max(Math.abs(chunkX - brushChunkX), Math.abs(chunkZ - brushChunkZ));
+        for (int step = 0; step <= steps; step++) {
+            int x = brushChunkX + Math.round((float) (chunkX - brushChunkX) * step / steps);
+            int z = brushChunkZ + Math.round((float) (chunkZ - brushChunkZ) * step / steps);
+            SELECTION.add(Territory.chunkKey(x, z));
+        }
+        brushChunkX = chunkX;
+        brushChunkZ = chunkZ;
+        selectionDirty = true;
+    }
+
+    private int chunkAtX(double screenX) {
+        if (paintedPixelsPerBlock <= 0.0) {
+            return 0;
+        }
+        int worldX = paintedOriginX + (int) Math.round(toSurfaceX(screenX) / paintedPixelsPerBlock);
+        return Math.floorDiv(worldX, CHUNK_SIZE);
+    }
+
+    private int chunkAtZ(double screenY) {
+        if (paintedPixelsPerBlock <= 0.0) {
+            return 0;
+        }
+        int worldZ = paintedOriginZ + (int) Math.round(toSurfaceY(screenY) / paintedPixelsPerBlock);
+        return Math.floorDiv(worldZ, CHUNK_SIZE);
+    }
+
+    private double toSurfaceX(double elementX) {
+        return elementX + SURFACE_MARGIN - dragPixelX;
+    }
+
+    private double toSurfaceY(double elementY) {
+        return elementY + SURFACE_MARGIN - dragPixelY;
     }
 
     private void commitPan() {

@@ -4,6 +4,7 @@ import com.xy2407.kingdom.common.date.DailyProcessor;
 import com.xy2407.kingdom.common.npc.NpcManager;
 import com.xy2407.kingdom.common.path.SnapshotRepository;
 import com.xy2407.kingdom.server.faction.TerritoryVitalsService;
+import com.xy2407.kingdom.server.government.GovernmentAffairService;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
@@ -32,6 +33,7 @@ public final class NpcServerTick {
                 MinecraftServer current = server;
                 TerritoryVitalsService.onNewDay(current == null ? null : current.overworld(), day);
             });
+            DailyProcessor.registerOnNewDay(GovernmentAffairService::onNewDay);
         }
     }
 

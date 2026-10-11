@@ -105,7 +105,7 @@ public final class ClientBuildingController {
         movingId = entry.id();
         movingName = entry.name();
         sourceModel = loaded;
-        rotation = 0;
+        rotation = entry.rotation();
         heightOffset = 0;
         baseY = entry.min().getY();
         origin = entry.min();

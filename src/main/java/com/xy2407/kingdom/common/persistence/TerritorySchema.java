@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 领地表迁移：领地隶属国家，范围按区块记（市政厅区块 ±2 格），当前一人一块。
+ * 领地表迁移：领地隶属国家，范围以区块集合记，旧存档按矩形回填
  */
 public final class TerritorySchema implements Migration {
     private static final Map<String, String> COLUMN_DEFS = buildColumnDefs();
@@ -27,6 +27,7 @@ public final class TerritorySchema implements Migration {
     public static final String COL_MIN_CHUNK_Z = "min_chunk_z";
     public static final String COL_MAX_CHUNK_X = "max_chunk_x";
     public static final String COL_MAX_CHUNK_Z = "max_chunk_z";
+    public static final String COL_CHUNKS = "chunks";
     public static final String COL_CREATED_DAY = "created_day";
     public static final String COL_UPDATED_AT = "updated_at";
 
@@ -101,6 +102,7 @@ public final class TerritorySchema implements Migration {
         defs.put(COL_MIN_CHUNK_Z, "INTEGER NOT NULL DEFAULT 0");
         defs.put(COL_MAX_CHUNK_X, "INTEGER NOT NULL DEFAULT 0");
         defs.put(COL_MAX_CHUNK_Z, "INTEGER NOT NULL DEFAULT 0");
+        defs.put(COL_CHUNKS, "TEXT NOT NULL DEFAULT ''");
         defs.put(COL_CREATED_DAY, "INTEGER NOT NULL DEFAULT 0");
         defs.put(COL_UPDATED_AT, "INTEGER NOT NULL DEFAULT 0");
         return defs;
@@ -110,7 +112,7 @@ public final class TerritorySchema implements Migration {
         return String.join(", ", new String[] {
                 COL_ID, COL_NAME, COL_NATION_ID, COL_OWNER_UUID, COL_DIMENSION,
                 COL_CENTER_X, COL_CENTER_Z, COL_MIN_CHUNK_X, COL_MIN_CHUNK_Z,
-                COL_MAX_CHUNK_X, COL_MAX_CHUNK_Z, COL_CREATED_DAY, COL_UPDATED_AT
+                COL_MAX_CHUNK_X, COL_MAX_CHUNK_Z, COL_CHUNKS, COL_CREATED_DAY, COL_UPDATED_AT
         });
     }
 }

@@ -4,9 +4,12 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import com.xy2407.kingdom.ModMain;
@@ -17,7 +20,7 @@ import com.xy2407.kingdom.common.persistence.TerritorySchema;
 import net.minecraft.core.BlockPos;
 
 /**
- * 领地登记表：以市政厅所在区块为中心的 5×5 区块，一个玩家只能有一块。
+ * 领地登记表：新建时给市政厅周边 5×5 区块，之后按地图框选逐块扩张，一人一块
  */
 public final class TerritoryRegistry {
 
@@ -141,14 +144,31 @@ public final class TerritoryRegistry {
 
         Territory territory = new Territory(
                 nextId(), name, nationId == null ? "" : nationId, owner, dimension,
-                center.getX(), center.getZ(),
-                centerChunkX - radius, centerChunkZ - radius,
-                centerChunkX + radius, centerChunkZ + radius,
-                day);
+                center.getX(), center.getZ(), day,
+                Territory.rectChunks(centerChunkX - radius, centerChunkZ - radius,
+                        centerChunkX + radius, centerChunkZ + radius));
         byId.put(territory.id(), territory);
         KingdomPersistence.submit(TerritorySchema.TABLE_TERRITORY, TerritorySchema.COL_ID,
                 territory.id(), toValues(territory));
         return territory;
+    }
+
+    public Territory addChunks(Territory territory, Collection<Long> keys) {
+        if (territory == null || keys == null || keys.isEmpty()) {
+            return null;
+        }
+        Set<Long> merged = new LinkedHashSet<>(territory.chunks());
+        if (!merged.addAll(keys)) {
+            return null;
+        }
+        Territory updated = new Territory(
+                territory.id(), territory.name(), territory.nationId(), territory.owner(),
+                territory.dimension(), territory.centerX(), territory.centerZ(),
+                territory.createdDay(), merged);
+        byId.put(updated.id(), updated);
+        KingdomPersistence.submit(TerritorySchema.TABLE_TERRITORY, TerritorySchema.COL_ID,
+                updated.id(), toValues(updated));
+        return updated;
     }
 
     private String nextId() {
@@ -172,6 +192,14 @@ public final class TerritoryRegistry {
         } catch (IllegalArgumentException exception) {
             ownerId = null;
         }
+        Set<Long> chunks = parseChunks(rs.getString(TerritorySchema.COL_CHUNKS));
+        if (chunks.isEmpty()) {
+            chunks = Territory.rectChunks(
+                    rs.getInt(TerritorySchema.COL_MIN_CHUNK_X),
+                    rs.getInt(TerritorySchema.COL_MIN_CHUNK_Z),
+                    rs.getInt(TerritorySchema.COL_MAX_CHUNK_X),
+                    rs.getInt(TerritorySchema.COL_MAX_CHUNK_Z));
+        }
         return new Territory(
                 rs.getString(TerritorySchema.COL_ID),
                 rs.getString(TerritorySchema.COL_NAME),
@@ -180,11 +208,39 @@ public final class TerritoryRegistry {
                 rs.getString(TerritorySchema.COL_DIMENSION),
                 rs.getInt(TerritorySchema.COL_CENTER_X),
                 rs.getInt(TerritorySchema.COL_CENTER_Z),
-                rs.getInt(TerritorySchema.COL_MIN_CHUNK_X),
-                rs.getInt(TerritorySchema.COL_MIN_CHUNK_Z),
-                rs.getInt(TerritorySchema.COL_MAX_CHUNK_X),
-                rs.getInt(TerritorySchema.COL_MAX_CHUNK_Z),
-                rs.getInt(TerritorySchema.COL_CREATED_DAY));
+                rs.getInt(TerritorySchema.COL_CREATED_DAY),
+                chunks);
+    }
+
+    private static Set<Long> parseChunks(String raw) {
+        Set<Long> result = new LinkedHashSet<>();
+        if (raw == null || raw.isBlank()) {
+            return result;
+        }
+        for (String part : raw.split(";")) {
+            int comma = part.indexOf(',');
+            if (comma <= 0) {
+                continue;
+            }
+            try {
+                result.add(Territory.chunkKey(
+                        Integer.parseInt(part.substring(0, comma).trim()),
+                        Integer.parseInt(part.substring(comma + 1).trim())));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return result;
+    }
+
+    private static String encodeChunks(Set<Long> chunks) {
+        StringBuilder text = new StringBuilder();
+        for (long key : chunks) {
+            if (text.length() > 0) {
+                text.append(';');
+            }
+            text.append(Territory.chunkKeyX(key)).append(',').append(Territory.chunkKeyZ(key));
+        }
+        return text.toString();
     }
 
     private static Map<String, Object> toValues(Territory territory) {
@@ -196,10 +252,7 @@ public final class TerritoryRegistry {
         values.put(TerritorySchema.COL_DIMENSION, territory.dimension());
         values.put(TerritorySchema.COL_CENTER_X, territory.centerX());
         values.put(TerritorySchema.COL_CENTER_Z, territory.centerZ());
-        values.put(TerritorySchema.COL_MIN_CHUNK_X, territory.minChunkX());
-        values.put(TerritorySchema.COL_MIN_CHUNK_Z, territory.minChunkZ());
-        values.put(TerritorySchema.COL_MAX_CHUNK_X, territory.maxChunkX());
-        values.put(TerritorySchema.COL_MAX_CHUNK_Z, territory.maxChunkZ());
+        values.put(TerritorySchema.COL_CHUNKS, encodeChunks(territory.chunks()));
         values.put(TerritorySchema.COL_CREATED_DAY, territory.createdDay());
         values.put(TerritorySchema.COL_UPDATED_AT, System.currentTimeMillis());
         return values;

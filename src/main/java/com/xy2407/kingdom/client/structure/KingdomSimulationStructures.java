@@ -153,6 +153,11 @@ public final class KingdomSimulationStructures {
     @OnlyIn(Dist.CLIENT)
     public record Entry(String id, BuildingMeta meta, Vec3i size, int beds) {
 
+        public String folder() {
+            int slash = id.indexOf('/');
+            return slash < 0 ? "" : id.substring(0, slash);
+        }
+
         public String displayName() {
             return meta.name();
         }

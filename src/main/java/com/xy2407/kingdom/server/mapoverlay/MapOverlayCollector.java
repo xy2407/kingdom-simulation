@@ -2,6 +2,7 @@ package com.xy2407.kingdom.server.mapoverlay;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import com.xy2407.kingdom.common.building.BuildingRecord;
@@ -36,6 +37,15 @@ public final class MapOverlayCollector {
     }
 
     private static MinecraftServer server;
+
+    private static long[] chunkArray(Set<Long> chunks) {
+        long[] keys = new long[chunks.size()];
+        int index = 0;
+        for (long key : chunks) {
+            keys[index++] = key;
+        }
+        return keys;
+    }
 
     public static void install(MinecraftServer minecraftServer) {
         server = minecraftServer;
@@ -76,9 +86,7 @@ public final class MapOverlayCollector {
                     territory.id(), territory.name(), ownerNameOf(player, territory.owner()),
                     nationLabel, TerritoryTier.labelOf(population), population,
                     territory.centerX(), territory.centerZ(),
-                    territory.minChunkX(), territory.minChunkZ(),
-                    territory.maxChunkX(), territory.maxChunkZ(),
-                    self, false));
+                    chunkArray(territory.chunks()), self, false));
         }
 
         int radiusValue = Math.max(16, radius);

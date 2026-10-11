@@ -19,7 +19,7 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
  */
 public record BuildingSyncPacket(List<Entry> entries) implements CustomPacketPayload {
 
-    public record Entry(UUID id, String name, BlockPos min, BlockPos max) {
+    public record Entry(UUID id, String name, BlockPos min, BlockPos max, int rotation) {
     }
 
     private static final int MAX_ENTRIES = 1024;
@@ -43,6 +43,7 @@ public record BuildingSyncPacket(List<Entry> entries) implements CustomPacketPay
             buf.writeUtf(entry.name() == null ? "" : entry.name(), 128);
             buf.writeBlockPos(entry.min());
             buf.writeBlockPos(entry.max());
+            buf.writeInt(entry.rotation());
         }
     }
 
@@ -50,7 +51,8 @@ public record BuildingSyncPacket(List<Entry> entries) implements CustomPacketPay
         List<Entry> entries = new ArrayList<>();
         int count = Math.min(Math.max(buf.readInt(), 0), MAX_ENTRIES);
         for (int i = 0; i < count; i++) {
-            entries.add(new Entry(buf.readUUID(), buf.readUtf(128), buf.readBlockPos(), buf.readBlockPos()));
+            entries.add(new Entry(buf.readUUID(), buf.readUtf(128), buf.readBlockPos(), buf.readBlockPos(),
+                    buf.readInt()));
         }
         return new BuildingSyncPacket(entries);
     }
