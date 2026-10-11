@@ -28,7 +28,6 @@ public final class NpcData {
     private UUID spouseId;
     private String job = "";
     private String workplaceId;
-    /** 工业工人负责的那张配方 id（对应蓝图 json 里 recipe 的 id）；空串表示没分工。 */
     private String workRecipeId = "";
     private String homeId;
     private int age;

@@ -3,8 +3,7 @@ package com.xy2407.kingdom.common.npc;
 import net.minecraft.util.RandomSource;
 
 /**
- * NPC 天赋：三项上限、出生随机区间与"特殊个体"概率。
- * 天赋目前只用于身份卡片的展示（三角面板 + 三段数值），实际作用待定，见 {@link #TODO_FUTURE_USE}。
+ * NPC 天赋：三项上限、出生随机区间与特殊个体概率，目前仅用于身份卡展示
  */
 public final class NpcTalent {
 
@@ -28,10 +27,6 @@ public final class NpcTalent {
     private NpcTalent() {
     }
 
-    /**
-     * 出生时掷一次天赋：智力 / 敏捷走常规区间，力量另有 1/{@link #SPECIAL_ODDS} 的概率
-     * 进入特殊个体档（{@link #SPECIAL_STRENGTH_MIN}~{@link #SPECIAL_STRENGTH_MAX}）。
-     */
     public static void roll(NpcData data, RandomSource random) {
         if (data == null || random == null) {
             return;
@@ -45,7 +40,6 @@ public final class NpcTalent {
         }
     }
 
-    /** 闭区间掷点。 */
     private static int rollRange(RandomSource random, int min, int max) {
         return min + random.nextInt(max - min + 1);
     }

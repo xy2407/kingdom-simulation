@@ -31,7 +31,7 @@ import org.slf4j.Logger;
 import com.mojang.logging.LogUtils;
 
 /**
- * 模组主入口，仅注册事件总线
+ * 模组主入口，注册数据迁移、事件总线与实体方块物品
  */
 @Mod(ModMain.MOD_ID)
 public final class ModMain {
@@ -44,15 +44,11 @@ public final class ModMain {
         KingdomPersistence.registerMigration(new FarmPlotSchema());
         KingdomPersistence.registerMigration(new FarmLandSchema());
         KingdomPersistence.registerMigration(new RanchSchema());
-        /* 阵营与领地：版本号全局线性，接在现有最大值 11 之后 */
         KingdomPersistence.registerMigration(new NationSchema());
         KingdomPersistence.registerMigration(new TerritorySchema());
         KingdomPersistence.registerMigration(new PlayerProfileSchema());
-        /* 领地民心（凝聚力/忠诚度/幸福度）单独一张表，接在 15 之后 */
         KingdomPersistence.registerMigration(new TerritoryVitalsSchema());
-        /* 建筑仓库：一座建筑一行、物品整包存 SNBT，接在 16 之后 */
         KingdomPersistence.registerMigration(new BuildingStorageSchema());
-        /* 餐厅订单：一名顾客一行，接在现有最大值 18 之后 */
         KingdomPersistence.registerMigration(new RestaurantOrderSchema());
         NeoForge.EVENT_BUS.register(ServerLifecycle.class);
         NeoForge.EVENT_BUS.register(DateServerTick.class);

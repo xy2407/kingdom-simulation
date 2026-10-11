@@ -49,7 +49,6 @@ public final class RestaurantPanelService {
                 new RestaurantMenuPacket(chefCountOf(building.id()), dishes));
     }
 
-    /** 把食材条目拼成一句话给面板显示；标签食材展示末段（如 {@code #c:foods → foods}）。 */
     private static String describeInputs(List<ItemCount> inputs) {
         StringBuilder builder = new StringBuilder();
         for (ItemCount input : inputs) {
@@ -74,7 +73,6 @@ public final class RestaurantPanelService {
         return slash >= 0 ? text.substring(slash + 1) : text;
     }
 
-    /** 后厨人数：{@code workplace_id} 指向这栋餐厅的市民。 */
     private static int chefCountOf(UUID buildingId) {
         String id = buildingId.toString();
         int count = 0;
@@ -86,7 +84,6 @@ public final class RestaurantPanelService {
         return count;
     }
 
-    /** 玩家脚下的餐厅；不在餐厅里返回 null。 */
     private static BuildingRecord restaurantOf(ServerPlayer player) {
         BuildingRecord building = BuildingRegistry.INSTANCE.locate(player);
         if (building == null) {

@@ -66,8 +66,6 @@ public final class NpcSchema implements Migration {
 
     @Override
     public int version() {
-        // 迁移版本全局线性（各 Schema 之间不能重复），当前最大是本表上一版的 18。
-        // 本次新增 work_recipe_id 列（工业工人负责哪张配方），取 19。
         return 19;
     }
 

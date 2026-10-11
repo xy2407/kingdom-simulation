@@ -17,10 +17,15 @@ import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.entity.ModEntities;
 import com.xy2407.kingdom.common.entity.NpcEntity;
 import com.xy2407.kingdom.common.map.WorldSurfaceSampler;
+import com.xy2407.kingdom.common.network.debug.NpcPathDebugBroadcast;
+import com.xy2407.kingdom.common.network.debug.NpcPathDebugPacket;
 import com.xy2407.kingdom.common.npc.NpcData;
 import com.xy2407.kingdom.common.npc.NpcFarmService;
 import com.xy2407.kingdom.common.npc.NpcManager;
 import com.xy2407.kingdom.common.npc.NpcTalent;
+import com.xy2407.kingdom.common.path.ChunkSnapshot;
+import com.xy2407.kingdom.common.path.NpcPathfinder;
+import com.xy2407.kingdom.common.path.SnapshotRepository;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.ranch.RanchPen;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
@@ -34,6 +39,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.MapColor;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -50,6 +56,7 @@ import java.nio.file.Path;
 public final class KingdomCommands {
 
     private static final int MAX_SPAWN = 1000;
+    private static final byte BLOCKED_MOVE = 4;
 
     private KingdomCommands() {
     }
@@ -62,7 +69,6 @@ public final class KingdomCommands {
                                 .then(Commands.literal("spawn")
                                         .then(Commands.argument("count", IntegerArgumentType.integer(1, MAX_SPAWN))
                                                 .executes(KingdomCommands::spawn)))
-                                // 诊断：为什么这个市民不回家/不睡觉
                                 .then(Commands.literal("why")
                                         .executes(KingdomCommands::npcWhy)))
                         .then(Commands.literal("test")
@@ -74,6 +80,10 @@ public final class KingdomCommands {
                                                 .executes(ctx -> moveOver(ctx, null))
                                                 .then(Commands.argument("pos", Vec3Argument.vec3())
                                                         .executes(ctx -> moveOver(ctx, Vec3Argument.getVec3(ctx, "pos"))))))
+                                .then(Commands.literal("trace")
+                                        .executes(ctx -> moveTrace(ctx, null))
+                                        .then(Commands.argument("pos", Vec3Argument.vec3())
+                                                .executes(ctx -> moveTrace(ctx, Vec3Argument.getVec3(ctx, "pos")))))
                                 .then(Commands.literal("highmove")
                                         .then(Commands.literal("clear")
                                                 .then(Commands.argument("pos", Vec3Argument.vec3())
@@ -119,7 +129,6 @@ public final class KingdomCommands {
                         .executes(KingdomCommands::hireKeeper));
     }
 
-    /** 诊断：把玩家所在维度市民的作息状态链打出来，用于定位"为什么不回家/不睡觉"。 */
     private static int npcWhy(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         CommandSourceStack source = ctx.getSource();
         ServerPlayer player = source.getPlayerOrException();
@@ -302,6 +311,187 @@ public final class KingdomCommands {
         int total = npcs.size();
         source.sendSuccess(() -> Component.literal("已派遣 " + total + " 名市民以自定义A*在 " + center.toShortString() + " 附近密集集结"), true);
         return total;
+    }
+
+    private static int moveTrace(CommandContext<CommandSourceStack> ctx, Vec3 pos) throws CommandSyntaxException {
+        CommandSourceStack source = ctx.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        ServerLevel level = player.serverLevel();
+        BlockPos requested = pos == null ? player.blockPosition() : BlockPos.containing(pos);
+
+        SnapshotRepository repository = SnapshotRepository.get(level.getServer());
+        if (repository == null) {
+            source.sendFailure(Component.literal("寻路仓库尚未初始化，稍后再试"));
+            return 0;
+        }
+        NpcEntity npc = nearestNpc(player);
+        if (npc == null) {
+            source.sendFailure(Component.literal("附近没有市民"));
+            return 0;
+        }
+
+        NpcPathfinder.DebugTrace trace = NpcPathfinder.trace(repository, level,
+                npc.blockPosition(), requested, NpcPathfinder.paddingOf(0));
+
+        for (String line : describeTrace(npc, trace, level)) {
+            source.sendSuccess(() -> Component.literal(line), false);
+        }
+        highlight(player, npc, trace);
+
+        if (trace.waypoints().isEmpty()) {
+            return 0;
+        }
+        npc.setHighRtsTarget(requested, false);
+        npc.applyPath(trace.waypoints());
+        source.sendSuccess(() -> Component.literal("已开始执行，共 " + trace.waypoints().size() + " 个航点"), true);
+        return 1;
+    }
+
+    private static void highlight(ServerPlayer player, NpcEntity npc, NpcPathfinder.DebugTrace trace) {
+        List<NpcPathDebugPacket.Entry> entries = new ArrayList<>();
+        if (trace.waypoints().isEmpty()) {
+            List<BlockPos> nearest = trace.nearest();
+            for (int i = 0; i < nearest.size(); i++) {
+                entries.add(new NpcPathDebugPacket.Entry(nearest.get(i), BLOCKED_MOVE, i));
+            }
+        } else {
+            List<NpcPathfinder.Waypoint> waypoints = trace.waypoints();
+            for (int i = 0; i < waypoints.size(); i++) {
+                NpcPathfinder.Waypoint waypoint = waypoints.get(i);
+                entries.add(new NpcPathDebugPacket.Entry(waypoint.pos(),
+                        (byte) waypoint.move().ordinal(), i));
+            }
+        }
+        NpcPathDebugBroadcast.sendTrace(player, npc.getUUID(), entries);
+    }
+
+    private static NpcEntity nearestNpc(ServerPlayer player) {
+        NpcEntity best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (NpcEntity npc : npcs(player.serverLevel())) {
+            double distance = npc.distanceToSqr(player);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = npc;
+            }
+        }
+        return best;
+    }
+
+    private static List<String> describeTrace(NpcEntity npc, NpcPathfinder.DebugTrace trace, ServerLevel level) {
+        List<String> lines = new ArrayList<>();
+        lines.add("—— 自定义寻路诊断（市民 " + npc.getCitizenId() + "）——");
+        lines.add("请求目标=" + trace.requested().toShortString()
+                + "　起点(脚下)=" + trace.start().toShortString()
+                + "　余量=" + trace.padding() + "　缺失区块=" + trace.missingChunks());
+
+        if (trace.missingChunks() > 0) {
+            lines.add("警告：覆盖范围内还有 " + trace.missingChunks()
+                    + " 个区块的快照没建好 —— 下面这一轮的结论不可信。已把它们入队，请过几秒重新执行一次。");
+        }
+        if (trace.snappedStart() == Integer.MIN_VALUE) {
+            lines.add("失败：起点贴不到地 —— 那一列上下 1 格内没有落脚格。");
+            lines.add("起点那一列：" + describeColumn(level, trace.start()));
+            return lines;
+        }
+        if (trace.snappedEnd() == Integer.MIN_VALUE) {
+            lines.add("终点贴地=失败（只允许在原位或上下 1 格内找落脚格）");
+            lines.add("目标那一列：" + describeColumn(level, trace.requested()));
+            lines.add("原因：那一列没有落脚格 —— 多半给在了方块本体、墙里或悬空处。");
+            return lines;
+        }
+
+        lines.add("起点贴地 y=" + trace.snappedStart() + "　终点贴地 y=" + trace.snappedEnd()
+                + "（请求 y=" + trace.requested().getY()
+                + "，差 " + (trace.snappedEnd() - trace.requested().getY()) + "）");
+        lines.add("搜索范围 X[" + trace.minX() + ".." + trace.maxX()
+                + "] Z[" + trace.minZ() + ".." + trace.maxZ() + "]");
+        lines.add("展开节点=" + trace.visited() + "／上限 8192　航点=" + trace.waypoints().size());
+        lines.add("起点可达高度 y[" + trace.reachMinY() + ".." + trace.reachMaxY()
+                + "]　目标 y=" + trace.snappedEnd());
+
+        if (trace.waypoints().isEmpty()) {
+            if (trace.exhausted()) {
+                lines.add("失败：8192 个节点用尽仍没搜到 —— 路可能存在，是搜索空间太大没搜完。");
+            } else {
+                lines.add("失败：可达范围内不存在通往目标的落脚格。");
+            }
+            lines.add("下列是【从起点真能走到】的点里、离目标最近的 " + trace.nearest().size()
+                    + " 个（由近到远）——踩不到目标，卡住的位置就在这一圈上：");
+            for (int i = 0; i < trace.nearest().size(); i++) {
+                lines.add("  ~" + i + " " + describePoint(level, trace.nearest().get(i)));
+            }
+            if (!trace.nearest().isEmpty()) {
+                BlockPos edge = trace.nearest().get(0);
+                lines.add("卡住那格的四周（" + edge.toShortString() + "）：");
+                lines.add("  西=" + blockName(level, edge.west())
+                        + "　东=" + blockName(level, edge.east())
+                        + "　北=" + blockName(level, edge.north())
+                        + "　南=" + blockName(level, edge.south()));
+                lines.add("  上=" + blockName(level, edge.above())
+                        + "　下=" + blockName(level, edge.below())
+                        + "　再下=" + blockName(level, edge.below(2)));
+            }
+            return lines;
+        }
+        for (int i = 0; i < trace.waypoints().size(); i++) {
+            NpcPathfinder.Waypoint waypoint = trace.waypoints().get(i);
+            lines.add("  #" + i + " " + waypoint.pos().toShortString() + " " + waypoint.move()
+                    + "　" + describeBlocks(level, waypoint.pos())
+                    + (waypoint.move() == NpcPathfinder.Waypoint.Move.STEP_UP
+                            ? jumpClearance(level, waypoint.pos()) : ""));
+        }
+        return lines;
+    }
+
+    private static String describePoint(ServerLevel level, BlockPos pos) {
+        return pos.toShortString() + "　" + describeBlocks(level, pos);
+    }
+
+    private static String describeBlocks(ServerLevel level, BlockPos pos) {
+        if (!level.isLoaded(pos)) {
+            return "（区块未加载）";
+        }
+        BlockState below = level.getBlockState(pos.below());
+        BlockState at = level.getBlockState(pos);
+        BlockState above = level.getBlockState(pos.above());
+        boolean floor = ChunkSnapshot.isWalkableFloor(below);
+        boolean body = ChunkSnapshot.isPassable(at);
+        boolean head = ChunkSnapshot.isPassable(above);
+        return "脚=" + name(at) + " 下=" + name(below) + " 头=" + name(above)
+                + "　判定=" + (floor && body && head ? "可站" : "★A*不认")
+                + "（下" + mark(floor) + "本" + mark(body) + "头" + mark(head) + "）";
+    }
+
+    private static String jumpClearance(ServerLevel level, BlockPos pos) {
+        BlockState top = level.getBlockState(pos.above(2));
+        if (ChunkSnapshot.isPassable(top)) {
+            return "";
+        }
+        return "　⚠跳不起：再上一格是" + name(top) + "，起跳会顶住";
+    }
+
+    private static String name(BlockState state) {
+        return state.getBlock().getName().getString();
+    }
+
+    private static String mark(boolean ok) {
+        return ok ? "√" : "×";
+    }
+
+    private static String describeColumn(ServerLevel level, BlockPos pos) {
+        return pos.toShortString()
+                + "　↑头=" + blockName(level, pos.above())
+                + "　●脚=" + blockName(level, pos)
+                + "　↓下=" + blockName(level, pos.below())
+                + "　↓↓再下=" + blockName(level, pos.below(2));
+    }
+
+    private static String blockName(ServerLevel level, BlockPos pos) {
+        if (!level.isLoaded(pos)) {
+            return "<未加载>";
+        }
+        return level.getBlockState(pos).getBlock().getName().getString();
     }
 
     private static int placeStructure(CommandContext<CommandSourceStack> ctx) {

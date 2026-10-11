@@ -4,10 +4,12 @@ import com.mojang.blaze3d.platform.InputConstants;
 import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.client.cityhall.CityHallScreen;
 import com.xy2407.kingdom.client.farm.FarmPanelScreen;
+import com.xy2407.kingdom.client.path.NpcPathDebugRenderer;
 import com.xy2407.kingdom.client.ranch.RanchPanelScreen;
 import com.xy2407.kingdom.client.industry.IndustryPanelScreen;
 import com.xy2407.kingdom.client.map.MapOverlayStore;
 import com.xy2407.kingdom.client.rts.ClientBuildingStore;
+import com.xy2407.kingdom.common.network.debug.NpcPathDebugHooks;
 import com.xy2407.kingdom.common.network.industry.IndustryPanelHooks;
 import com.xy2407.kingdom.common.network.building.BuildingMoveHooks;
 import com.xy2407.kingdom.common.network.building.BuildingPanelHooks;
@@ -62,11 +64,13 @@ public final class BuildingClientSetup {
         CityHallHooks.openSink = CityHallScreen::open;
         CityHallHooks.dataSink = CityHallScreen::accept;
         MapOverlayHooks.dataSink = MapOverlayStore::accept;
+        NpcPathDebugHooks.sink = NpcPathDebugRenderer::accept;
     }
 
     @SubscribeEvent
     public static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         BuildingSiteManager.clear();
+        NpcPathDebugRenderer.clear();
     }
 
     @SubscribeEvent

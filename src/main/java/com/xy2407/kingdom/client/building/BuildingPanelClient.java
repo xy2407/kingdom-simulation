@@ -59,14 +59,12 @@ public final class BuildingPanelClient {
         minecraft.player.displayClientMessage(Component.literal(message), true);
     }
 
-    /** 住户名单回来时转给当前打开的面板；面板没开着（玩家已走）就丢弃。 */
     public static void acceptResidents(ResidentListPacket packet) {
         if (Minecraft.getInstance().screen instanceof BuildingPanelScreen screen) {
             screen.applyResidents(packet);
         }
     }
 
-    /** 餐厅菜单回来时同样转给当前面板。 */
     public static void acceptRestaurantMenu(RestaurantMenuPacket packet) {
         if (Minecraft.getInstance().screen instanceof BuildingPanelScreen screen) {
             screen.applyRestaurantMenu(packet);

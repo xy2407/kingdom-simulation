@@ -17,7 +17,6 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
  */
 public record RestaurantMenuPacket(int chefCount, List<Dish> dishes) implements CustomPacketPayload {
 
-    /** 面板上的一张菜品卡片。{@code ready} 表示仓库里食材够不够，不够的卡片画成灰的。 */
     public record Dish(String id, String name, String outputItem, int outputCount,
                        int price, String inputText, boolean ready) {
     }

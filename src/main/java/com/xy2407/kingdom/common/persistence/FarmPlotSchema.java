@@ -36,11 +36,6 @@ public final class FarmPlotSchema implements Migration {
 
     @Override
     public int version() {
-        /* 版本号只用来给迁移排序、以及记进 PRAGMA user_version 供排查；
-           Database.migrate 现在**每次都执行全部迁移**（apply 都是幂等的），
-           所以这里给多少都不会导致"表建不出来"。
-           当前占用：Npc 5 / Building 7 / FarmLand 9 / Ranch 10 / FarmPlot 11 / Nation 12
-           / Territory 13 / PlayerProfile 15。 */
         return 11;
     }
 

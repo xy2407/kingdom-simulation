@@ -1,8 +1,6 @@
 package com.xy2407.kingdom.common.path;
 
 import java.util.Arrays;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -10,6 +8,7 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.BasePressurePlateBlock;
 import net.minecraft.world.level.block.BedBlock;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.CarpetBlock;
 import net.minecraft.world.level.block.DoorBlock;
@@ -28,36 +27,45 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
 /**
- * 区块寻路快照：按列存稀疏的可站立层与可攀爬标记，供寻路线程只读查询。
+ * 区块寻路快照：按列存可停留与挡路的格，全高扫描供寻路线程只读查询
  */
 public final class ChunkSnapshot {
     private static final int COLUMNS = 256;
-    private static final int MAX_LAYERS_PER_COLUMN = 32;
-    private static final int STOP_AFTER_IMPASSABLE = 4;
+    private static final int MAX_LAYERS_PER_COLUMN = 128;
     private static final double SLICE_MIN_Y = 0.1D;
     private static final double BODY_SLICE_MAX_Y = 1.0D;
-    private static final double FLOOR_MIN_HEIGHT = 0.8D;
+    private static final double FLOOR_MIN_HEIGHT = 0.3D;
     private static final double MIN_TOP_FOOTPRINT = 0.5D;
 
-    private static final Map<BlockState, Integer> STATE_FLAGS = new ConcurrentHashMap<>();
+    private static final int[] FLAGS = new int[Math.max(1, Block.BLOCK_STATE_REGISTRY.size())];
+    static {
+        Arrays.fill(FLAGS, -1);
+    }
     private static final int FLAG_FLOOR = 1;
     private static final int FLAG_PASSABLE = 2;
-    private static final int MAX_CACHED_STATES = 1 << 16;
 
     private final int minY;
     private final short[] starts;
     private final short[] levels;
-    /** 构建这个快照实际扫描了多少格，供仓库按真实成本分帧。 */
+    private final short[] blockStarts;
+    private final short[] blocks;
+    private final byte[] kinds;
     private final int scanCost;
 
-    private ChunkSnapshot(int minY, short[] starts, short[] levels, int scanCost) {
+    private static final byte KIND_WALK = 0;
+    private static final byte KIND_CLIMB = 1;
+
+    private ChunkSnapshot(int minY, short[] starts, short[] levels, byte[] kinds,
+                          short[] blockStarts, short[] blocks, int scanCost) {
         this.minY = minY;
         this.starts = starts;
         this.levels = levels;
+        this.kinds = kinds;
+        this.blockStarts = blockStarts;
+        this.blocks = blocks;
         this.scanCost = scanCost;
     }
 
-    /** 构建时实际扫描的格子数。高楼/破碎地形能到估算值的数倍，仓库据此扣预算。 */
     public int scanCost() {
         return scanCost;
     }
@@ -76,100 +84,140 @@ public final class ChunkSnapshot {
         return false;
     }
 
+    public boolean blocked(int lx, int y, int lz) {
+        int offset = y - minY;
+        if (offset < 0) {
+            return true;
+        }
+        int column = lx * 16 + lz;
+        for (int i = blockStarts[column]; i < blockStarts[column + 1]; i++) {
+            if (blocks[i] == offset) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean climbable(int lx, int y, int lz) {
+        int offset = y - minY;
+        if (offset < 0) {
+            return false;
+        }
+        int column = lx * 16 + lz;
+        for (int i = starts[column]; i < starts[column + 1]; i++) {
+            if (levels[i] == offset) {
+                return kinds[i] == KIND_CLIMB;
+            }
+        }
+        return false;
+    }
+
     public static ChunkSnapshot build(LevelChunk chunk) {
         LevelChunkSection[] sections = chunk.getSections();
         int minY = chunk.getMinBuildHeight();
         int highest = Math.min(chunk.getHighestFilledSectionIndex(), sections.length - 1);
         short[] starts = new short[COLUMNS + 1];
         short[] buffer = new short[COLUMNS * MAX_LAYERS_PER_COLUMN];
+        byte[] kindBuffer = new byte[COLUMNS * MAX_LAYERS_PER_COLUMN];
+        short[] blockStarts = new short[COLUMNS + 1];
+        short[] blockBuffer = new short[COLUMNS * MAX_LAYERS_PER_COLUMN];
+        int[] counts = {0, 0};
         int[] cost = {0};
-        int count = 0;
         for (int column = 0; column < COLUMNS; column++) {
-            starts[column] = (short) count;
-            count = scanColumn(sections, highest, column / 16, column % 16, buffer, count, cost);
+            starts[column] = (short) counts[0];
+            blockStarts[column] = (short) counts[1];
+            scanColumn(sections, highest, column / 16, column % 16,
+                    buffer, kindBuffer, blockBuffer, counts, cost);
         }
-        starts[COLUMNS] = (short) count;
-        return new ChunkSnapshot(minY, starts, Arrays.copyOf(buffer, count), cost[0]);
+        starts[COLUMNS] = (short) counts[0];
+        blockStarts[COLUMNS] = (short) counts[1];
+        return new ChunkSnapshot(minY, starts, Arrays.copyOf(buffer, counts[0]),
+                Arrays.copyOf(kindBuffer, counts[0]),
+                blockStarts, Arrays.copyOf(blockBuffer, counts[1]), cost[0]);
     }
 
-    private static int scanColumn(LevelChunkSection[] sections, int highest, int lx, int lz,
-                                  short[] buffer, int count, int[] cost) {
+    private static void scanColumn(LevelChunkSection[] sections, int highest, int lx, int lz,
+                                   short[] buffer, byte[] kindBuffer, short[] blockBuffer,
+                                   int[] counts, int[] cost) {
+        int count = counts[0];
+        int blockCount = counts[1];
         int found = 0;
-        int misses = 0;
         BlockState above = Blocks.AIR.defaultBlockState();
         BlockState aboveTwo = above;
-        for (int si = highest; si >= 0 && found < MAX_LAYERS_PER_COLUMN && misses < STOP_AFTER_IMPASSABLE; si--) {
+        for (int si = highest; si >= 0 && found < MAX_LAYERS_PER_COLUMN; si--) {
             LevelChunkSection section = sections[si];
             if (section.hasOnlyAir()) {
-                misses = 0;
                 above = Blocks.AIR.defaultBlockState();
                 aboveTwo = above;
                 continue;
             }
-            for (int ly = 15; ly >= 0 && found < MAX_LAYERS_PER_COLUMN && misses < STOP_AFTER_IMPASSABLE; ly--) {
+            for (int ly = 15; ly >= 0 && found < MAX_LAYERS_PER_COLUMN; ly--) {
                 cost[0]++;
                 BlockState current = section.getBlockState(lx, ly, lz);
                 boolean ladder = isLadderLike(current);
                 boolean climbableFloor = isClimbableFloor(current);
-                // 梯子/藤蔓不登记为节点：它们碰撞箱是贴墙薄片、人站不上去，
-                // 而"沿竖井上下爬"这个动作实体执行不了 —— assistClimb 只会跳一下，
-                // 原版导航又只按 XZ 判到位、几步就把整段竖井 advance 完然后说"到了"。
-                // 登记进来只会让 A* 规划出一条走不出来的路，人贴着墙卡死。
-                // 它们仍参与下面的 misses 统计：不算"连续阻碍"。
-                if (!ladder && isWalkableFloor(current)
+                if (ladder) {
+                    if (found < MAX_LAYERS_PER_COLUMN) {
+                        buffer[count + found] = (short) (si * 16 + ly);
+                        kindBuffer[count + found] = KIND_CLIMB;
+                        found++;
+                    }
+                } else if (isWalkableFloor(current)
                         && (climbableFloor || (isPassable(above) && isPassable(aboveTwo)))) {
-                    // 实体地板：记录的是"站在它上面的那一格"
                     buffer[count + found] = (short) (si * 16 + ly + 1);
+                    kindBuffer[count + found] = KIND_WALK;
                     found++;
                 }
-                if (isPassable(current) || ladder || climbableFloor) {
-                    misses = 0;
-                } else {
-                    misses++;
+                if (!isPassable(current) && !ladder && !climbableFloor) {
+                    if (blockCount < blockBuffer.length) {
+                        blockBuffer[blockCount++] = (short) (si * 16 + ly);
+                    }
                 }
                 aboveTwo = above;
                 above = current;
             }
         }
-        return count + found;
+        counts[0] = count + found;
+        counts[1] = blockCount;
     }
 
-    private static boolean isPassable(BlockState state) {
+    public static boolean isPassable(BlockState state) {
         if (state.isAir()) {
             return true;
         }
         return (flagsOf(state) & FLAG_PASSABLE) != 0;
     }
 
-    private static boolean isWalkableFloor(BlockState state) {
+    public static boolean isWalkableFloor(BlockState state) {
         if (state.isAir()) {
             return false;
         }
         return (flagsOf(state) & FLAG_FLOOR) != 0;
     }
 
-    /**
-     * 既是实体地板又能攀爬的方块（脚手架）：踩得上去，也能沿它上下。
-     * {@link NpcPathfinder} 对可攀爬格做上下一格的竖直扩展。
-     */
     private static boolean isClimbableFloor(BlockState state) {
         return state.is(Blocks.SCAFFOLDING);
     }
 
-    /**
-     * 非实体的攀爬格：梯子、藤蔓。
-     * 它们碰撞箱是贴墙薄片、站不上去，但可以停靠并上下移动，
-     * 所以按"这一格自己"登记为可停留的攀爬节点（见 scanColumn）。
-     */
     private static boolean isLadderLike(BlockState state) {
         return state.getBlock() instanceof LadderBlock || state.getBlock() instanceof VineBlock;
     }
 
     private static int flagsOf(BlockState state) {
-        Integer cached = STATE_FLAGS.get(state);
-        if (cached != null) {
-            return cached;
+        int id = Block.BLOCK_STATE_REGISTRY.getId(state);
+        if (id < 0 || id >= FLAGS.length) {
+            return computeFlags(state);
         }
+        int flags = FLAGS[id];
+        if (flags >= 0) {
+            return flags;
+        }
+        flags = computeFlags(state);
+        FLAGS[id] = flags;
+        return flags;
+    }
+
+    private static int computeFlags(BlockState state) {
         int flags = 0;
         if (computeWalkableFloor(state)) {
             flags |= FLAG_FLOOR;
@@ -177,12 +225,6 @@ public final class ChunkSnapshot {
         if (computePassable(state)) {
             flags |= FLAG_PASSABLE;
         }
-        if (STATE_FLAGS.size() >= MAX_CACHED_STATES) {
-            // 满了就整体清空重来。原来这里是"不再写入"，那样一旦撞上限，
-            // 之后每次 flagsOf 都要重算 getCollisionShape/toAabbs，快照构建成本永久翻倍。
-            STATE_FLAGS.clear();
-        }
-        STATE_FLAGS.put(state, flags);
         return flags;
     }
 
@@ -193,10 +235,16 @@ public final class ChunkSnapshot {
         if (state.is(Blocks.IRON_DOOR) || state.is(Blocks.IRON_TRAPDOOR)) {
             return false;
         }
-        if (state.getBlock() instanceof DoorBlock
-                || state.getBlock() instanceof TrapDoorBlock
-                || state.getBlock() instanceof FenceGateBlock
-                || state.getBlock() instanceof LadderBlock
+        if (state.getBlock() instanceof DoorBlock) {
+            return true;
+        }
+        if (state.getBlock() instanceof TrapDoorBlock) {
+            return !state.getValue(TrapDoorBlock.OPEN);
+        }
+        if (state.getBlock() instanceof FenceGateBlock) {
+            return state.getValue(FenceGateBlock.OPEN);
+        }
+        if (state.getBlock() instanceof LadderBlock
                 || state.getBlock() instanceof VineBlock
                 || state.getBlock() instanceof CarpetBlock
                 || state.getBlock() instanceof SnowLayerBlock

@@ -27,19 +27,16 @@ public final class BuildingPayloadRegistration {
                 BuildingPanelRequestPacket.STREAM_CODEC, BuildingPanelRequestPacket::handle);
         registrar.playToClient(BuildingPanelStatePacket.TYPE,
                 BuildingPanelStatePacket.STREAM_CODEC, BuildingPanelStatePacket::handle);
-        /* 住宅住户管理：请求名单 / 安排入住与解除 / 名单下发 */
         registrar.playToServer(ResidentListRequestPacket.TYPE,
                 ResidentListRequestPacket.STREAM_CODEC, ResidentListRequestPacket::handle);
         registrar.playToServer(ResidentActionPacket.TYPE,
                 ResidentActionPacket.STREAM_CODEC, ResidentActionPacket::handle);
         registrar.playToClient(ResidentListPacket.TYPE,
                 ResidentListPacket.STREAM_CODEC, ResidentListPacket::handle);
-        /* 餐厅面板：要菜单 / 发菜单 */
         registrar.playToServer(RestaurantMenuRequestPacket.TYPE,
                 RestaurantMenuRequestPacket.STREAM_CODEC, RestaurantMenuRequestPacket::handle);
         registrar.playToClient(RestaurantMenuPacket.TYPE,
                 RestaurantMenuPacket.STREAM_CODEC, RestaurantMenuPacket::handle);
-        /* 建筑整体迁移（RTS）：要清单 / 发清单 / 提交迁移 */
         registrar.playToServer(BuildingSyncRequestPacket.TYPE,
                 BuildingSyncRequestPacket.STREAM_CODEC, BuildingSyncRequestPacket::handle);
         registrar.playToClient(BuildingSyncPacket.TYPE,

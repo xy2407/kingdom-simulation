@@ -11,17 +11,13 @@ import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.items.IItemHandler;
 
 /**
- * 食材条目的统一匹配：{@code ItemCount#item()} 既可以写具体物品 id，
- * 也可以写 {@code #命名空间:标签}（如 {@code #c:foods}、{@code #minecraft:planks}）。
- * 走标签是为了让别的 mod 的物品只要带对应标签就能当食材，不必逐个写死 id —— 这就是"多 mod 兼容"。
- * 成品不用标签：写标签无法决定具体插哪个物品，只会让仓库里多出一堆随机货。
+ * 食材条目统一匹配：物品 id 或 #标签 都能命中，靠标签实现多 mod 兼容
  */
 public final class ItemSpecs {
 
     private ItemSpecs() {
     }
 
-    /** 该堆物品是否满足条目：具体 id 直接比，{@code #tag} 走标签匹配。 */
     public static boolean matches(ItemStack stack, String spec) {
         if (stack == null || stack.isEmpty() || spec == null || spec.isBlank()) {
             return false;
@@ -35,7 +31,6 @@ public final class ItemSpecs {
         return item != null && stack.is(item);
     }
 
-    /** 仓库里满足该条目的总量。 */
     public static int count(IItemHandler store, String spec) {
         int total = 0;
         for (int slot = 0; slot < store.getSlots(); slot++) {
@@ -56,7 +51,6 @@ public final class ItemSpecs {
         return true;
     }
 
-    /** 扣掉全部需求；任一项不够则原地不动（先 {@link #hasAll} 判定）。 */
     public static boolean consume(IItemHandler store, List<ItemCount> needs) {
         if (!hasAll(store, needs)) {
             return false;
@@ -75,7 +69,6 @@ public final class ItemSpecs {
         return true;
     }
 
-    /** 只试不放：仓库放得下这单个成品才返回 true（免得食材消耗了、成品却塞不进去）。 */
     public static boolean canInsertOne(IItemHandler store, ItemCount output) {
         Item item = itemOf(output.item());
         if (item == null) {
@@ -88,7 +81,6 @@ public final class ItemSpecs {
         return remaining.isEmpty();
     }
 
-    /** 真正放入单个成品。 */
     public static void insertOne(IItemHandler store, ItemCount output) {
         Item item = itemOf(output.item());
         if (item == null) {
@@ -100,7 +92,6 @@ public final class ItemSpecs {
         }
     }
 
-    /** 具体物品 id → 物品；解析不了返回 null。 */
     public static Item itemOf(String id) {
         if (id == null || id.isBlank()) {
             return null;

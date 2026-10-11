@@ -16,13 +16,11 @@ import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
- * RTS 建筑迁移的客户端状态：建筑清单缓存 + "正在搬哪栋、搬到哪"的临时状态。
- * 清单由服务端下发（{@link BuildingSyncPacket}），确认迁移后服务端会回一份新的清单。
+ * RTS 建筑迁移的客户端状态：建筑清单缓存与正在搬迁的临时状态
  */
 @OnlyIn(Dist.CLIENT)
 public final class ClientBuildingStore {
 
-    /** 一栋可选建筑：画框、命中判定、发起迁移都用它。 */
     public record Entry(UUID id, String name, BlockPos min, BlockPos max) {
 
         public Vec3i size() {
@@ -30,7 +28,6 @@ public final class ClientBuildingStore {
                     max.getY() - min.getY() + 1, max.getZ() - min.getZ() + 1);
         }
 
-        /** X/Z 平面命中（RTS 点是俯视的，点的是地面上的占地范围）。 */
         public boolean covers(double x, double z) {
             return x >= min.getX() && x <= max.getX() + 1.0D
                     && z >= min.getZ() && z <= max.getZ() + 1.0D;
@@ -48,7 +45,6 @@ public final class ClientBuildingStore {
     private ClientBuildingStore() {
     }
 
-    /** 收到服务端清单：整体替换；正在搬的那栋若已不在清单里就自动收摊。 */
     public static void accept(BuildingSyncPacket packet) {
         ENTRIES.clear();
         for (BuildingSyncPacket.Entry entry : packet.entries()) {
@@ -59,7 +55,6 @@ public final class ClientBuildingStore {
             if (live == null) {
                 clear();
             } else {
-                // 位置以服务端为准（迁移已经生效时，anchor/ghost 一起归位）
                 anchorMin = live.min();
                 movingSize = live.size();
                 if (ghostMin == null) {
@@ -89,7 +84,6 @@ public final class ClientBuildingStore {
         return null;
     }
 
-    /** 俯视命中：同 X/Z 下取"最高的那栋"，避免小建筑被大建筑盖住选不到。 */
     public static Entry pickAt(double x, double z) {
         Entry best = null;
         for (Entry entry : ENTRIES) {
@@ -127,7 +121,6 @@ public final class ClientBuildingStore {
         return movingSize;
     }
 
-    /** 进入迁移状态：ghost 先贴在原位，之后由相机中心带动。 */
     public static boolean startMove(Entry entry) {
         if (entry == null) {
             return false;
@@ -140,7 +133,6 @@ public final class ClientBuildingStore {
         return true;
     }
 
-    /** 把 ghost 的落点整体挪到目标（保持包围盒尺寸不变）。 */
     public static void dragTo(BlockPos target) {
         if (movingId == null || target == null) {
             return;
@@ -155,7 +147,6 @@ public final class ClientBuildingStore {
         ghostMin = ghostMin.offset(dx, dy, dz);
     }
 
-    /** 确认迁移：发给服务端后立刻收摊，等新的清单回来刷新坐标。 */
     public static void confirm() {
         if (movingId == null || ghostMin == null) {
             return;
@@ -172,7 +163,6 @@ public final class ClientBuildingStore {
         clear();
     }
 
-    /** 供提示用：当前 ghost 相对原位的位移。 */
     public static BlockPos delta() {
         if (anchorMin == null || ghostMin == null) {
             return BlockPos.ZERO;
@@ -188,7 +178,6 @@ public final class ClientBuildingStore {
         ghostMin = null;
     }
 
-    /** 便于别的类判断某 id 是不是"服务端那份记录"，避免与地图叠层混用。 */
     public static boolean sameBuilding(BuildingRecord record) {
         return record != null && movingId != null && movingId.equals(record.id());
     }

@@ -16,21 +16,17 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BedPart;
 
 /**
- * 住宅床位解析：扫出建筑范围内的床（只取床头），并负责"人 ↔ 床"的占用反查与失效判定。
- * 绑定关系本身存在 NPC 上（{@code home_id} + {@code home_x/y/z}），这里不额外维护表。
+ * 住宅床位解析与占用反查：扫建筑内的床头，判定人床绑定是否失效
  */
 public final class HomeBeds {
 
-    /** 单次扫描的方块上限，与牧场同一档，避免超大建筑卡主线程。 */
     private static final int MAX_SCAN = 32768;
 
-    /** 建筑整体迁移期间置位，见 {@link #beginMigration()}。 */
     private static boolean migrating;
 
     private HomeBeds() {
     }
 
-    /** 建筑范围内所有床头坐标。只认 {@link BedPart#HEAD}，避免双人床被算成两张。 */
     public static List<BlockPos> beds(ServerLevel level, BuildingRecord building) {
         List<BlockPos> found = new ArrayList<>();
         int scanned = 0;
@@ -56,12 +52,10 @@ public final class HomeBeds {
         return found;
     }
 
-    /** 该住宅已被占用的床位数（从所有 NPC 的归属反查，不依赖额外存储）。 */
     public static int occupied(BuildingRecord building) {
         return takenBeds(building).size();
     }
 
-    /** 挑一张没人占的床；住满了返回 null。 */
     public static BlockPos assignFree(ServerLevel level, BuildingRecord building) {
         Set<BlockPos> taken = takenBeds(building);
         for (BlockPos bed : beds(level, building)) {
@@ -72,10 +66,6 @@ public final class HomeBeds {
         return null;
     }
 
-    /**
-     * NPC 名下那张床；床已被拆（或还没分配）返回 null。
-     * 区块未加载时按"仍然有效"处理，免得人一离开视线就被解绑。
-     */
     public static BlockPos assignedBed(ServerLevel level, NpcData data) {
         if (data.getHomeId() == null) {
             return null;
@@ -91,7 +81,6 @@ public final class HomeBeds {
         return null;
     }
 
-    /** 解除住宅关联：NPC 随即变成无家可归，等待玩家重新分配。 */
     public static void unbind(NpcData data) {
         data.setHomeId(null);
         data.setHomeX(0);
@@ -99,11 +88,6 @@ public final class HomeBeds {
         data.setHomeZ(0);
     }
 
-    /**
-     * 床被移除时的即时解绑，由 {@code BedBlock#onRemove} 的 Mixin 调用。
-     * 只认床头那一格（双格床的另一半被移除时不动），按"床坐标 == 住户记录的床坐标"匹配，
-     * 不需要再去反查住宅建筑。
-     */
     public static void onBedRemoved(ServerLevel level, BlockPos pos, BlockState removed) {
         if (migrating || level == null || pos == null || removed == null) {
             return;
@@ -126,7 +110,6 @@ public final class HomeBeds {
         }
     }
 
-    /** 建筑迁移开始：搬家期间方块是被主动搬走的，不能顺手把住户全解绑（床马上会在新位置重建）。 */
     public static void beginMigration() {
         migrating = true;
     }

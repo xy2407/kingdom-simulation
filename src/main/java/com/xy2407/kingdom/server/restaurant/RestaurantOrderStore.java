@@ -19,18 +19,14 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 
 /**
- * 餐厅订单登记表：内存 {@code customerId → 订单} + SQLite 落库（SQLite 是真源）。
- * 用 {@link LinkedHashMap} 保持下单顺序，厨师/服务员按顺序领单。
- * 座位占用只在内存里记（重启会连同订单一起丢，与"重启重新点单"的策略一致）。
+ * 餐厅订单登记表：内存订单表与座位占用，订单同步落 SQLite
  */
 public final class RestaurantOrderStore {
     public static final RestaurantOrderStore INSTANCE = new RestaurantOrderStore();
 
     private static final int LOAD_RETRY_DELAY_TICKS = 200;
 
-    /** 订单按顾客索引；LinkedHashMap 保序，保证"先来先做"。 */
     private final Map<UUID, RestaurantOrder> orders = new LinkedHashMap<>();
-    /** 已被预定/占用的座位 → 占用人。 */
     private final Map<BlockPos, UUID> seats = new HashMap<>();
 
     private boolean loaded;
@@ -88,12 +84,10 @@ public final class RestaurantOrderStore {
         return loaded;
     }
 
-    /** 该顾客当前有没有未完成订单（饥饿轮询靠它判断要不要补单）。 */
     public RestaurantOrder byCustomer(UUID customerId) {
         return customerId == null ? null : orders.get(customerId);
     }
 
-    /** 某家店的全部订单（按顺序）。 */
     public List<RestaurantOrder> ofBuilding(UUID buildingId) {
         List<RestaurantOrder> result = new ArrayList<>();
         if (buildingId == null) {
@@ -107,7 +101,6 @@ public final class RestaurantOrderStore {
         return result;
     }
 
-    /** 某家店里第一张处于该状态的订单；没有返回 null。 */
     public RestaurantOrder firstByStatus(UUID buildingId, RestaurantOrder.Status status) {
         for (RestaurantOrder order : ofBuilding(buildingId)) {
             if (order.status() == status) {
@@ -117,7 +110,6 @@ public final class RestaurantOrderStore {
         return null;
     }
 
-    /** 下单 / 改状态都走这里：先写内存再异步落库。 */
     public void put(RestaurantOrder order) {
         if (order == null || order.customerId() == null) {
             return;
@@ -127,7 +119,6 @@ public final class RestaurantOrderStore {
                 RestaurantOrderSchema.COL_CUSTOMER_ID, order.customerId().toString(), toValues(order));
     }
 
-    /** 顾客吃完（或离店）：删单并放掉座位。 */
     public void remove(UUID customerId) {
         if (customerId == null) {
             return;
@@ -140,7 +131,6 @@ public final class RestaurantOrderStore {
                 RestaurantOrderSchema.COL_CUSTOMER_ID, customerId.toString());
     }
 
-    /** 预定座位；已被别人占着返回 false。 */
     public boolean occupySeat(BlockPos seat, UUID customerId) {
         if (seat == null || customerId == null) {
             return false;

@@ -37,10 +37,8 @@ public final class NpcForageService {
 
     private static final double FORAGE_WANDER_RADIUS = 10.0D;
 
-    /** 等菜计时（内存态，重启丢失无妨）：超时就撤单，免得一直占着座位。 */
     private static final Map<UUID, Integer> WAITING = new ConcurrentHashMap<>();
 
-    /** 等菜上限 5 分钟：菜迟迟不上（缺料 / 没厨师 / 没服务员）就换地方。 */
     private static final int WAIT_LIMIT_TICKS = 20 * 60 * 5;
 
     private NpcForageService() {
@@ -52,11 +50,8 @@ public final class NpcForageService {
             finishDining(npc, data);
             return;
         }
-        // 手上有单（或人已经坐在店里但单丢了）→ 走"坐下等菜"这条分支
         RestaurantOrder order = RestaurantOrderStore.INSTANCE.byCustomer(data.getId());
         if (order == null && data.getDetail() == NpcDetail.DINING) {
-            // 订单没了但人还坐在店里：多半是服务端重启把订单丢了。立刻补一张，
-            // 否则这个顾客会永远坐在座位上等一份不会来的菜（这正是要解决的自愈问题）。
             order = reorder(npc, data);
         }
         if (order != null) {
@@ -67,7 +62,6 @@ public final class NpcForageService {
         if (heading != null) {
             if (arrived(npc, heading)) {
                 npc.clearForageTarget();
-                // 到店：占个座、下一张单（落库）；从下一 tick 起走 tickDining 等服务员上菜。
                 placeOrder(npc, data, heading);
             } else if (!npc.getNavigation().isInProgress()) {
                 npc.clearForageTarget();
@@ -110,7 +104,6 @@ public final class NpcForageService {
                 npc.getX(), npc.getY(), npc.getZ(), COMMERCIAL_RADIUS);
     }
 
-    /** 到店就座：按落点找到这家店，然后下单。 */
     private static boolean placeOrder(NpcEntity npc, NpcData data, BlockPos heading) {
         if (!(npc.level() instanceof ServerLevel level)) {
             return false;
@@ -119,7 +112,6 @@ public final class NpcForageService {
         return restaurant != null && placeOrderAt(level, npc, data, restaurant, heading);
     }
 
-    /** 订单丢了（重启）但人还在店里：用他脚下这家店补一张单，补上就返回新订单。 */
     private static RestaurantOrder reorder(NpcEntity npc, NpcData data) {
         if (!(npc.level() instanceof ServerLevel level)) {
             return null;
@@ -132,10 +124,6 @@ public final class NpcForageService {
         return RestaurantOrderStore.INSTANCE.byCustomer(data.getId());
     }
 
-    /**
-     * 下单本体：菜品取菜单第一道（后续可改成按价格/库存挑），座位从可坐点里占第一个空的。
-     * 占不到座位或店里没菜单都返回 false，让上层继续找别家。
-     */
     private static boolean placeOrderAt(ServerLevel level, NpcEntity npc, NpcData data,
                                         BuildingRecord restaurant, BlockPos heading) {
         BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(restaurant);
@@ -163,10 +151,6 @@ public final class NpcForageService {
         return true;
     }
 
-    /**
-     * 坐下等菜：走到座位 → 坐下 → 等服务员把菜送到桌上（订单变 SERVING）→ 吃掉、删单走人。
-     * 等太久（店里一直做不出来）也撤单，免得占着座位不放。
-     */
     private static void tickDining(NpcEntity npc, NpcData data, RestaurantOrder order) {
         BlockPos seat = order.seat();
         if (!arrived(npc, seat)) {
@@ -191,7 +175,6 @@ public final class NpcForageService {
         }
     }
 
-    /** 收尾：删单、放开座位、收起坐姿，并退回普通觅食状态。 */
     private static void finishDining(NpcEntity npc, NpcData data) {
         RestaurantOrderStore.INSTANCE.remove(data.getId());
         WAITING.remove(data.getId());
@@ -204,7 +187,6 @@ public final class NpcForageService {
         }
     }
 
-    /** 沿落点外扩一圈找建筑：findDining 给的落点允许压在包围盒外沿一两格。 */
     private static BuildingRecord restaurantAt(ServerLevel level, BlockPos heading) {
         String dimension = level.dimension().location().toString();
         for (int dx = -2; dx <= 2; dx++) {
@@ -219,7 +201,6 @@ public final class NpcForageService {
         return null;
     }
 
-    /** 菜单上的成品优先；兜底吃仓库里任何带食物属性的物品。 */
     private static ItemStack takeMeal(IItemHandler store, BuildingMeta meta) {
         for (MenuSpec dish : meta.menu()) {
             ItemStack meal = extractOne(store, dish.output().item());

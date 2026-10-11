@@ -39,8 +39,15 @@ public final class NpcServerTick {
     public static void onServerTick(ServerTickEvent.Post event) {
         ServerLevel overworld = event.getServer().overworld();
         SnapshotRepository repository = SnapshotRepository.get(event.getServer());
-        if (repository != null && overworld != null && repository.hasDemand(overworld)) {
-            repository.tick(overworld);
+        if (repository != null) {
+            for (ServerLevel level : event.getServer().getAllLevels()) {
+                if (level.players().isEmpty()) {
+                    continue;
+                }
+                if (repository.hasDemand(level)) {
+                    repository.tick(level);
+                }
+            }
         }
         NpcManager.INSTANCE.tick(overworld);
         CommuteScheduler.tick(event.getServer());

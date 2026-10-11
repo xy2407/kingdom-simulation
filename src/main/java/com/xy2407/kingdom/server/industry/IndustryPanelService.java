@@ -25,10 +25,7 @@ import net.minecraft.world.item.Item;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
- * 工业面板服务端处理：应答请求、执行配方上的派工与撤工，每次操作后整份回推。
- * 与养殖的 {@code RanchPanelService} 同构 —— 那边的"畜栏"在这里换成"配方"：
- * 工人记在 NPC 自己身上（{@code workplace_id} 记建筑、{@code work_recipe_id} 记配方），
- * 所以建筑整体迁移时两个 id 都不用改。
+ * 工业面板服务端：应答请求、执行派工与撤工并整份回推
  */
 public final class IndustryPanelService {
 
@@ -57,7 +54,6 @@ public final class IndustryPanelService {
         }
         String recipeKey = packet.recipeIdOrEmpty();
         if (recipeKey.isBlank() || !isKnownRecipe(meta, recipeKey)) {
-            // 客户端传来的配方已经不在蓝图里（蓝图被改过）：拒绝，避免写到野 key 上
             player.displayClientMessage(Component.literal("这张配方已不存在"), true);
             respond(player);
             return;
@@ -77,7 +73,6 @@ public final class IndustryPanelService {
         respond(player);
     }
 
-    /** 同一个人再点一次就撤出这张配方；换配方则直接改派。 */
     private static void toggleWorker(BuildingRecord building, String recipeKey, NpcData npc) {
         String buildingId = building.id().toString();
         boolean sameSlot = buildingId.equals(npc.getWorkplaceId())
@@ -119,7 +114,6 @@ public final class IndustryPanelService {
                 positionText(building), recipes, roster());
     }
 
-    /** 这张配方上的工人 id。 */
     private static List<UUID> crewOf(BuildingRecord building, String recipeKey) {
         String buildingId = building.id().toString();
         List<UUID> crew = new ArrayList<>();
@@ -146,7 +140,6 @@ public final class IndustryPanelService {
         return options;
     }
 
-    /** 名册行尾的说明：只标"不能来上班"的原因，正常在岗留空。 */
     private static String workerNote(NpcData npc) {
         if (npc.getBrain().isStarving()) {
             return "饥饿";
@@ -154,7 +147,6 @@ public final class IndustryPanelService {
         return NpcSchedule.subState(npc.getShift(), npc.getDayTime()) == NpcSubState.WORKING ? "" : "下班";
     }
 
-    /** 配方在面板上的稳定标识：json 里写了 id 就用 id，没写退回下标，蓝图改顺序才会串岗。 */
     private static String recipeKey(RecipeSpec spec, int index) {
         return spec.id() == null || spec.id().isBlank() ? "#" + index : spec.id();
     }
@@ -169,7 +161,6 @@ public final class IndustryPanelService {
         return false;
     }
 
-    /** 卡片左侧小图标用的物品 id：取第一个产物，没有产物就退回第一个原料。 */
     private static String firstOutput(RecipeSpec spec) {
         if (!spec.outputs().isEmpty()) {
             return spec.outputs().get(0).item();
@@ -207,7 +198,6 @@ public final class IndustryPanelService {
         return building.min().getX() + ", " + building.min().getY() + ", " + building.min().getZ();
     }
 
-    /** 玩家脚下的工业建筑：类型对不上时再看有没有配方，两边兜一下。 */
     private static BuildingRecord industryAt(ServerPlayer player) {
         BuildingRecord building = BuildingRegistry.INSTANCE.locate(player);
         if (building == null) {

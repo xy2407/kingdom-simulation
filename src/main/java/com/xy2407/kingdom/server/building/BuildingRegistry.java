@@ -105,10 +105,6 @@ public final class BuildingRegistry {
         return null;
     }
 
-    /**
-     * 建筑整体迁移后整体替换一条登记：id 与其余字段照旧，只有包围盒落在新位置。
-     * 内存与数据库同步更新（走 {@link #toValues} 同一套落库口径），并广播地图叠层。
-     */
     public void update(BuildingRecord building) {
         if (building == null) {
             return;

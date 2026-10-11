@@ -2,15 +2,9 @@ package com.xy2407.kingdom.server.npc;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
 
 import org.slf4j.Logger;
 
@@ -25,7 +19,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.phys.Vec3;
+
 
 /**
  * 上下班错峰通勤调度器：把整城的出行从每个 NPC 手里收上来，按固定速率摊开派发。
@@ -44,13 +38,10 @@ public final class CommuteScheduler {
     private static final int BATCH_SIZE = 200;
     private static final int SEARCHES_PER_TICK = BATCH_SIZE / BATCH_INTERVAL_TICKS;
 
-    private static final double TELEPORT_DISTANCE_SQR = 96.0D * 96.0D;
 
-    private static final int IN_FLIGHT_TIMEOUT_TICKS = 200;
 
     private static final Deque<Task> PENDING = new ArrayDeque<>();
     private static final Set<UUID> QUEUED = new HashSet<>();
-    private static final Map<UUID, InFlight> IN_FLIGHT = new HashMap<>();
 
     private static int tickCounter;
 
@@ -60,14 +51,10 @@ public final class CommuteScheduler {
     public static void reset() {
         PENDING.clear();
         QUEUED.clear();
-        IN_FLIGHT.clear();
         tickCounter = 0;
     }
 
     private record Task(UUID citizenId, UUID entityUuid, BlockPos target) {
-    }
-
-    private record InFlight(UUID entityUuid, Future<List<BlockPos>> future, int startedAt) {
     }
 
     public static void tick(MinecraftServer server) {
@@ -79,7 +66,6 @@ public final class CommuteScheduler {
             return;
         }
         tickCounter++;
-        applyFinished(level);
 
         boolean evening = inEveningWindow(level);
         boolean morning = !evening && inMorningWindow(level);
@@ -120,7 +106,7 @@ public final class CommuteScheduler {
                 continue;
             }
             UUID citizenId = npc.getId();
-            if (citizenId == null || QUEUED.contains(citizenId) || IN_FLIGHT.containsKey(citizenId)) {
+            if (citizenId == null || QUEUED.contains(citizenId)) {
                 continue;
             }
             if (goingHome) {
@@ -179,55 +165,11 @@ public final class CommuteScheduler {
 
     private static int applyTask(ServerLevel level, SnapshotRepository repository, Task task) {
         Entity entity = level.getEntity(task.entityUuid());
-        if (!(entity instanceof NpcEntity npc)) {
+        if (!(entity instanceof NpcEntity)) {
             return 0;
-        }
-        BlockPos target = task.target();
-        // 这里只做"离得太远的人直接送过去"这一段错峰调度。
-        // 走路本身交给 GOING_WORK / GOING_HOME / SLEEPING 分支里的自定义 A*（多层寻路）——
-        // 之前这里用 submitCommuteSearch + applyPath 派路，applyPath 会把 brain 打成
-        // rtsControlled，detail 随即变成 COMMANDED_MOVE，排班表再也改不动这个人，
-        // 结果就是上下班只走一次、回家睡觉全程不发生。
-        if (npc.distanceToSqr(Vec3.atCenterOf(target)) > TELEPORT_DISTANCE_SQR) {
-            npc.teleportTo(target.getX() + 0.5D, target.getY(), target.getZ() + 0.5D);
         }
         return 1;
     }
 
 
-    private static void applyFinished(ServerLevel level) {
-        if (IN_FLIGHT.isEmpty()) {
-            return;
-        }
-        Iterator<Map.Entry<UUID, InFlight>> iterator = IN_FLIGHT.entrySet().iterator();
-        while (iterator.hasNext()) {
-            InFlight flight = iterator.next().getValue();
-            if (!flight.future().isDone()) {
-                if (tickCounter - flight.startedAt() > IN_FLIGHT_TIMEOUT_TICKS) {
-                    iterator.remove();
-                }
-                continue;
-            }
-            iterator.remove();
-            List<BlockPos> waypoints = takePath(flight.future());
-            if (waypoints == null || waypoints.size() < 2) {
-                continue;
-            }
-            Entity entity = level.getEntity(flight.entityUuid());
-            if (entity instanceof NpcEntity npc) {
-                npc.applyPath(waypoints);
-            }
-        }
-    }
-
-    private static List<BlockPos> takePath(Future<List<BlockPos>> future) {
-        try {
-            return future.get();
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            return null;
-        } catch (ExecutionException failed) {
-            return null;
-        }
-    }
 }

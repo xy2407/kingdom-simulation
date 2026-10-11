@@ -157,10 +157,8 @@ public class WorldMapElement extends Canvas {
     private double hoverX;
     private double hoverY;
 
-    /** 当前悬停的建筑 id；只有它变化时才动 tooltip 的 DOM，见 {@link #updateTooltip}。 */
     private String hoveredBuildingId = "";
 
-    /** 建筑悬停提示的紧凑样式：默认那套 padding 8/10、max-width 320 在地图上太大。 */
     private static final Tooltip.Options TIP_OPTIONS = new Tooltip.Options("aui-tooltip",
             "padding:4px 6px;font-size:10px;line-height:13px;", 14, 18, 200);
 
@@ -172,11 +170,6 @@ public class WorldMapElement extends Canvas {
         addInternalEventListener("mouseup", this::onMouseUp);
         addInternalEventListener("mouseleave", this::onMouseLeave);
         addInternalEventListener("wheel", this::onWheel);
-        // 建筑图标太多不可能逐个点，悬停即报出类型与名称。
-        // 这里**不能用** Tooltip.bind：它绑在整块地图上，弹出来之后 mousemove 只负责挪位置、
-        // 不再看新的命中结果（AUI 假设的是"元素级 hover"），于是鼠标离开图标后提示会一直挂着，
-        // 必须离开整块地图才消失；而且每次"有↔无"切换它都要重建节点并 markDirty 整页。
-        // 改成自己在 mousemove 里按"命中 id 变化"驱动，见 updateTooltip。
     }
 
     @Override
@@ -758,8 +751,6 @@ public class WorldMapElement extends Canvas {
                 RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
         graphics.drawImage(marker, left, top, MARKER_SIZE, MARKER_SIZE, null);
         if (isHallSelected(markerX, markerZ)) {
-            // 紧贴图标本身（原来各边外扩 EDGE_WIDTH，方框 36×36 比图标 32×32 大一圈，
-            // 看起来就是"没对齐 + 过宽"）。描边线宽由 drawBorder 内部用 ICON_BORDER(1) 决定。
             drawBorder(graphics, left, top, MARKER_SIZE, MARKER_SIZE, ICON_SELECTED_EDGE);
         }
     }
@@ -851,10 +842,6 @@ public class WorldMapElement extends Canvas {
         return PALETTE[packed];
     }
 
-    /**
-     * 悬停提示：只在"命中的建筑变了"时才动 DOM。
-     * 同一栋建筑上挪鼠标只把提示挪个位置；离开图标立刻收起 —— 这正是 Tooltip.bind 做不到的。
-     */
     private void updateTooltip(MouseEvent event) {
         MapOverlayStore.BuildingView building = hoveredBuilding(event.offsetX, event.offsetY);
         String id = building == null ? "" : building.id();
@@ -875,7 +862,6 @@ public class WorldMapElement extends Canvas {
                 label + "：" + building.name(), TIP_OPTIONS);
     }
 
-    /** 鼠标离开整块地图：收起提示，拖动状态一并复位。 */
     private void onMouseLeave(Event event) {
         hideTooltip();
         dragging = false;
@@ -889,7 +875,6 @@ public class WorldMapElement extends Canvas {
         Tooltip.hide(document);
     }
 
-    /** 悬停命中的建筑；图标不可见（开关关掉或缩放不够）时一律返回 null。 */
     private MapOverlayStore.BuildingView hoveredBuilding(double screenX, double screenY) {
         if (!showBuildings() || paintedPixelsPerBlock < BUILDING_ICON_MIN_PIXELS_PER_BLOCK) {
             return null;
@@ -904,7 +889,6 @@ public class WorldMapElement extends Canvas {
         lastX = e.offsetX;
         lastY = e.offsetY;
         lastDragNanos = System.nanoTime();
-        // 开始拖动就把提示收掉，免得它跟着手在地图上飘
         hideTooltip();
     }
 
@@ -913,7 +897,6 @@ public class WorldMapElement extends Canvas {
         hoverX = e.offsetX;
         hoverY = e.offsetY;
         if (!dragging) {
-            // 不拖动时鼠标移动的唯一职责就是维护悬停提示
             updateTooltip(e);
             return;
         }

@@ -24,19 +24,15 @@ import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.items.IItemHandler;
 
 /**
- * 工业生产：配方直接来自蓝图 json（{@code BuildingMeta#recipes}），
- * 工作进度记在 NPC 身上（{@code NpcData#workTicks}）—— 跨班次保留，
- * 换班/换人时由 {@link #handOver} 移交给接班的同事，白班做一半的活由夜班接着做完。
+ * 工业生产：按蓝图配方生产，进度记在 NPC 身上并支持换班移交
  */
 public final class NpcIndustryService {
 
-    /** 生产推进的节拍：每 20 tick 结算一次，避免每 tick 全量扫仓库。 */
     private static final int ACTION_INTERVAL_TICKS = 20;
 
     private NpcIndustryService() {
     }
 
-    /** NPC 实体侧每 tick 调用（detail == PRODUCING 时）。 */
     public static void tick(NpcEntity npc, NpcData data) {
         if (!(npc.level() instanceof ServerLevel level)) {
             return;
@@ -62,11 +58,9 @@ public final class NpcIndustryService {
         }
         RecipeSpec recipe = recipeOf(meta, data.getWorkRecipeId());
         if (recipe == null) {
-            // 没被派到具体配方就不开工：面板上"派工"才是开产开关
             return;
         }
         if (!hasAll(store, recipe.inputs())) {
-            // 材料不齐：进度保留不清零 —— 下班回家或换班后再来，接着往本轮上累计。
             return;
         }
         int progress = data.getWorkTicks() + ACTION_INTERVAL_TICKS;
@@ -80,7 +74,6 @@ public final class NpcIndustryService {
         }
     }
 
-    /** 每 100 tick 由服务端调度调用：刷新"谁在工业建筑上班"，并处理换班移交。 */
     public static void assignWorkers(MinecraftServer server) {
         Map<UUID, BuildingRecord> buildings = new HashMap<>();
         Map<UUID, List<NpcData>> crews = new HashMap<>();
@@ -109,15 +102,10 @@ public final class NpcIndustryService {
         }
     }
 
-    /**
-     * 换班移交：把"已离岗（不在建筑范围内）的同事"身上累积的 tick 交给当前在岗的人，
-     * 并把离岗者的进度清零（避免下一个人回来时重复计算同一段工时）。
-     */
     private static void handOver(BuildingRecord building, List<NpcData> crew) {
         if (building == null || crew.size() < 2) {
             return;
         }
-        // 只在做同一张配方的人之间移交：各配方各算各的，不能互相顶班
         Map<String, List<NpcData>> byRecipe = new HashMap<>();
         for (NpcData npc : crew) {
             byRecipe.computeIfAbsent(npc.getWorkRecipeId() == null ? "" : npc.getWorkRecipeId(),
@@ -177,13 +165,11 @@ public final class NpcIndustryService {
         return meta != null && meta.type() == BuildingType.INDUSTRY;
     }
 
-    /** 只有人真的在建筑范围内才算在岗（下班离开后进度停住，等下一次移交）。 */
     private static boolean isInside(BuildingRecord building, NpcData npc) {
         String dimension = npc.getDimension() == null ? "" : npc.getDimension();
         return building.contains(dimension, npc.getX(), npc.getY(), npc.getZ());
     }
 
-    /** 按工人被派的那张配方 id 取配方；json 里没写 id 的配方退回按下标匹配。 */
     private static RecipeSpec recipeOf(BuildingMeta meta, String recipeId) {
         if (recipeId == null || recipeId.isBlank()) {
             return null;

@@ -29,8 +29,6 @@ public final class RestaurantOrderSchema implements Migration {
 
     @Override
     public int version() {
-        /* 接在现有最大值 18（Npc）之后。版本号只用于排序与排查，
-           Database.migrate 每次都跑全部迁移（apply 幂等）。 */
         return 19;
     }
 

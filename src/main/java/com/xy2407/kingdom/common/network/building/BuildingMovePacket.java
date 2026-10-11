@@ -14,9 +14,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 /**
- * 客户端 → 服务端：把某栋建筑整体平移到新落点。
- * 落点由客户端按投影位置给出（同 {@code BuildingPlaceConfirmPacket} 的口径），
- * 服务端只做"同维度 + 体积"这类基本校验 —— 本模组目前没有领地限制。
+ * 客户端 → 服务端：请求把某栋建筑整体平移到新落点
  */
 public record BuildingMovePacket(UUID buildingId, BlockPos newMin) implements CustomPacketPayload {
 

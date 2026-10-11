@@ -21,7 +21,6 @@ public final class BuildingStoragePayloadRegistration {
         PayloadRegistrar registrar = event.registrar("1");
         registrar.playToClient(BuildingStorageOpenPacket.TYPE,
                 BuildingStorageOpenPacket.STREAM_CODEC, BuildingStorageOpenPacket::handle);
-        /* 各建筑面板底栏的「打开仓库」共用的请求包（无参，建筑由服务端按位置判定） */
         registrar.playToServer(BuildingStorageRequestPacket.TYPE,
                 BuildingStorageRequestPacket.STREAM_CODEC, BuildingStorageRequestPacket::handle);
     }

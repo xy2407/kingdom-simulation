@@ -19,11 +19,9 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
  */
 public record BuildingSyncPacket(List<Entry> entries) implements CustomPacketPayload {
 
-    /** 一栋建筑：id 用于发起迁移，name 用于提示，min/max 用于画框与命中判定。 */
     public record Entry(UUID id, String name, BlockPos min, BlockPos max) {
     }
 
-    /** 名单长度上限，防手改包刷屏。 */
     private static final int MAX_ENTRIES = 1024;
 
     public static final CustomPacketPayload.Type<BuildingSyncPacket> TYPE =

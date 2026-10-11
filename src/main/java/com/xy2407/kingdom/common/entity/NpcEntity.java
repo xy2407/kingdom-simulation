@@ -8,7 +8,9 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
 import com.xy2407.kingdom.common.home.HomeBeds;
+import com.xy2407.kingdom.common.network.debug.NpcPathDebugBroadcast;
 import com.xy2407.kingdom.common.npc.*;
+import com.xy2407.kingdom.common.path.ChunkSnapshot;
 import com.xy2407.kingdom.common.path.NpcPathRetry;
 import com.xy2407.kingdom.common.path.NpcPathfinder;
 import com.xy2407.kingdom.common.path.SnapshotRepository;
@@ -16,7 +18,6 @@ import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.persistence.NpcSchema;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
@@ -29,6 +30,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.damagesource.DamageSource;
@@ -40,11 +42,12 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.pathfinder.Node;
-import net.minecraft.world.level.pathfinder.Path;
-import net.minecraft.world.level.pathfinder.PathType;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.world.phys.shapes.VoxelShape;
 
 /**
  * 市民实体，按状态机闲逛决策执行游走/社交/坐下。
@@ -63,7 +66,6 @@ public class NpcEntity extends PathfinderMob {
             SynchedEntityData.defineId(NpcEntity.class, EntityDataSerializers.ITEM_STACK);
     private static final EntityDataAccessor<Integer> DATA_SWING =
             SynchedEntityData.defineId(NpcEntity.class, EntityDataSerializers.INT);
-    /* 天赋三项：客户端要按它画身份卡片的三角面板，跟着实体同步（0 = 还没同步到）。 */
     private static final EntityDataAccessor<Integer> DATA_STRENGTH =
             SynchedEntityData.defineId(NpcEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Integer> DATA_INTELLIGENCE =
@@ -91,8 +93,11 @@ public class NpcEntity extends PathfinderMob {
     private static final int WORK_SEARCH_FAIL_LIMIT = 8;
     private static final long WORK_PATH_TIMEOUT_NANOS = 10_000_000_000L;
     private static final int WORK_CLIMB_INTERVAL_TICKS = 10;
-    private static final double WORK_FLOOR_MIN_Y = 0.45D;
-    private static final double WORK_HEADROOM_MAX_Y = 0.1D;
+    private static final double[] SLIDE_OFFSETS = {0.25D, 0.5D};
+    private static final double SLIDE_FORWARD = 0.3D;
+    private static final int SLIDE_DURATION_TICKS = 8;
+    private static final int SLIDE_COOLDOWN_TICKS = 30;
+    private static final double RESYNC_TRIGGER_DISTANCE = 3.0D;
 
     private static final int FAR_TRAVEL_STRIDE = 2;
     private static final double FAR_TRAVEL_RADIUS = 64.0D;
@@ -111,6 +116,8 @@ public class NpcEntity extends PathfinderMob {
     private String cachedDimensionId;
     private Vec3 lastTravelPos;
     private int stillTicks;
+    private int climbStateTick = -1;
+    private boolean climbState;
     private BlockPos forageTarget;
     private BlockPos farmTarget;
     private BlockPos ranchTarget;
@@ -123,17 +130,21 @@ public class NpcEntity extends PathfinderMob {
     private int rtsRepathCooldown;
     private final ArrayDeque<BlockPos> rtsWaypoints = new ArrayDeque<>();
     private Future<NpcPathfinder.PathResult> workPathFuture;
-    /** 可续跑寻路会话：同一目标的升档重试会接着上次的搜索图往下跑，不重算。 */
     private NpcPathfinder.Session workSession;
+    private List<NpcPathfinder.Waypoint> followPath = List.of();
+    private int followIndex;
     private int workRepathCooldown;
     private long workPathDeadlineNanos;
     private int workClimbCooldown;
     private BlockPos workStandSource;
     private BlockPos workStand;
+    private BlockPos segmentTarget;
     private BlockPos workAnchor;
     private int workStuckTicks;
     private int workFailures;
-    /** 寻路余量档位：搜不到就逐级放大（4 → 12 → 24），成功或放弃后归零。 */
+    private Vec3 slideTarget;
+    private int slideTicks;
+    private int slideCooldown;
     private int pathPaddingStage;
 
     public void setRtsTarget(BlockPos target, boolean clearOnArrive) {
@@ -162,7 +173,11 @@ public class NpcEntity extends PathfinderMob {
         if (data != null) {
             data.getBrain().setRtsControlled(true);
         }
-        applyPath(new ArrayList<>(rtsWaypoints));
+        List<NpcPathfinder.Waypoint> converted = new ArrayList<>(rtsWaypoints.size());
+        for (BlockPos pos : rtsWaypoints) {
+            converted.add(new NpcPathfinder.Waypoint(pos, NpcPathfinder.Waypoint.Move.WALK));
+        }
+        applyPath(converted);
         setNavTarget(rtsTarget);
     }
 
@@ -174,11 +189,6 @@ public class NpcEntity extends PathfinderMob {
         rtsWaypoints.clear();
     }
 
-    /**
-     * 交还作息控制权：清掉 RTS 目标与标志，让 brain 重新按排班接管这个人。
-     * 走到终点后必须叫一次，否则 {@code rtsControlled} 会一直挂着，
-     * brain 每 tick 都只会把 detail 设成 COMMANDED_MOVE。
-     */
     private void releaseRtsControl() {
         rtsTarget = null;
         rtsWaypoints.clear();
@@ -188,10 +198,6 @@ public class NpcEntity extends PathfinderMob {
         }
     }
 
-    /**
-     * 建筑整体迁移后调用：丢掉所有指向旧坐标的临时目标。
-     * 不清的话，市民会继续往已经搬走的位置走（农活点、畜栏点、寻食点、RTS 航点都是绝对值）。
-     */
     public void clearMoveTargets() {
         forageTarget = null;
         farmTarget = null;
@@ -212,8 +218,6 @@ public class NpcEntity extends PathfinderMob {
             data.getBrain().setRtsControlled(true);
         }
         if (highPath) {
-            // 接管这个人的走路：先清掉作息寻路留下的挂起搜索与缓存站位。
-            // 否则 tickPathTo 会先消费掉上一份（去工位/回家）的搜索结果，把人带偏。
             stopConstructionPath();
         } else {
             getNavigation().moveTo(target.getX() + 0.5D, target.getY(), target.getZ() + 0.5D, WALK_SPEED);
@@ -237,10 +241,6 @@ public class NpcEntity extends PathfinderMob {
             }
             stopSitting();
             getNavigation().stop();
-            // 到站即交还作息控制权。通勤调度与自动寻路都是借道这套 RTS 寻路设施的
-            // （CommuteScheduler / NpcPathRetry 都调 applyPath），而 applyPath 会把
-            // brain 打成 rtsControlled；不在这里交还，brain 就永远停在 COMMANDED_MOVE，
-            // applySchedule 再也轮不到，回家睡觉自然全程不会发生。
             releaseRtsControl();
             return;
         }
@@ -259,21 +259,8 @@ public class NpcEntity extends PathfinderMob {
         pathRetry.tick(this);
     }
 
-    /**
-     * RTS 高层移动（{@code /kingdom test move highmove}）。
-     * <p>
-     * 直接复用 {@link #tickPathTo} 的完整执行链：贴地 → 自定义多层 A* → 缩余量升档重试
-     * → {@link #assistClimb} 主动起跳爬台阶 → 卡死兜底（含最后的传送保底）。
-     * <p>
-     * 原来这里是自己 submitSearch + applyPath，把 A* 航点丢给原版导航后就不管了，
-     * 缺的正是 assistClimb —— 原版导航不会主动跳上台阶，人走到楼梯前只能对着
-     * 下一个节点原地转向；导航卡断后这里又立刻从当前位置重算，于是每轮换一条路，
-     * 表现就是"走到楼梯一半又退回来、最后卡在门口转圈"。
-     */
     private void tickHighPath(BlockPos target) {
         if (tickPathTo(target)) {
-            // 到位了：停住。后续交给 tickRtsCommand 的 isRtsArrived 判定并交还控制权，
-            // 这里不动 rtsHighPath，免得中途退回原版单层导航。
             getNavigation().stop();
         }
     }
@@ -296,35 +283,28 @@ public class NpcEntity extends PathfinderMob {
         return dx * dx + dz * dz < limit && Math.abs(getY() - target.getY()) < RTS_ARRIVE_HEIGHT;
     }
 
-    /** 施工用：把目标解析成站立点后，走公共的多层寻路。 */
     public boolean tickConstructionPath(BlockPos target) {
         return tickPathTo(target);
     }
 
-    /**
-     * 用自定义 A*（多层、可爬升）走向目标点，返回是否已到达。
-     * <p>
-     * GOING_WORK / GOING_HOME / SLEEPING 都走这里 —— 原版 {@code getNavigation()} 只有单层，
-     * 碰到墙、台阶、多层建筑会原地卡死，所以这几条路统一换成自定义寻路。
-     * <p>
-     * 搜出来的航点交给 {@link #applyPath} 执行，它会打上 {@code rtsControlled}，
-     * 由 {@link #tickRtsCommand} 走到终点后调用 {@code releaseRtsControl()} 交还作息控制权；
-     * 于是 brain 下一轮又能按排班继续修正，人没到家就再发起一次，接力走到为止。
-     */
     private boolean tickPathTo(BlockPos target) {
         stopSitting();
         BlockPos stand = resolveWorkStand(target);
+        stand = applySegment(stand);
         double dx = getX() - (stand.getX() + 0.5D);
         double dz = getZ() - (stand.getZ() + 0.5D);
-        if (dx * dx + dz * dz < 1.0D && Math.abs(getY() - stand.getY()) < 1.5D) {
+        if (dx * dx + dz * dz < 1.0D && Math.abs(Math.floor(getY() + 0.5D) - stand.getY()) < 1.0D) {
             stopConstructionPath();
             return true;
         }
-        if (getNavigation().isInProgress()) {
+        if (followIndex < followPath.size()) {
+            followWaypoints();
             if (trackWorkStuck()) {
-                escalateWork(stand, WORK_STUCK_LIMIT);
-            } else {
-                assistClimb();
+                if (trySlide()) {
+                    workStuckTicks = 0;
+                } else {
+                    escalateWork(stand, WORK_STUCK_LIMIT);
+                }
             }
             return false;
         }
@@ -338,21 +318,23 @@ public class NpcEntity extends PathfinderMob {
             workPathFuture = null;
             NpcPathfinder.PathResult result = future.isDone() ? takeResult(future) : null;
             future.cancel(false);
-            List<BlockPos> waypoints = result == null ? null : result.waypoints();
+            List<NpcPathfinder.Waypoint> waypoints = result == null ? null : result.waypoints();
             if (waypoints != null && waypoints.size() > 1) {
-                workRepathCooldown = 20;
-                workFailures = 0;
-                pathPaddingStage = 0;
-                applyPath(waypoints);
+                if (endpointMatches(waypoints, stand)) {
+                    workRepathCooldown = 20;
+                    workFailures = 0;
+                    pathPaddingStage = 0;
+                    applyPath(waypoints);
+                } else if (result.missingChunks() > 0) {
+                    workRepathCooldown = 10;
+                } else {
+                    pathPaddingStage++;
+                    workRepathCooldown = 10;
+                    escalateWork(stand, WORK_SEARCH_FAIL_LIMIT);
+                }
             } else if (result != null && result.missingChunks() > 0) {
-                // 搜不到，但覆盖范围内还有区块没建好 —— 这是"数据还没到"，
-                // 不是"路不存在"。保持当前档位等下一轮重试即可；
-                // 此时放大余量纯属浪费（还要多入队一大批区块）。
                 workRepathCooldown = 10;
             } else {
-                // 真的搜不到：放大余量再试（4 → 12 → 24）。绕远路的路线（例如绕到
-                // 建筑另一侧上楼梯）在小余量下会直接撞出快照边界，只有把搜索范围
-                // 放大才可能搜到；一直卡在最小档用同样参数重试，等于永远搜不到。
                 pathPaddingStage++;
                 workRepathCooldown = 10;
                 escalateWork(stand, WORK_SEARCH_FAIL_LIMIT);
@@ -371,8 +353,6 @@ public class NpcEntity extends PathfinderMob {
             return false;
         }
         BlockPos from = blockPosition();
-        // 会话绑定同一组起终点：升档重试时接着上次那张搜索图往下跑（保留已算出的 g 值
-        // 与前沿），而不是从起点重算最多 8192 个节点。目标一变就重建会话。
         NpcPathfinder.Session session = workSession;
         if (session == null || !session.matches(from, stand)) {
             session = new NpcPathfinder.Session(from, stand);
@@ -405,6 +385,12 @@ public class NpcEntity extends PathfinderMob {
         workFailures = 0;
         pathPaddingStage = 0;
         workSession = null;
+        slideTarget = null;
+        slideTicks = 0;
+        slideCooldown = 0;
+        segmentTarget = null;
+        followPath = List.of();
+        followIndex = 0;
         if (getNavigation().isInProgress()) {
             getNavigation().stop();
         }
@@ -418,6 +404,62 @@ public class NpcEntity extends PathfinderMob {
             return false;
         }
         return ++workStuckTicks >= WORK_STUCK_TICKS;
+    }
+
+    private boolean trySlide() {
+        if (slideTicks > 0 || slideCooldown > 0 || followIndex >= followPath.size()) {
+            return false;
+        }
+        NpcPathfinder.Waypoint waypoint = followPath.get(followIndex);
+        BlockPos pos = waypoint.pos();
+        if (waypoint.move() == NpcPathfinder.Waypoint.Move.CLIMB) {
+            slideTarget = new Vec3(pos.getX() + 0.5D, getY(), pos.getZ() + 0.5D);
+            slideTicks = SLIDE_DURATION_TICKS;
+            return true;
+        }
+        double dx = pos.getX() + 0.5D - getX();
+        double dz = pos.getZ() + 0.5D - getZ();
+        double length = Math.sqrt(dx * dx + dz * dz);
+        if (length < 1.0E-4D) {
+            return false;
+        }
+        double ux = dx / length;
+        double uz = dz / length;
+        Vec3 reference = navTarget == null
+                ? new Vec3(pos.getX() + 0.5D, pos.getY(), pos.getZ() + 0.5D)
+                : new Vec3(navTarget.getX() + 0.5D, navTarget.getY(), navTarget.getZ() + 0.5D);
+        Vec3 best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (double offset : SLIDE_OFFSETS) {
+            for (int side = 1; side >= -1; side -= 2) {
+                double tx = getX() + ux * SLIDE_FORWARD - uz * offset * side;
+                double tz = getZ() + uz * SLIDE_FORWARD + ux * offset * side;
+                if (!canOccupy(BlockPos.containing(tx, getY(), tz))) {
+                    continue;
+                }
+                double distance = reference.distanceToSqr(tx, reference.y, tz);
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    best = new Vec3(tx, getY(), tz);
+                }
+            }
+        }
+        if (best == null) {
+            return false;
+        }
+        slideTarget = best;
+        slideTicks = SLIDE_DURATION_TICKS;
+        return true;
+    }
+
+    private boolean canOccupy(BlockPos pos) {
+        if (!level().isLoaded(pos) || !standsOn(pos.below())
+                || !passable(pos) || !passable(pos.above())) {
+            return false;
+        }
+        AABB shifted = getBoundingBox().move(pos.getX() + 0.5D - getX(),
+                pos.getY() - getY(), pos.getZ() + 0.5D - getZ());
+        return level().noCollision(this, shifted);
     }
 
     private void escalateWork(BlockPos stand, int limit) {
@@ -438,8 +480,28 @@ public class NpcEntity extends PathfinderMob {
             return;
         }
         workFailures = 0;
+        pathPaddingStage = 0;
         setDeltaMovement(Vec3.ZERO);
-        teleportTo(stand.getX() + 0.5D, stand.getY(), stand.getZ() + 0.5D);
+    }
+
+    private BlockPos applySegment(BlockPos stand) {
+        if (segmentTarget != null && nearTarget(segmentTarget, WORK_ARRIVE_SQR)) {
+            segmentTarget = null;
+        }
+        if (segmentTarget != null) {
+            return segmentTarget;
+        }
+        if (blockPosition().distSqr(stand) <= (double) NpcPathfinder.SEGMENT_RANGE
+                * NpcPathfinder.SEGMENT_RANGE) {
+            return stand;
+        }
+        if (!(level() instanceof ServerLevel serverLevel)) {
+            return stand;
+        }
+        SnapshotRepository repository = SnapshotRepository.get(serverLevel.getServer());
+        segmentTarget = NpcPathfinder.midway(repository, serverLevel.dimension(),
+                blockPosition(), stand, NpcPathfinder.paddingOf(pathPaddingStage));
+        return segmentTarget == null ? stand : segmentTarget;
     }
 
     private BlockPos resolveWorkStand(BlockPos target) {
@@ -452,6 +514,12 @@ public class NpcEntity extends PathfinderMob {
     }
 
     private BlockPos findStandableNear(BlockPos target) {
+        for (int dy = 1; dy >= -2; dy--) {
+            BlockPos candidate = target.above(dy);
+            if (standable(candidate)) {
+                return candidate;
+            }
+        }
         for (int radius = 1; radius <= 2; radius++) {
             for (int dx = -radius; dx <= radius; dx++) {
                 for (int dz = -radius; dz <= radius; dz++) {
@@ -478,34 +546,131 @@ public class NpcEntity extends PathfinderMob {
     }
 
     private boolean standsOn(BlockPos pos) {
-        VoxelShape shape = level().getBlockState(pos).getCollisionShape(level(), pos);
-        return !shape.isEmpty() && shape.max(Direction.Axis.Y) >= WORK_FLOOR_MIN_Y;
+        return ChunkSnapshot.isWalkableFloor(level().getBlockState(pos));
     }
 
     private boolean passable(BlockPos pos) {
-        VoxelShape shape = level().getBlockState(pos).getCollisionShape(level(), pos);
-        return shape.isEmpty() || shape.max(Direction.Axis.Y) <= WORK_HEADROOM_MAX_Y;
+        return ChunkSnapshot.isPassable(level().getBlockState(pos));
     }
 
-    private void assistClimb() {
+    private void followWaypoints() {
         if (workClimbCooldown > 0) {
             workClimbCooldown--;
+        }
+        if (slideCooldown > 0) {
+            slideCooldown--;
+        }
+        if (slideTicks > 0) {
+            slideTicks--;
+            if (slideTarget != null) {
+                getMoveControl().setWantedPosition(slideTarget.x, slideTarget.y, slideTarget.z, WALK_SPEED);
+            }
+            if (slideTicks == 0) {
+                slideTarget = null;
+                slideCooldown = SLIDE_COOLDOWN_TICKS;
+            }
             return;
         }
-        Path path = getNavigation().getPath();
-        Node node = path == null || path.isDone() ? null : path.getNextNode();
-        // 用"脚底所在的层"而不是 blockPosition().y 去比：站在灵魂沙(0.875)、
-        // 土径(0.9375)这类不满一格的方块上时，脚底 y 落在方块格内部，
-        // blockPosition() 会比真实站立格低 1，平地行走也会被判成"要上台阶"，
-        // 人就莫名其妙地跳。+0.5 归一正好还原出真正的站立格。
-        if (node == null || node.y <= Math.floor(getY() + 0.5D) || (!onGround() && !onClimbable())) {
+        resyncFollowIndex();
+        while (followIndex < followPath.size()) {
+            NpcPathfinder.Waypoint waypoint = followPath.get(followIndex);
+            BlockPos pos = waypoint.pos();
+            double dx = getX() - (pos.getX() + 0.5D);
+            double dz = getZ() - (pos.getZ() + 0.5D);
+            double arrive = switch (waypoint.move()) {
+                case CLIMB -> 1.15D;
+                case WALK -> 0.5D;
+                default -> 1.0D;
+            };
+            if (dx * dx + dz * dz <= arrive * arrive
+                    && Math.abs(Math.floor(getY() + 0.5D) - pos.getY()) < 1.0D) {
+                followIndex++;
+                continue;
+            }
+            applyVertical(waypoint, climbDelta(followIndex));
+            tryOpenDoor(pos);
+            double wantedY = waypoint.move() == NpcPathfinder.Waypoint.Move.CLIMB
+                    ? getY()
+                    : pos.getY();
+            getMoveControl().setWantedPosition(pos.getX() + 0.5D, wantedY, pos.getZ() + 0.5D,
+                    waypoint.move() == NpcPathfinder.Waypoint.Move.CLIMB ? WALK_SPEED * 0.9D : WALK_SPEED);
             return;
         }
-        if (getDeltaMovement().y > 0.02D) {
+        followPath = List.of();
+        followIndex = 0;
+    }
+
+    private void resyncFollowIndex() {
+        if (followIndex + 1 >= followPath.size()) {
             return;
         }
-        workClimbCooldown = WORK_CLIMB_INTERVAL_TICKS;
-        getJumpControl().jump();
+        BlockPos here = blockPosition();
+        double currentDist = Math.sqrt(followPath.get(followIndex).pos().distSqr(here));
+        if (currentDist <= RESYNC_TRIGGER_DISTANCE) {
+            return;
+        }
+        int best = followIndex;
+        double bestDist = currentDist;
+        for (int i = followIndex + 1; i < followPath.size(); i++) {
+            double dist = Math.sqrt(followPath.get(i).pos().distSqr(here));
+            if (dist < bestDist) {
+                bestDist = dist;
+                best = i;
+            }
+        }
+        if (best > followIndex && bestDist + 2.0D < currentDist) {
+            followIndex = best;
+        }
+    }
+
+    private void tryOpenDoor(BlockPos pos) {
+        if (!(level() instanceof ServerLevel serverLevel)) {
+            return;
+        }
+        BlockState state = serverLevel.getBlockState(pos);
+        if (!(state.getBlock() instanceof DoorBlock)
+                || state.getValue(DoorBlock.OPEN)
+                || state.getValue(DoorBlock.POWERED)) {
+            return;
+        }
+        BlockPos other = state.getValue(DoorBlock.HALF) == DoubleBlockHalf.LOWER ? pos.above() : pos.below();
+        BlockState otherState = serverLevel.getBlockState(other);
+        serverLevel.setBlock(pos, state.setValue(DoorBlock.OPEN, Boolean.TRUE), Block.UPDATE_ALL);
+        if (otherState.getBlock() instanceof DoorBlock) {
+            serverLevel.setBlock(other, otherState.setValue(DoorBlock.OPEN, Boolean.TRUE), Block.UPDATE_ALL);
+        }
+        serverLevel.playSound(null, pos, SoundEvents.WOODEN_DOOR_OPEN, SoundSource.BLOCKS, 1.0F, 1.0F);
+    }
+
+    private double climbDelta(int index) {
+        if (index < 0 || index + 1 >= followPath.size()) {
+            return 0;
+        }
+        return followPath.get(index + 1).pos().getY() - followPath.get(index).pos().getY();
+    }
+
+    private void applyVertical(NpcPathfinder.Waypoint waypoint, double climbDirection) {
+        switch (waypoint.move()) {
+            case STEP_UP -> {
+                if (onGround() && workClimbCooldown <= 0 && getDeltaMovement().y <= 0.02D) {
+                    workClimbCooldown = WORK_CLIMB_INTERVAL_TICKS;
+                    getJumpControl().jump();
+                }
+            }
+            case CLIMB -> climbMove(climbDirection);
+            default -> {
+            }
+        }
+    }
+
+    private void climbMove(double climbDirection) {
+        Vec3 movement = getDeltaMovement();
+        if (climbDirection > 0) {
+            setDeltaMovement(movement.x * 0.5D, 0.2D, movement.z * 0.5D);
+        } else if (climbDirection < 0) {
+            setDeltaMovement(movement.x * 0.5D, -0.2D, movement.z * 0.5D);
+        }
+        fallDistance = 0.0F;
     }
 
     public BlockPos getNavTarget() {
@@ -523,7 +688,6 @@ public class NpcEntity extends PathfinderMob {
 
     public void setForageTarget(BlockPos target) {
         forageTarget = target;
-        // 觅食目标常在餐厅室内或楼上，走自定义 A*（多层、可爬梯），原版单层寻路会卡
         tickPathTo(target);
         setNavTarget(target);
     }
@@ -551,7 +715,6 @@ public class NpcEntity extends PathfinderMob {
 
     public void setFarmTarget(BlockPos target) {
         farmTarget = target;
-        // 作物格/棚架多在梯田或高台上，走自定义 A*
         tickPathTo(target);
         setNavTarget(target);
     }
@@ -569,7 +732,6 @@ public class NpcEntity extends PathfinderMob {
 
     public void setRanchTarget(BlockPos target) {
         ranchTarget = target;
-        // 畜栏/饲料槽常被栅栏围着、或有台阶，走自定义 A*
         tickPathTo(target);
         setNavTarget(target);
     }
@@ -581,17 +743,32 @@ public class NpcEntity extends PathfinderMob {
         pathRetry.reset();
     }
 
-    public void applyPath(List<BlockPos> waypoints) {
-        List<Node> nodes = new ArrayList<>(waypoints.size());
-        for (BlockPos pos : waypoints) {
-            Node node = new Node(pos.getX(), pos.getY(), pos.getZ());
-            node.type = PathType.WALKABLE;
-            node.costMalus = 0.0F;
-            nodes.add(node);
-        }
-        navTarget = waypoints.get(waypoints.size() - 1);
+    private static boolean endpointMatches(List<NpcPathfinder.Waypoint> waypoints, BlockPos stand) {
+        BlockPos reached = waypoints.get(waypoints.size() - 1).pos();
+        return reached.getX() == stand.getX()
+                && reached.getZ() == stand.getZ()
+                && Math.abs(reached.getY() - stand.getY()) <= 1;
+    }
+
+    public void applyPath(List<NpcPathfinder.Waypoint> waypoints) {
+        followPath = waypoints == null ? List.of() : List.copyOf(waypoints);
+        followIndex = 0;
+        slideTarget = null;
+        slideTicks = 0;
+        slideCooldown = 0;
         getNavigation().stop();
-        getNavigation().moveTo(new Path(nodes, navTarget, false), WALK_SPEED);
+        if (followPath.isEmpty()) {
+            navTarget = null;
+            return;
+        }
+        navTarget = followPath.get(followPath.size() - 1).pos();
+        while (followIndex < followPath.size()
+                && followPath.get(followIndex).pos().distSqr(blockPosition()) <= 0.25D) {
+            followIndex++;
+        }
+        if (level() instanceof ServerLevel serverLevel) {
+            NpcPathDebugBroadcast.send(serverLevel, this, followPath);
+        }
     }
 
     public void onPathAbandoned() {
@@ -633,6 +810,18 @@ public class NpcEntity extends PathfinderMob {
             NpcBackpackMenu.open(serverPlayer, this);
         }
         return InteractionResult.sidedSuccess(level().isClientSide());
+    }
+
+    @Override
+    public boolean onClimbable() {
+        int now = tickCount;
+        if (climbStateTick == now) {
+            return climbState;
+        }
+        climbStateTick = now;
+        climbState = level().getBlockState(blockPosition()).is(BlockTags.CLIMBABLE)
+                || level().getBlockState(blockPosition().below()).is(BlockTags.CLIMBABLE);
+        return climbState;
     }
 
     @Override
@@ -713,13 +902,6 @@ public class NpcEntity extends PathfinderMob {
         if (movement.horizontalDistanceSqr() > 1.0E-4D) {
             return false;
         }
-        // 竖直方向同样不能忽略：跳跃初速度是 LivingEntity 在 travel 之前由
-        // jumpFromGround 设好的，而"站在楼梯口正要起跳"这一帧 onGround 仍为 true、
-        // 水平速度仍为 0，只查水平速度会把它判成静止，travel 随即 setDeltaMovement(ZERO)
-        // 抹掉这 0.42 —— 结果就是人一直在楼梯前跳不起来、原地卡住。
-        if (Math.abs(movement.y) > 1.0E-4D) {
-            return false;
-        }
         return movement.y > -0.12D && movement.y < 0.05D;
     }
 
@@ -786,7 +968,6 @@ public class NpcEntity extends PathfinderMob {
         entityData.set(DATA_SWING, entityData.get(DATA_SWING) + 1);
     }
 
-    /** 把天赋三项同步给客户端；值没变时 SynchedEntityData 不打包，可以放心每 tick 调。 */
     public void syncTalent(NpcData data) {
         if (data == null) {
             return;
@@ -915,7 +1096,6 @@ public class NpcEntity extends PathfinderMob {
         return entityData.get(DATA_SITTING);
     }
 
-    /** 就餐/就座流程要从外部让人坐下，所以是 public。 */
     public void setSitting(boolean sitting) {
         entityData.set(DATA_SITTING, sitting);
     }
@@ -973,7 +1153,6 @@ public class NpcEntity extends PathfinderMob {
                 NpcForageService.tick(this, data);
             }
             case DINING -> {
-                // 就餐中不能收坐姿：坐下来等菜正是这个分支要做的事
                 NpcForageService.tick(this, data);
             }
             case FARMING, PLANTING, HARVESTING -> {
@@ -996,11 +1175,9 @@ public class NpcEntity extends PathfinderMob {
             }
             case RANCHING -> stopSitting();
             case GOING_WORK -> {
-                // 自定义 A*：原版导航爬不了台阶与多层建筑，上班路上会被墙卡住
                 tickPathTo(new BlockPos(data.getWorkX(), data.getWorkY(), data.getWorkZ()));
             }
             case GOING_HOME -> {
-                // 同上，回家也走自定义 A*
                 tickPathTo(new BlockPos(data.getHomeX(), data.getHomeY(), data.getHomeZ()));
             }
             case WORKING_FOCUS -> stayAt(data.getWorkX(), data.getWorkY(), data.getWorkZ());
@@ -1015,11 +1192,6 @@ public class NpcEntity extends PathfinderMob {
                 getNavigation().stop();
             }
         }
-        // 只有"随机走动"这类 detail 才需要 NpcPathRetry 兜底 —— 它卡住 100 tick 后
-        // 会让人随机走一个点。而上班/回家/睡觉/做工/农活走的都是自定义多层 A*
-        // （tickPathTo），那边自带 trackWorkStuck + escalateWork（含传送保底）；
-        // 两套同时插手的结果是刚规划好的跨层路径被"随机走一个点"冲掉，
-        // 表现就是人走到楼梯一半忽然往回走。
         if (detail == NpcDetail.WANDERING || detail == NpcDetail.SLACKING) {
             pathRetry.tick(this);
         }
@@ -1031,8 +1203,6 @@ public class NpcEntity extends PathfinderMob {
         activeStyle = null;
         clearSocialPartner();
         forageTarget = null;
-        // 换行为就一定要起床：作息窗口（服务端按世界时间调度）只会改 detail，
-        // 这里若不同步收掉睡姿，NPC 从 SLEEPING 切到上班后会一直躺着不动。
         if (activeDetail != NpcDetail.SLEEPING && isSleeping()) {
             stopSleeping();
         }
@@ -1072,17 +1242,6 @@ public class NpcEntity extends PathfinderMob {
         }
     }
 
-    /**
-     * 站到某个点待命（工位、灶台）。
-     * <p>
-     * 必须和上下班（GOING_WORK / GOING_HOME / SLEEPING）一样走自定义多层 A*。
-     * 工位常常在楼上 —— 二层厂房、带楼梯的餐厅 —— 而原版 {@code getNavigation()}
-     * 只有单层，且按 {@code maxUpStep} 判断台阶能不能上：碰上楼梯它要么干脆算不出路，
-     * 要么给出一条走两步就断的绕行路，于是人走到楼梯一半又退回来、最后卡在门口原地转圈。
-     * 自定义 A* 不看 maxUpStep，靠 {@link #assistClimb} 主动起跳补足高差。
-     * <p>
-     * 农业一直没这个问题，正是因为它的 FARMING 走 {@code setFarmTarget -> tickPathTo}。
-     */
     private void stayAt(int x, int y, int z) {
         BlockPos target = new BlockPos(x, y, z);
         if (nearTarget(target, WORK_ARRIVE_SQR)) {
@@ -1108,10 +1267,8 @@ public class NpcEntity extends PathfinderMob {
         if (!(level() instanceof ServerLevel serverLevel)) {
             return;
         }
-        // 走到自己那张床再躺下（原版 LivingEntity#startSleeping 的姿势/占用逻辑全都能用）。
         BlockPos bed = HomeBeds.assignedBed(serverLevel, data);
         if (bed == null) {
-            // 床被拆了：解除住宅关联，这个人从此无家可归，等玩家重新分配。
             HomeBeds.unbind(data);
             if (isSleeping()) {
                 stopSleeping();
@@ -1135,22 +1292,14 @@ public class NpcEntity extends PathfinderMob {
         if (isSleeping()) {
             stopSleeping();
         }
-        // 走到床边同样用自定义 A*：卧室多在楼上，原版导航上不去
         tickPathTo(stand);
     }
 
-    /**
-     * 是否已站到目标点（水平到位 + 高度对得上）。
-     * <p>
-     * 高度这一项不能省：多层建筑里楼上楼下常常是同一个 XZ，只比水平距离的话，
-     * 人站在二楼就会被判成"已经到了一楼的目标"，寻路随即停下，
-     * 而后续逻辑又发现够不着真正的东西，于是反复重算 —— 表现就是原地转圈。
-     * 容差与 {@link #tickPathTo} 里的一致（1.5 格）。
-     */
     private boolean nearTarget(BlockPos target, double arriveSqr) {
         double dx = getX() - (target.getX() + 0.5D);
         double dz = getZ() - (target.getZ() + 0.5D);
-        return dx * dx + dz * dz <= arriveSqr && Math.abs(getY() - target.getY()) < 1.5D;
+        return dx * dx + dz * dz <= arriveSqr
+                && Math.abs(Math.floor(getY() + 0.5D) - target.getY()) < 1.0D;
     }
 
     private void clearNavTarget() {

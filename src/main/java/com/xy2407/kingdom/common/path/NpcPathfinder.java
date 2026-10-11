@@ -11,6 +11,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.pathfinder.Node;
@@ -20,22 +21,18 @@ import net.minecraft.world.level.pathfinder.PathType;
  * 快照 A* 寻路，四向扩展并可向下跌落；只读快照数据，可在后台线程执行
  */
 public final class NpcPathfinder {
+
+    public record Waypoint(BlockPos pos, Move move) {
+        public enum Move { WALK, STEP_UP, DROP, CLIMB }
+    }
+
     private static final Direction[] HORIZONTALS = {Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST};
     private static final int PADDING = 8;
 
-    /** 给不关心分级的调用方用的缺省余量。 */
     public static final int DEFAULT_PADDING = PADDING;
 
-    /**
-     * 起终点包围盒的横向余量分级：4 → 12 → 24。
-     * <p>
-     * 余量同时决定入队构建哪些区块、以及 A* 能走多远。小余量搜索空间小、快，
-     * 但绕远路时会撞出快照边界直接搜不到；所以先试最小的，不行再逐级放大，
-     * 而不是一次就给到 24（那样每次搜索都要多建好几倍区块）。
-     */
-    public static final int[] PADDING_STAGES = {4, 12, 24};
+    public static final int[] PADDING_STAGES = {8, 16, 32};
 
-    /** 取第 stage 档的余量，越界就取最后一档。 */
     public static int paddingOf(int stage) {
         if (stage <= 0) {
             return PADDING_STAGES[0];
@@ -44,47 +41,117 @@ public final class NpcPathfinder {
     }
 
     private static final int MAX_RANGE = 96;
-    private static final int SNAP_RANGE = 4;
+    public static final int SEGMENT_RANGE = MAX_RANGE;
+    private static final int SEGMENT_RANGE_MIN = 16;
+    private static final int SEGMENT_Y_SPAN = 16;
+    private static final int SNAP_RANGE = 1;
     private static final int DOWNWARD_RANGE = 4;
-    private static final int MAX_NODES = 8192;
-    private static final double HEURISTIC_WEIGHT = 1.2D;
-    /** 搜索允许偏离起终点高度的余量（格）：爬楼够用，又不会白探世界顶/底。 */
+    private static final int MAX_NODES = 32768;
+    private static final int NEAREST_SAMPLE = 24;
+    private static final double HEURISTIC_WEIGHT = 1.05D;
     private static final int Y_SLACK = 16;
     private static final double COST_STEP_UP = 1.1D;
-    /** 下一格台阶：2.2，比平走贵一点，正常走楼梯。 */
     private static final double COST_STEP_DOWN_STEPPED = 1.2D;
-    /**
-     * 跳楼（一次落下 2 格以上）的单格代价。
-     * <p>
-     * 原来是 2.4，等于"下 x 格 ≈ 绕 2.4x 步"，多层建筑里绕到楼梯远超这个数，
-     * 所以市民会为了省路直接从二楼跳下去。提到 8.0 之后是"绕 8x 步才划算"
-     * （下 4 格 = 33，要绕 33 步才会选跳），跳楼只会在真的无路可走时出现。
-     * <p>
-     * 另外注意启发函数是三维欧氏距离，跳下去本身就让启发值下降，
-     * 所以成本必须给得足够高才能压住这种倾向。
-     */
     private static final double COST_STEP_DOWN_DROP = 8.0D;
 
     private NpcPathfinder() {
     }
 
-    public static List<BlockPos> find(SnapshotRepository repository, ResourceKey<Level> dimension, BlockPos start, BlockPos end) {
+    public static List<Waypoint> find(SnapshotRepository repository, ResourceKey<Level> dimension, BlockPos start, BlockPos end) {
         return find(repository, dimension, start, end, PADDING);
     }
 
-    /**
-     * 一次寻路的结果：航点，以及这次 View 覆盖范围内**快照还没建好**的区块数。
-     * <p>
-     * 后者用来区分失败原因 —— 搜不到时若还有缺失区块，那是"数据没到"，
-     * 该做的是等构建完成再用同一档重试，而不是白白放大搜索余量。
-     */
-    public record PathResult(List<BlockPos> waypoints, int missingChunks) {
+    public record PathResult(List<Waypoint> waypoints, int missingChunks) {
         public PathResult {
             waypoints = waypoints == null ? List.of() : List.copyOf(waypoints);
         }
     }
 
-    public static List<BlockPos> find(SnapshotRepository repository, ResourceKey<Level> dimension,
+    public record DebugTrace(BlockPos start, BlockPos requested, int snappedStart, int snappedEnd,
+                             int padding, int missingChunks, int visited,
+                             int minX, int maxX, int minZ, int maxZ,
+                             int reachMinY, int reachMaxY,
+                             List<BlockPos> nearest, List<Waypoint> waypoints) {
+
+        public DebugTrace {
+            nearest = nearest == null ? List.of() : List.copyOf(nearest);
+            waypoints = waypoints == null ? List.of() : List.copyOf(waypoints);
+        }
+
+        public boolean snapped() {
+            return snappedStart != Integer.MIN_VALUE && snappedEnd != Integer.MIN_VALUE;
+        }
+
+        public boolean exhausted() {
+            return waypoints.isEmpty() && visited >= MAX_NODES;
+        }
+    }
+
+    public static DebugTrace trace(SnapshotRepository repository, ServerLevel level,
+                                   BlockPos start, BlockPos end, int padding) {
+        int[] bounds = bounds(start, end, padding);
+        if (repository == null || level == null) {
+            return new DebugTrace(start, end, Integer.MIN_VALUE, Integer.MIN_VALUE, padding,
+                    0, 0, bounds[0], bounds[1], bounds[2], bounds[3], 0, 0, List.of(), List.of());
+        }
+        ResourceKey<Level> dimension = level.dimension();
+        repository.buildNow(level, bounds[0] >> 4, bounds[1] >> 4, bounds[2] >> 4, bounds[3] >> 4);
+        View view = View.create(repository, dimension, bounds[0], bounds[1], bounds[2], bounds[3]);
+        int snappedStart = view.snap(start);
+        int snappedEnd = view.snap(end);
+        if (snappedStart == Integer.MIN_VALUE || snappedEnd == Integer.MIN_VALUE) {
+            return new DebugTrace(start, end, snappedStart, snappedEnd, padding, view.missingChunks(),
+                    0, bounds[0], bounds[1], bounds[2], bounds[3], 0, 0, List.of(), List.of());
+        }
+        Search search = new Search(view, start.getX(), snappedStart, start.getZ(),
+                end.getX(), snappedEnd, end.getZ());
+        List<Waypoint> waypoints = search.run();
+        int reachMinY = Integer.MAX_VALUE;
+        int reachMaxY = Integer.MIN_VALUE;
+        List<BlockPos> reached = new ArrayList<>(search.nodes.size());
+        for (Node node : search.nodes.values()) {
+            if (node.g == Float.MAX_VALUE) {
+                continue;
+            }
+            reachMinY = Math.min(reachMinY, node.y);
+            reachMaxY = Math.max(reachMaxY, node.y);
+            reached.add(new BlockPos(node.x, node.y, node.z));
+        }
+        BlockPos goal = new BlockPos(end.getX(), snappedEnd, end.getZ());
+        reached.sort(Comparator.comparingDouble(pos -> pos.distSqr(goal)));
+        List<BlockPos> nearest = reached.subList(0, Math.min(NEAREST_SAMPLE, reached.size()));
+        return new DebugTrace(start, end, snappedStart, snappedEnd, padding, view.missingChunks(),
+                search.visited, bounds[0], bounds[1], bounds[2], bounds[3],
+                reachMinY, reachMaxY, nearest, waypoints);
+    }
+
+    public static BlockPos midway(SnapshotRepository repository, ResourceKey<Level> dimension,
+                                  BlockPos start, BlockPos end, int padding) {
+        if (repository == null) {
+            return null;
+        }
+        double dx = end.getX() - start.getX();
+        double dz = end.getZ() - start.getZ();
+        double horizontal = Math.sqrt(dx * dx + dz * dz);
+        if (horizontal <= SEGMENT_RANGE) {
+            return null;
+        }
+        int[] bounds = bounds(start, end, padding);
+        View view = View.create(repository, dimension, bounds[0], bounds[1], bounds[2], bounds[3]);
+        for (int step = SEGMENT_RANGE; step >= SEGMENT_RANGE_MIN; step -= 3) {
+            double t = step / horizontal;
+            int x = (int) Math.floor(start.getX() + 0.5D + dx * t);
+            int z = (int) Math.floor(start.getZ() + 0.5D + dz * t);
+            for (int y = start.getY() + SEGMENT_Y_SPAN; y >= start.getY() - SEGMENT_Y_SPAN; y--) {
+                if (view.standable(x, y, z)) {
+                    return new BlockPos(x, y, z);
+                }
+            }
+        }
+        return null;
+    }
+
+    public static List<Waypoint> find(SnapshotRepository repository, ResourceKey<Level> dimension,
                                       BlockPos start, BlockPos end, int padding) {
         return findWithStats(repository, dimension, start, end, padding).waypoints();
     }
@@ -102,10 +169,10 @@ public final class NpcPathfinder {
             return new PathResult(List.of(), view.missingChunks());
         }
         if (start.getX() == end.getX() && start.getZ() == end.getZ()) {
-            return new PathResult(List.of(new BlockPos(start.getX(), startY, start.getZ())),
-                    view.missingChunks());
+            return new PathResult(List.of(new Waypoint(new BlockPos(start.getX(), startY, start.getZ()),
+                    Waypoint.Move.WALK)), view.missingChunks());
         }
-        List<BlockPos> waypoints = new Search(view, start.getX(), startY, start.getZ(),
+        List<Waypoint> waypoints = new Search(view, start.getX(), startY, start.getZ(),
                 end.getX(), endY, end.getZ()).run();
         return new PathResult(waypoints, view.missingChunks());
     }
@@ -124,8 +191,6 @@ public final class NpcPathfinder {
         }
         int lx = pos.getX() & 15;
         int lz = pos.getZ() & 15;
-        // 先原位、再优先向下 —— 目标点上方常常就是同 XZ 的另一层楼板，
-        // 若先往上找，一楼的目标会被判成"在二楼"。
         for (int dy = 0; dy <= SNAP_RANGE; dy++) {
             if (snapshot.standable(lx, pos.getY() - dy, lz)) {
                 return true;
@@ -147,10 +212,21 @@ public final class NpcPathfinder {
             return;
         }
         int[] bounds = bounds(start, end, padding);
+        int centerX = start.getX() >> 4;
+        int centerZ = start.getZ() >> 4;
+        List<ChunkPos> positions = new ArrayList<>();
         for (int cx = bounds[0] >> 4; cx <= bounds[1] >> 4; cx++) {
             for (int cz = bounds[2] >> 4; cz <= bounds[3] >> 4; cz++) {
-                repository.enqueue(dimension, new ChunkPos(cx, cz));
+                positions.add(new ChunkPos(cx, cz));
             }
+        }
+        positions.sort(Comparator.comparingLong(pos -> {
+            long dx = (long) pos.x - centerX;
+            long dz = (long) pos.z - centerZ;
+            return dx * dx + dz * dz;
+        }));
+        for (ChunkPos pos : positions) {
+            repository.enqueue(dimension, pos);
         }
     }
 
@@ -192,7 +268,6 @@ public final class NpcPathfinder {
         private final ChunkSnapshot[][] chunks;
         private final int minChunkX;
         private final int minChunkZ;
-        /** 覆盖范围内还没建好快照的区块数：>0 说明"搜不到"可能只是数据没到。 */
         private final int missingChunks;
 
         private View(ChunkSnapshot[][] chunks, int minChunkX, int minChunkZ, int missingChunks) {
@@ -235,10 +310,27 @@ public final class NpcPathfinder {
             return snapshot != null && snapshot.standable(x & 15, y, z & 15);
         }
 
+        boolean blocked(int x, int y, int z) {
+            int i = (x >> 4) - minChunkX;
+            int j = (z >> 4) - minChunkZ;
+            if (i < 0 || j < 0 || i >= chunks.length || j >= chunks[i].length) {
+                return true;
+            }
+            ChunkSnapshot snapshot = chunks[i][j];
+            return snapshot == null || snapshot.blocked(x & 15, y, z & 15);
+        }
+
+        boolean climbable(int x, int y, int z) {
+            int i = (x >> 4) - minChunkX;
+            int j = (z >> 4) - minChunkZ;
+            if (i < 0 || j < 0 || i >= chunks.length || j >= chunks[i].length) {
+                return false;
+            }
+            ChunkSnapshot snapshot = chunks[i][j];
+            return snapshot != null && snapshot.climbable(x & 15, y, z & 15);
+        }
+
         int snap(BlockPos pos) {
-            // 先原位、再优先向下。目标点上方常常就是同 XZ 的另一层楼板，
-            // 原来先试 y+1 会把"一楼"的目标贴到二楼去 —— NPC 送到楼上后
-            // 与真正的目标只差高度，水平判定却认为已到达，人就卡在那儿原地打转。
             for (int dy = 0; dy <= SNAP_RANGE; dy++) {
                 if (standable(pos.getX(), pos.getY() - dy, pos.getZ())) {
                     return pos.getY() - dy;
@@ -251,63 +343,34 @@ public final class NpcPathfinder {
         }
     }
 
-    /**
-     * 可续跑的寻路会话：同一组起终点被反复请求（升档重试）时，
-     * 保留上一次的搜索图（nodes + open 前沿），换个更大的范围接着搜，
-     * 而不是从起点重算一遍。
-     * <p>
-     * 由调用方（{@code NpcEntity}）持有；同一个市民的请求是串行的
-     * （上一个 future 没完成不会提交下一个），所以不需要额外加锁。
-     */
     public static final class Session {
         private final BlockPos start;
         private final BlockPos end;
-        private Search search;
-        private int searchedPadding = -1;
 
         public Session(BlockPos start, BlockPos end) {
             this.start = start.immutable();
             this.end = end.immutable();
         }
 
-        /** 起终点一致才允许续跑；换了目标必须重建会话。 */
         public boolean matches(BlockPos start, BlockPos end) {
             return this.start.equals(start) && this.end.equals(end);
         }
 
-        /** 上一次实际用的余量档，调用方据此决定是否升档。 */
-        public int searchedPadding() {
-            return searchedPadding;
-        }
-
-        /**
-         * 用给定余量推进一次搜索。
-         * <p>
-         * 余量变大 → 续跑（保留 g 值与前沿，最划算）。
-         * 余量没变 → 是"同一档再试"，这时快照数据可能已经补齐，但旧图里
-         * 那些当时判死的节点不会自己重探，所以重建搜索图重跑一遍。
-         */
         public PathResult advance(SnapshotRepository repository, ResourceKey<Level> dimension, int padding) {
             int[] bounds = bounds(start, end, padding);
             View view = View.create(repository, dimension, bounds[0], bounds[1], bounds[2], bounds[3]);
             int snappedStart = view.snap(start);
             int snappedEnd = view.snap(end);
             if (snappedStart == Integer.MIN_VALUE || snappedEnd == Integer.MIN_VALUE) {
-                // 起终点还没贴到地：这轮连图都建不起来，等数据补齐再来
                 return new PathResult(List.of(), view.missingChunks());
             }
             if (start.getX() == end.getX() && start.getZ() == end.getZ()) {
-                return new PathResult(List.of(new BlockPos(start.getX(), snappedStart, start.getZ())),
-                        view.missingChunks());
+                return new PathResult(List.of(new Waypoint(new BlockPos(start.getX(), snappedStart, start.getZ()),
+                        Waypoint.Move.WALK)), view.missingChunks());
             }
-            if (search != null && padding > searchedPadding) {
-                searchedPadding = padding;
-                return new PathResult(search.resume(view, snappedEnd), view.missingChunks());
-            }
-            search = new Search(view, start.getX(), snappedStart, start.getZ(),
+            Search next = new Search(view, start.getX(), snappedStart, start.getZ(),
                     end.getX(), snappedEnd, end.getZ());
-            searchedPadding = padding;
-            return new PathResult(search.run(), view.missingChunks());
+            return new PathResult(next.run(), view.missingChunks());
         }
     }
 
@@ -319,12 +382,10 @@ public final class NpcPathfinder {
         private final int endX;
         private int endY;
         private final int endZ;
-        /** 搜索的 Y 上下界：起终点高度 ± 余量之外的格子不可能更优，直接剪掉。 */
         private int minY;
         private int maxY;
         private final Long2ObjectOpenHashMap<Node> nodes = new Long2ObjectOpenHashMap<>();
         private final PriorityQueue<Node> open = new PriorityQueue<>(Comparator.comparingDouble(node -> node.f));
-        /** 累计展开数，跨续跑接着数，保证总工作量仍受 MAX_NODES 约束。 */
         private int visited;
         private long goalKey;
 
@@ -344,8 +405,7 @@ public final class NpcPathfinder {
             this.maxY = Math.max(startY, endY) + Y_SLACK;
         }
 
-        /** 首轮：放起点与终点节点，开搜。 */
-        List<BlockPos> run() {
+        List<Waypoint> run() {
             Node start = create(startX, startY, startZ, 0.0F);
             Node goal = create(endX, endY, endZ, Float.MAX_VALUE);
             nodes.put(BlockPos.asLong(startX, startY, startZ), start);
@@ -357,38 +417,7 @@ public final class NpcPathfinder {
             return drain();
         }
 
-        /**
-         * 续跑：换成更大的快照范围后接着搜。
-         * <p>
-         * 保留 {@code nodes}（g 值与父指针）和 {@code open} 前沿，只把已 closed 的节点
-         * 放回队列 —— 新补上的区块可能让原先判死的边界节点重新变通。放回不会退化成全量，
-         * 因为 {@link #offer} 里的 {@code g >= node.g} 剪枝会让老区域直接跳过，
-         * 真正重算的只有边界那一圈，而 expand 才是开销大头。
-         */
-        List<BlockPos> resume(View nextView, int snappedEndY) {
-            this.view = nextView;
-            if (snappedEndY != Integer.MIN_VALUE && snappedEndY != endY) {
-                endY = snappedEndY;
-                clampY();
-                long newGoalKey = BlockPos.asLong(endX, endY, endZ);
-                if (newGoalKey != goalKey) {
-                    // 终点贴地高度变了，旧终点节点作废
-                    nodes.remove(goalKey);
-                    Node goal = create(endX, endY, endZ, Float.MAX_VALUE);
-                    nodes.put(newGoalKey, goal);
-                    goalKey = newGoalKey;
-                }
-            }
-            for (Node node : nodes.values()) {
-                if (node.closed) {
-                    node.closed = false;
-                    open.add(node);
-                }
-            }
-            return drain();
-        }
-
-        private List<BlockPos> drain() {
+        private List<Waypoint> drain() {
             Node goal = nodes.get(goalKey);
             Node found = null;
             while (!open.isEmpty() && visited < MAX_NODES) {
@@ -407,24 +436,46 @@ public final class NpcPathfinder {
             if (found == null) {
                 return List.of();
             }
-            List<BlockPos> waypoints = new ArrayList<>();
+            List<Waypoint> waypoints = new ArrayList<>();
             for (Node node = found; node != null; node = node.cameFrom) {
-                waypoints.add(new BlockPos(node.x, node.y, node.z));
+                Node from = node.cameFrom;
+                waypoints.add(new Waypoint(new BlockPos(node.x, node.y, node.z),
+                        from == null ? Waypoint.Move.WALK : moveOf(from, node)));
             }
             Collections.reverse(waypoints);
             return waypoints;
         }
 
+        private Waypoint.Move moveOf(Node from, Node to) {
+            int dy = to.y - from.y;
+            if (dy > 0) {
+                return from.x == to.x && from.z == to.z ? Waypoint.Move.CLIMB : Waypoint.Move.STEP_UP;
+            }
+            if (dy < 0) {
+                boolean onLadder = view.climbable(from.x, from.y, from.z)
+                        || view.climbable(to.x, to.y, to.z);
+                return onLadder ? Waypoint.Move.CLIMB : Waypoint.Move.DROP;
+            }
+            return Waypoint.Move.WALK;
+        }
+
         private void expand(Node current) {
+            if (view.climbable(current.x, current.y, current.z)) {
+                offer(current, current.x, current.y + 1, current.z);
+                offer(current, current.x, current.y - 1, current.z);
+            }
             for (Direction direction : HORIZONTALS) {
                 int x = current.x + direction.getStepX();
                 int z = current.z + direction.getStepZ();
                 offer(current, x, current.y, z);
                 offer(current, x, current.y + 1, z);
-                offer(current, x, current.y - 1, z);
-                for (int dy = -2; dy >= -DOWNWARD_RANGE; dy--) {
-                    if (view.standable(x, current.y + dy, z)) {
-                        offer(current, x, current.y + dy, z);
+                for (int dy = -1; dy >= -DOWNWARD_RANGE; dy--) {
+                    int y = current.y + dy;
+                    if (view.blocked(x, y, z)) {
+                        break;
+                    }
+                    if (view.standable(x, y, z)) {
+                        offer(current, x, y, z);
                         break;
                     }
                 }

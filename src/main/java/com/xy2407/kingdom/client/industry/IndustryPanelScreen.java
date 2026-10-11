@@ -26,9 +26,7 @@ import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
- * 工业操作界面的驱动：一级页铺蓝图 json 的配方卡片，点卡片进二级看配方详情并派工。
- * 与养殖的 {@code RanchPanelScreen} 同一套骨架 —— 那边的"动物"在这里是"配方"，
- * 二级页的名册点一行即上岗/离岗，改动立刻发走（不需要保存）。
+ * 工业操作界面的驱动：一级页铺配方卡片，二级页看详情并派工
  */
 @OnlyIn(Dist.CLIENT)
 public final class IndustryPanelScreen extends ApricityScreen {
@@ -68,7 +66,6 @@ public final class IndustryPanelScreen extends ApricityScreen {
     private Element workerSearchInput;
 
     private IndustryPanelStatePacket latest = IndustryPanelStatePacket.outside();
-    /** 当前进的是哪张配方；为 null 表示停在一级页。 */
     private String selectedRecipeId;
     private String filter = "";
     private String workerFilter = "";
@@ -127,7 +124,6 @@ public final class IndustryPanelScreen extends ApricityScreen {
         on("ic-worker-search-clear", () -> setWorkerFilter(""));
         on("bp-warehouse", this::openWarehouse);
         on("bp-close", this::onClose);
-        // 生产由在岗工人自动推进，这个按钮不改变状态，点它只解释一句，免得玩家以为坏了
         on("im-start", () -> hint("工业生产由在岗工人自动推进，点配方卡片派人即可开产"));
 
         setLevel(false);
@@ -183,7 +179,6 @@ public final class IndustryPanelScreen extends ApricityScreen {
 
         Recipe selected = selected();
         if (selected == null && selectedRecipeId != null) {
-            // 配方被蓝图改掉了：退回一级页，别停在空白详情上
             selectedRecipeId = null;
             setLevel(false);
         }
@@ -299,7 +294,6 @@ public final class IndustryPanelScreen extends ApricityScreen {
         }
     }
 
-    /** 已派工人总数 + 名字，供一级页那行「工人」用。 */
     private static String workerSummary(IndustryPanelStatePacket packet) {
         List<String> names = new ArrayList<>();
         for (Recipe recipe : packet.recipes()) {

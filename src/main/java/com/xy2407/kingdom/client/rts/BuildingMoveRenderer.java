@@ -23,17 +23,13 @@ import org.joml.Matrix4f;
 import org.joml.Matrix4fStack;
 
 /**
- * RTS 下的建筑线框与迁移投影：平时给所有建筑画淡金框（方便对准），
- * 迁移时把**建筑本身的方块投影**画在落点上，再叠一个绿框标出目标占地。
- * 网格画法与放置那条链完全一致（{@code BuildingPlacementRenderer}）。
+ * RTS 建筑线框与迁移投影渲染：建筑淡金框与迁移落点方块投影
  */
 @EventBusSubscriber(modid = ModMain.MOD_ID, value = Dist.CLIENT)
 @OnlyIn(Dist.CLIENT)
 public final class BuildingMoveRenderer {
 
-    /** 未选中：淡金。 */
     private static final float[] IDLE = {0.86F, 0.72F, 0.35F, 0.45F};
-    /** 迁移目标位置：绿。 */
     private static final float[] GHOST = {0.25F, 0.90F, 0.30F, 1.00F};
 
     private BuildingMoveRenderer() {
@@ -87,7 +83,6 @@ public final class BuildingMoveRenderer {
         RenderSystem.applyModelViewMatrix();
     }
 
-    /** 与放置链同一套：把世界原点平移到"方块盒中心相对于相机的偏移"。 */
     private static Matrix4f worldView(RenderLevelStageEvent event, BlockPos origin, Vec3i size) {
         float cx = origin.getX() + size.getX() / 2.0F;
         float cy = origin.getY() + size.getY() / 2.0F;

@@ -13,16 +13,13 @@ import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 /**
- * 服务端 → 客户端：住宅的床位占用与可入住的市民名册。
- * 与养殖的 {@code RanchPanelStatePacket} 同一套骨架 —— 那边的"可雇市民"在这里是"可入住市民"，
- * 面板拿 {@code residents} 与名册比对就能画出谁已经住在这里。
+ * 服务端 → 客户端：住宅床位占用与可入住市民名册
  */
 public record ResidentListPacket(boolean inside, String buildingName, int buildingLevel,
                                  String position, int bedTotal, List<UUID> residents,
                                  List<Worker> workers)
         implements CustomPacketPayload {
 
-    /** 名册长度上限，防手改包刷屏。 */
     private static final int MAX_ENTRIES = 512;
 
     public static final CustomPacketPayload.Type<ResidentListPacket> TYPE =
@@ -41,7 +38,6 @@ public record ResidentListPacket(boolean inside, String buildingName, int buildi
         return new ResidentListPacket(false, "", 0, "", 0, List.of(), List.of());
     }
 
-    /** 名册里的一个市民：是否住在这里由客户端拿 {@link #residents()} 比对。 */
     public record Worker(UUID id, String name, String skin, String note) {
         public Worker {
             name = name == null ? "" : name;

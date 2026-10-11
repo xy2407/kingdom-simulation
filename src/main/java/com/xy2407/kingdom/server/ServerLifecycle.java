@@ -36,17 +36,12 @@ public final class ServerLifecycle {
         FarmPlotManager.INSTANCE.reset();
         RanchPenManager.INSTANCE.reset();
         RanchWorkService.reset();
-        /* 餐厅订单与座位占用同理：换存档不能把上一局的订单带进来 */
         RestaurantOrderStore.INSTANCE.reset();
-        /* 阵营与领地：跟着世界一起清，避免换存档时读到上一个世界的国家 */
         NationRegistry.INSTANCE.reset();
         TerritoryRegistry.INSTANCE.reset();
         PlayerProfileStore.INSTANCE.reset();
-        /* 民心内存缓存与"昨日人口"基线也随存档一起清掉，避免拿着上局的数算减员 */
         TerritoryVitalsStore.INSTANCE.reset();
         TerritoryVitalsService.reset();
-        /* 建筑仓库的会话缓存与"上次写库的 SNBT"同理：换存档必须清，
-           否则会把上一个世界某个建筑的库存当成这个世界的（建筑 UUID 不会重复，但缓存会串） */
         BuildingStorageStore.INSTANCE.reset();
         MapOverlayCollector.install(event.getServer());
         SnapshotRepository snapshotRepository = SnapshotRepository.get(event.getServer());
@@ -65,23 +60,17 @@ public final class ServerLifecycle {
         if (instance != null) {
             instance.onServerTick();
         }
-        /* 三张表各自懒加载：数据库就绪后读一次，之后这些调用只是一次布尔判断 */
         NationRegistry.INSTANCE.tick();
         TerritoryRegistry.INSTANCE.tick();
         PlayerProfileStore.INSTANCE.tick();
         TerritoryVitalsStore.INSTANCE.tick();
-        /* 建筑仓库：每 60 tick 把改动过的容器写回数据库。
-           内部自己数节拍，没动过的建筑零开销（逐条比对 SNBT 才发现差异）。 */
         BuildingStorageStore.INSTANCE.tick(event.getServer());
-        /* 档案读完后再驱动首登：未 onboarded 的玩家会收到一次择旗状态包 */
         FactionService.tick(event.getServer());
     }
 
     @SubscribeEvent
     public static void onServerStopping(ServerStoppingEvent event) {
         NpcManager.INSTANCE.flushSync();
-        /* 建筑仓库：把还没到 60 tick 节拍的那点改动补写一次。
-           必须赶在 KingdomPersistence 关掉之前——关掉之后 submit 只会被丢弃。 */
         BuildingStorageStore.INSTANCE.flushAll(event.getServer());
         KingdomPersistence instance = KingdomPersistence.current();
         if (instance != null) {

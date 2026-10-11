@@ -17,9 +17,7 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
  */
 public record ResidentActionPacket(int action, UUID workerId) implements CustomPacketPayload {
 
-    /** 安排入住 / 让他搬走（同一人再点一次即撤销）。 */
     public static final int ACTION_TOGGLE_RESIDENT = 0;
-    /** 这栋住宅的住户全部搬出。 */
     public static final int ACTION_CLEAR_RESIDENTS = 1;
 
     public static final CustomPacketPayload.Type<ResidentActionPacket> TYPE =

@@ -13,8 +13,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 /**
- * 服务端 → 客户端：工业面板的整份状态 —— 配方卡片清单（每张带自己的工人）、可雇市民名册。
- * 与养殖的 {@code RanchPanelStatePacket} 同一套骨架：一级按 recipes 出卡片，二级读单张配方。
+ * 服务端 → 客户端：工业面板的配方卡片清单与可雇市民名册
  */
 public record IndustryPanelStatePacket(boolean inside, String buildingName, int buildingLevel,
                                        String position, List<Recipe> recipes, List<Worker> workers)
@@ -36,7 +35,6 @@ public record IndustryPanelStatePacket(boolean inside, String buildingName, int 
         return new IndustryPanelStatePacket(false, "", 0, "", List.of(), List.of());
     }
 
-    /** 一张配方卡片。{@code icon} 是第一个产物的物品 id，仅用于画卡片左侧的小图标。 */
     public record Recipe(String id, String name, String icon, String inputs, String outputs,
                          int ticks, String status, List<UUID> workers) {
         public Recipe {
@@ -50,7 +48,6 @@ public record IndustryPanelStatePacket(boolean inside, String buildingName, int 
         }
     }
 
-    /** 名册里的一个市民：是否已在岗由客户端拿 {@link Recipe#workers()} 比对。 */
     public record Worker(UUID id, String name, String skin, String note) {
         public Worker {
             name = name == null ? "" : name;

@@ -37,7 +37,6 @@ public final class BuildingPanelScreen extends ApricityScreen {
     private static final String ID_LEVEL = "bp-level";
     private static final String CLASS_FOOT_OFF = "bp-foot-off";
 
-    /* 住宅页的住户区（residential.html）：名册与农田的「打理人」同一套外观与交互 */
     private static final String RESIDENT_PREFIX = "rd";
     private static final String ID_BED_NOTE = "rd-bed-note";
     private static final String ID_BEDS = "rd-beds";
@@ -47,10 +46,8 @@ public final class BuildingPanelScreen extends ApricityScreen {
     private static final String ID_RESIDENT_SEARCH = "rd-search";
     private static final String ID_RESIDENT_SEARCH_CLEAR = "rd-search-clear";
 
-    /** 床位指示器最多画几格；再多就只靠标题栏那行数字交代。 */
     private static final int MAX_BED_CELLS = 32;
 
-    /* 餐厅页的菜单区（restaurant.html）：菜品卡片由 Java 按 json 的 menu 注入 */
     private static final String RESTAURANT_PREFIX = "rs";
     private static final String ID_CHEF = "rs-worker";
     private static final String ID_DISH_COUNT = "rs-count";
@@ -71,7 +68,6 @@ public final class BuildingPanelScreen extends ApricityScreen {
             "restaurant", "rs-pick",
             "shop", "sh-shelve",
             "military", "mt-army",
-            // 住宅没有底栏主按钮：入住已经变成名册里的点选
             "residential", "",
             "warehouse", "wh-link");
 
@@ -84,7 +80,6 @@ public final class BuildingPanelScreen extends ApricityScreen {
     private final String buildingPos;
     private boolean applied;
 
-    /** 最近一次收到的住户状态：搜索框变动时要用它就地重画名册，不必等下一次回包。 */
     private ResidentListPacket latestResidents = ResidentListPacket.outside();
     private String residentFilter = "";
     private String shownResidentFilter;
@@ -113,7 +108,6 @@ public final class BuildingPanelScreen extends ApricityScreen {
             sync();
             return;
         }
-        // 搜索框逐字生效：只有内容真的变了才重画名册，避免每 tick 刷 DOM
         if (RESIDENT_PREFIX.equals(prefixOf(page))) {
             Document document = getLinkedDocument();
             Element search = document == null ? null : document.getElementById(ID_RESIDENT_SEARCH);
@@ -144,14 +138,12 @@ public final class BuildingPanelScreen extends ApricityScreen {
         Element main = document.getElementById(MAIN_BUTTONS.getOrDefault(prefix, ""));
         if (main != null) {
             if (RESTAURANT_PREFIX.equals(prefix)) {
-                // 餐厅的「选择菜品」= 重新拉一次菜单（"食材够不够"要现查仓库）
                 main.addEventListener("click", event -> requestMenu());
             } else {
                 main.addEventListener("click", event -> hint("该功能尚未接入"));
             }
         }
         if (RESIDENT_PREFIX.equals(prefix)) {
-            // 名册里的两个按钮在这里绑；点行本身由 applyResidents 在生成行时逐个绑
             Element clear = document.getElementById(ID_RESIDENT_CLEAR);
             if (clear != null) {
                 clear.addEventListener("click", event ->
@@ -165,7 +157,6 @@ public final class BuildingPanelScreen extends ApricityScreen {
                     applyResidents(latestResidents);
                 });
             }
-            // 打开面板即拉一次，玩家不必先点按钮
             requestResidents();
         } else if (RESTAURANT_PREFIX.equals(prefix)) {
             requestMenu();
@@ -184,10 +175,6 @@ public final class BuildingPanelScreen extends ApricityScreen {
         PacketDistributor.sendToServer(new RestaurantMenuRequestPacket());
     }
 
-    /**
-     * 收到菜单：把菜品卡片注入 {@code rs-menu}。
-     * 卡片是只读展示（菜名 / 食材 / 售价），食材不齐的那张画灰 —— 后厨能不能做一眼可见。
-     */
     void applyRestaurantMenu(RestaurantMenuPacket packet) {
         Document document = getLinkedDocument();
         if (document == null) {
@@ -213,12 +200,6 @@ public final class BuildingPanelScreen extends ApricityScreen {
         menu.setInnerHTML(html.toString());
     }
 
-    /**
-     * 收到服务端下发的住户状态：画床位指示器，再填名册并给每行绑点击。
-     * 名册是"一份市民名单 + 谁已入住"（与农田的「打理人」同一套），点一行即切换入住状态。
-     * 行用固定 id（{@code rd-worker-i}）而不是事件委托 —— AUI 是自研事件系统，
-     * "按 id 取回元素再逐个绑"最稳，也避开了 event.target 的口径问题。
-     */
     void applyResidents(ResidentListPacket packet) {
         latestResidents = packet;
         Document document = getLinkedDocument();
@@ -232,7 +213,6 @@ public final class BuildingPanelScreen extends ApricityScreen {
         refreshResidentList(document, packet, residents);
     }
 
-    /** 床位指示器：一格一床，有人的点亮。格子太多时只画前 {@link #MAX_BED_CELLS} 格。 */
     private void refreshBeds(Document document, int occupied, int total) {
         Element host = document.getElementById(ID_BEDS);
         if (host == null) {
@@ -246,7 +226,6 @@ public final class BuildingPanelScreen extends ApricityScreen {
         host.setInnerHTML(html.toString());
     }
 
-    /** 名册：按搜索词过滤；行尾说明由服务端给（饥饿 / 另有住处）。 */
     private void refreshResidentList(Document document, ResidentListPacket packet, List<UUID> residents) {
         Element host = document.getElementById(ID_RESIDENT_LIST);
         if (host == null) {
@@ -291,7 +270,6 @@ public final class BuildingPanelScreen extends ApricityScreen {
         }
     }
 
-    /** 市民名字进 innerHTML 前转义，免得起名带尖括号把结构打破。 */
     private static String escape(String raw) {
         if (raw == null || raw.isEmpty()) {
             return "";

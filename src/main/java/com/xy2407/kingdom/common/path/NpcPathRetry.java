@@ -65,7 +65,7 @@ public final class NpcPathRetry {
             return true;
         }
         if (stage == 1) {
-            List<BlockPos> waypoints = search(npc);
+            List<NpcPathfinder.Waypoint> waypoints = search(npc);
             if (waypoints == null) {
                 return false;
             }
@@ -81,7 +81,7 @@ public final class NpcPathRetry {
         return true;
     }
 
-    private List<BlockPos> search(NpcEntity npc) {
+    private List<NpcPathfinder.Waypoint> search(NpcEntity npc) {
         BlockPos target = npc.getNavTarget();
         if (target == null || !(npc.level() instanceof ServerLevel level)) {
             return List.of();

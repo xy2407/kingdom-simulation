@@ -33,7 +33,6 @@ import net.minecraft.world.phys.AABB;
 public final class NpcManager {
     public static final NpcManager INSTANCE = new NpcManager();
 
-    /** 诊断报告最多列几名市民，免得大城里刷屏。 */
     private static final int MAX_DEBUG_NPCS = 40;
 
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -195,10 +194,6 @@ public final class NpcManager {
         return byId.get(id);
     }
 
-    /**
-     * 诊断用：把玩家所在维度里市民的作息状态链逐行吐出来，用来定位"为什么不去睡觉"。
-     * 每行给出 状态/子状态/行为 + 班次 + 排班表算出的期望子状态 + 住处与床的有效性 + 控制位。
-     */
     public List<String> debugReport(ServerPlayer player) {
         List<String> lines = new ArrayList<>();
         long dayTime = player.level().getDayTime() % NpcSchedule.DAY_LENGTH;

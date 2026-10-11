@@ -19,9 +19,7 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 public record IndustryPanelActionPacket(int action, String recipeId, UUID workerId)
         implements CustomPacketPayload {
 
-    /** 把某个市民派到 / 撤出这张配方（同一人再点一次即撤出）。 */
     public static final int ACTION_TOGGLE_WORKER = 0;
-    /** 这张配方上的工人全部离岗。 */
     public static final int ACTION_CLEAR_WORKERS = 1;
 
     public static final CustomPacketPayload.Type<IndustryPanelActionPacket> TYPE =
@@ -44,7 +42,6 @@ public record IndustryPanelActionPacket(int action, String recipeId, UUID worker
         return new IndustryPanelActionPacket(ACTION_CLEAR_WORKERS, recipeId == null ? "" : recipeId, null);
     }
 
-    /** 配方 id 转成客户端会话里的稳定标识；空串表示没指定配方。 */
     public String recipeIdOrEmpty() {
         return recipeId == null ? "" : recipeId;
     }

@@ -19,10 +19,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
- * 住宅住户管理：应答床位占用与可入住名册，执行入住 / 搬走 / 全部搬出。
- * 与养殖的 {@code RanchPanelService} 同构 —— 那边的"饲养员"在这里是"住户"。
- * 绑定关系落在 NPC 自己身上（{@code home_id} + {@code home_x/y/z}），床位由
- * {@link HomeBeds} 自动挑一张空的，一名市民只能占一张床。
+ * 住宅住户管理：应答床位名册，执行入住、搬走与全部搬出
  */
 public final class ResidentService {
 
@@ -59,7 +56,6 @@ public final class ResidentService {
         respond(player);
     }
 
-    /** 同一个人再点一次就搬出去；已有住处的不动，免得把别人家的人挖过来。 */
     private static void toggleResident(ServerPlayer player, BuildingRecord building, NpcData npc) {
         String buildingId = building.id().toString();
         if (buildingId.equals(npc.getHomeId())) {
@@ -72,7 +68,6 @@ public final class ResidentService {
         }
         BlockPos bed = HomeBeds.assignFree(player.serverLevel(), building);
         if (bed == null) {
-            // 住满了：床位数量就是居住上限
             player.displayClientMessage(Component.literal("床位已满，先加床或让住户搬走"), true);
             return;
         }
@@ -111,7 +106,6 @@ public final class ResidentService {
                 residents, workers);
     }
 
-    /** 名册行尾的说明：只标"不能住进来"的原因，可入住的留空。 */
     private static String workerNote(NpcData npc) {
         if (npc.getBrain().isStarving()) {
             return "饥饿";
@@ -124,7 +118,6 @@ public final class ResidentService {
         return building.min().getX() + ", " + building.min().getY() + ", " + building.min().getZ();
     }
 
-    /** 玩家脚下的住宅；不在住宅建筑里返回 null。 */
     private static BuildingRecord residenceOf(ServerPlayer player) {
         BuildingRecord building = BuildingRegistry.INSTANCE.locate(player);
         if (building == null) {

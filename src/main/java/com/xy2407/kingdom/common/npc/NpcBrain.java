@@ -75,7 +75,6 @@ public final class NpcBrain {
         }
         if (restaurantControlled) {
             if (NpcSchedule.subState(owner.getShift(), owner.getDayTime()) == NpcSubState.WORKING) {
-                // 后厨里做菜和上菜是两个行为，具体干哪个由餐厅服务按员工分工决定
                 setPlan(phase(), NpcSubState.WORKING, NpcRestaurantService.detailFor(owner));
                 return;
             }
@@ -124,8 +123,6 @@ public final class NpcBrain {
         }
         if (detail == null) {
             NpcDetail current = owner.getDetail();
-            // 休息时段特意不沿用 WANDERING：SLEEPING 与 WANDERING 的子状态都是 RESTING，
-            // 沿用的话会让人一直闲逛下去、永远回不到睡觉（房子刚分配时尤其明显）。
             boolean restarted = subState == NpcSubState.RESTING
                     && current == NpcDetail.WANDERING && hasHome();
             if (owner.getSubState() == subState && current != null
@@ -142,9 +139,6 @@ public final class NpcBrain {
         ThreadLocalRandom random = ThreadLocalRandom.current();
         return switch (subState) {
             case WORKING -> random.nextDouble() < SLACK_CHANCE ? NpcDetail.SLACKING : NpcDetail.WORKING_FOCUS;
-            // 有家就回家睡：睡觉本身就是回家的理由，不该先掷骰子决定睡不睡、输了就整晚在街上闲逛。
-            // 而且回家窗口只有 1000 tick，SLEEPING 走的是 sleepAtHome（走到床边再躺下），
-            // 所以哪怕这时人还在半路也会接着走回家，不会像以前那样卡在闲逛上。
             case RESTING -> hasHome() ? NpcDetail.SLEEPING : NpcDetail.WANDERING;
             case HUNGRY -> NpcDetail.FORAGING;
             case MOVING -> NpcDetail.GOING_WORK;
@@ -229,11 +223,6 @@ public final class NpcBrain {
         return wanderStyle;
     }
 
-    /**
-     * 诊断用一行：当前 tick 计数、距下一次状态机检查还有多久，以及全部控制位。
-     * 任何一位为 true，{@link #tick()} 都会在进入 mainLoop 之前提前返回，
-     * 排班表就再也改不动这个人 —— 排查"为什么不睡觉"第一个要看的就是这里。
-     */
     public String debugLine() {
         return "tick=" + tickCounter
                 + " 距检查=" + (MAIN_LOOP_INTERVAL - Math.floorMod(tickCounter, MAIN_LOOP_INTERVAL)) + "t"

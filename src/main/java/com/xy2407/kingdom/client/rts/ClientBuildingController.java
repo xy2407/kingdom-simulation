@@ -18,15 +18,11 @@ import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
- * RTS 建筑迁移的操盘手，照 xy's_nsuk 的 {@code RtsBuildingPlacementManager} 写：
- * 短按点中建筑 → 拉出这栋楼的**方块投影** → **按住左键拖动**投影（鼠标射线与地面的交点算位移）
- * → R 旋转 / 滚轮调高 → Enter 落地 / 右键取消。
- * 投影是真实方块几何（{@link StructureMesh}）而不是线框；拖动只改落点，网格只在旋转时重建。
+ * RTS 建筑迁移操盘手：点选建筑拉出方块投影，拖动落点并旋转落地
  */
 @OnlyIn(Dist.CLIENT)
 public final class ClientBuildingController {
 
-    /** 短按阈值：按下与松开的位移小于它才算"点选"，否则视为拖动。 */
     private static final double CLICK_SLOP = 5.0D;
 
     private static UUID movingId;
@@ -38,27 +34,22 @@ public final class ClientBuildingController {
     private static int baseY;
     private static int heightOffset;
 
-    /** 拖动基准：起拖时"鼠标∩地面"的点，与起拖时的落点快照。 */
     private static boolean dragging;
     private static Vec3 dragGroundStart;
     private static Vec3 dragOriginStart;
 
-    /** 短按判定用：左键按下时的鼠标位置。 */
     private static double pressX = -1.0D;
     private static double pressY = -1.0D;
 
     private ClientBuildingController() {
     }
 
-    // ================= 输入入口（由 RtsClientEvents 调） =================
 
-    /** 左键按下：迁移中就去起拖；否则只记下按下点，等松开时判断是不是短按。 */
     public static boolean onLeftPress(double mouseX, double mouseY) {
         if (!RtsModeManager.isActive()) {
             return false;
         }
         if (isMoving()) {
-            // 起拖前先把 RTS 那边的框选收掉：这次左键归迁移用，屏幕上不该再画框
             RtsModeManager.cancelLeftClick();
             beginDrag(mouseX, mouseY);
             return true;
@@ -68,7 +59,6 @@ public final class ClientBuildingController {
         return false;
     }
 
-    /** 左键松开：迁移中结束拖动；否则若是短按就尝试点选一栋建筑。 */
     public static boolean onLeftRelease(double mouseX, double mouseY) {
         if (!RtsModeManager.isActive()) {
             return false;
@@ -87,27 +77,17 @@ public final class ClientBuildingController {
         if (!shortClick || !tryPick(clickX, clickY)) {
             return false;
         }
-        // 点中建筑：这次左键归迁移用。但按下那一刻 RtsModeManager 已经开了框选
-        // （leftMouseDown = true），这里若不显式收掉，它就永远等不到自己的 onLeftMouseUp，
-        // 结果框选框一直画在屏幕上、后续点击也被"选中锁定"卡住。
-        // nsuk 的 RtsInputHandler 在 tryStartMoveFromClick 成功后正是这么处理的。
         RtsModeManager.cancelLeftClick();
         return true;
     }
 
-    /** 每 tick：拖动中就用鼠标当前的地面交点刷新落点。 */
     public static void tick() {
         if (dragging) {
             updateDrag();
         }
     }
 
-    // ================= 点选 =================
 
-    /**
-     * 短按点选：鼠标射线打到地面，取那一格的占地范围命中的建筑。
-     * 必须能读到蓝图才接（读不到就没法画投影）。
-     */
     private static boolean tryPick(double mouseX, double mouseY) {
         Vec3 ground = RtsPicker.pickTargetBlock(mouseX, mouseY);
         if (ground == null) {
@@ -133,9 +113,7 @@ public final class ClientBuildingController {
         return true;
     }
 
-    // ================= 拖动 =================
 
-    /** 起拖：左键必须落在投影的屏幕范围里（照 nsuk，点空白不会把楼拖走）。 */
     private static void beginDrag(double mouseX, double mouseY) {
         if (!isMoving() || !hitsProjection(mouseX, mouseY)) {
             return;
@@ -147,7 +125,6 @@ public final class ClientBuildingController {
         dragOriginStart = new Vec3(origin.getX(), origin.getY(), origin.getZ());
     }
 
-    /** 拖动：位移 = 当前地面交点 − 起拖时的地面交点，整格对齐；Y 只由滚轮改。 */
     private static void updateDrag() {
         if (dragGroundStart == null || dragOriginStart == null) {
             return;
@@ -174,7 +151,6 @@ public final class ClientBuildingController {
         dragOriginStart = null;
     }
 
-    // ================= 旋转 / 调高 / 落地 / 取消 =================
 
     public static void rotate() {
         if (!isMoving()) {
@@ -204,7 +180,6 @@ public final class ClientBuildingController {
         clear();
     }
 
-    // ================= 给渲染用 =================
 
     public static boolean isMoving() {
         return movingId != null && mesh != null;
@@ -218,7 +193,6 @@ public final class ClientBuildingController {
         return origin;
     }
 
-    /** 线框尺寸取旋转后的尺寸。 */
     public static Vec3i size() {
         StructureModel rotated = sourceModel == null ? null : StructureRotation.rotate(sourceModel, rotation);
         return rotated == null ? Vec3i.ZERO : rotated.size();
@@ -232,7 +206,6 @@ public final class ClientBuildingController {
         return dragging;
     }
 
-    /** 进 RTS 时拉一份建筑清单；退出时把迁移状态收干净（关掉投影网格）。 */
     public static void onModeChanged(boolean active) {
         if (active) {
             ClientBuildingStore.requestSync();
@@ -241,7 +214,6 @@ public final class ClientBuildingController {
         clear();
     }
 
-    // ================= 内部 =================
 
     private static void rebuildMesh() {
         StructureModel rotated = sourceModel == null ? null : StructureRotation.rotate(sourceModel, rotation);
@@ -255,7 +227,6 @@ public final class ClientBuildingController {
         mesh = next;
     }
 
-    /** 投影的屏幕外接矩形：把落点方块盒的 8 个角投影到屏幕再取包围盒（同放置那条链的写法）。 */
     private static boolean hitsProjection(double mouseX, double mouseY) {
         Vec3i size = size();
         if (origin == null || size.getX() <= 0 || size.getY() <= 0 || size.getZ() <= 0) {
@@ -300,7 +271,6 @@ public final class ClientBuildingController {
         endDrag();
         pressX = -1.0D;
         pressY = -1.0D;
-        // 退出/落地/取消之后也不该再留着半个框选状态
         RtsModeManager.cancelLeftClick();
     }
 }

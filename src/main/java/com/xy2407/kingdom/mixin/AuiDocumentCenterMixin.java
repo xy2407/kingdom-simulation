@@ -31,10 +31,6 @@ public abstract class AuiDocumentCenterMixin {
             if (minecraft == null || minecraft.getWindow() == null) {
                 return;
             }
-            // 必须与画面侧（AuiScreenDocCenterMixin / AuiContainerDocCenterMixin 用的
-            // guiGraphics.guiWidth()）同源：getScreenWidth() 是 GLFW 窗口坐标，高 DPI 下与
-            // GUI 视口不等（ApricityViewport 源码对这点有明确警告），两侧口径不一致
-            // 就会算出不同偏移 —— 表现为"画在这里、点在别处"。
             double guiWidth = Math.max(1.0d, minecraft.getWindow().getGuiScaledWidth());
             double guiHeight = Math.max(1.0d, minecraft.getWindow().getGuiScaledHeight());
             float renderScale = viewport.renderScale();

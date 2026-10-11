@@ -3,7 +3,6 @@ package com.xy2407.kingdom.common.path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -21,6 +20,8 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
 
+import static net.minecraft.server.network.PlayerChunkSender.MIN_CHUNKS_PER_TICK;
+
 /**
  * 寻路快照仓库：分帧构建区块快照并兜底轮转重建，路径搜索交由后台线程池执行。
  */
@@ -30,13 +31,12 @@ public final class SnapshotRepository {
 
     private static final int BLOCKS_PER_TICK = 4096;
     private static final int ESTIMATED_BLOCKS_PER_CHUNK = 2048;
-    /** 单区块最低记账成本，避免空区块把预算扣成 0 导致一 tick 无限建快照。 */
     private static final int MIN_BLOCKS_PER_CHUNK = 256;
     private static final int PENDING_QUEUE_CAP = 4096;
     private static final int MAX_TRACKED_CHUNKS = 4096;
     private static final int MAX_SEARCHES_PER_TICK = 20;
     private static final int MAX_COMMUTE_SEARCHES_PER_TICK = 16;
-    private static final int SEARCH_THREADS = 2;
+    private static final int SEARCH_THREADS = 4;
     private static final long DIRTY_COOLDOWN_TICKS = 4L;
 
     private final Map<ResourceKey<Level>, Store> stores = new ConcurrentHashMap<>();
@@ -124,34 +124,6 @@ public final class SnapshotRepository {
         return searchesThisTick > 0 || !store(level.dimension()).pending.isEmpty();
     }
 
-    public Future<List<BlockPos>> submitSearch(ServerLevel level, BlockPos start, BlockPos end) {
-        return submitSearch(level, start, end, NpcPathfinder.DEFAULT_PADDING);
-    }
-
-    public Future<List<BlockPos>> submitSearch(ServerLevel level, BlockPos start, BlockPos end, int padding) {
-        ExecutorService current = executor;
-        if (current == null || current.isShutdown()) {
-            return null;
-        }
-        ResourceKey<Level> dimension = level.dimension();
-        if (!NpcPathfinder.isViable(this, dimension, start, end)) {
-            return null;
-        }
-        if (!tryAcquireSearch()) {
-            return null;
-        }
-        NpcPathfinder.requestChunks(this, dimension, start, end, padding);
-        try {
-            return current.submit(() -> NpcPathfinder.find(this, dimension, start, end, padding));
-        } catch (RejectedExecutionException rejected) {
-            return null;
-        }
-    }
-
-    /**
-     * 提交一次可续跑的会话搜索：升档重试时 Session 会接着上次的搜索图往下跑，
-     * 而不是从起点重算。调用方必须保证同一个 Session 不被并发提交。
-     */
     public Future<NpcPathfinder.PathResult> submitSessionSearch(ServerLevel level, NpcPathfinder.Session session,
                                                                 BlockPos start, BlockPos end, int padding) {
         ExecutorService current = executor;
@@ -173,36 +145,9 @@ public final class SnapshotRepository {
         }
     }
 
-    public Future<List<BlockPos>> submitCommuteSearch(ServerLevel level, BlockPos start, BlockPos end) {
-        return submitCommuteSearch(level, start, end, NpcPathfinder.DEFAULT_PADDING);
-    }
-
-    public Future<List<BlockPos>> submitCommuteSearch(ServerLevel level, BlockPos start, BlockPos end, int padding) {
-        ExecutorService current = executor;
-        if (current == null || current.isShutdown()) {
-            return null;
-        }
-        ResourceKey<Level> dimension = level.dimension();
-        if (!NpcPathfinder.isViable(this, dimension, start, end)) {
-            return null;
-        }
-        if (!tryAcquireCommuteSearch()) {
-            return null;
-        }
-        NpcPathfinder.requestChunks(this, dimension, start, end, padding);
-        try {
-            return current.submit(() -> NpcPathfinder.find(this, dimension, start, end, padding));
-        } catch (RejectedExecutionException rejected) {
-            return null;
-        }
-    }
-
     public void tick(ServerLevel level) {
         searchesThisTick = 0;
         Store store = store(level.dimension());
-        // 只重建被"打脏"的区块（markDirty / LevelChunkMixin）。
-        // 原来这里还有一段"无条件轮转重建全部快照"的兜底，它让主线程只要有寻路需求
-        // 就恒定以 1 区块/tick 的速度空转；现在方块变化有了全量覆盖，那段轮转纯属浪费。
         drain(level, store, BLOCKS_PER_TICK);
     }
 
@@ -220,7 +165,7 @@ public final class SnapshotRepository {
         if (store.snapshots.containsKey(id)) {
             return;
         }
-        offer(store, id);
+        offer(store, id, false);
     }
 
     public void enqueue(ServerLevel level, ChunkPos pos) {
@@ -234,8 +179,6 @@ public final class SnapshotRepository {
     public void markDirty(ServerLevel level, int chunkX, int chunkZ) {
         Store store = store(level.dimension());
         long id = ChunkPos.asLong(chunkX, chunkZ);
-        // 这个入口挂在所有方块变化上（LevelChunkMixin，每次挖掘/放置/爆炸都会进），
-        // 必须让绝大多数调用在这里就掉头：没建过快照的区块压根不用记录。
         if (!store.snapshots.containsKey(id)) {
             return;
         }
@@ -245,11 +188,30 @@ public final class SnapshotRepository {
             return;
         }
         store.dirtyAt.put(id, now);
-        offer(store, id);
+        offer(store, id, true);
     }
 
     public void refreshNow(ServerLevel level, BlockPos pos) {
-        offer(store(level.dimension()), ChunkPos.asLong(pos.getX() >> 4, pos.getZ() >> 4));
+        offer(store(level.dimension()), ChunkPos.asLong(pos.getX() >> 4, pos.getZ() >> 4), true);
+    }
+
+    public int buildNow(ServerLevel level, int minChunkX, int maxChunkX, int minChunkZ, int maxChunkZ) {
+        Store store = store(level.dimension());
+        int built = 0;
+        for (int cx = minChunkX; cx <= maxChunkX; cx++) {
+            for (int cz = minChunkZ; cz <= maxChunkZ; cz++) {
+                LevelChunk chunk = level.getChunkSource().getChunkNow(cx, cz);
+                if (chunk == null) {
+                    continue;
+                }
+                long id = ChunkPos.asLong(cx, cz);
+                store.snapshots.put(id, ChunkSnapshot.build(chunk));
+                store.pendingIds.remove(id);
+                store.pending.remove(id);
+                built++;
+            }
+        }
+        return built;
     }
 
     public void drop(ServerLevel level, ChunkPos pos) {
@@ -264,19 +226,24 @@ public final class SnapshotRepository {
         return stores.computeIfAbsent(dimension, key -> new Store());
     }
 
-    private void offer(Store store, long id) {
+    private void offer(Store store, long id, boolean first) {
         if (!store.pendingIds.add(id)) {
             return;
         }
         if (store.pending.size() >= PENDING_QUEUE_CAP) {
             store.pendingIds.remove(store.pending.poll());
         }
-        store.pending.add(id);
+        if (first) {
+            store.pending.addFirst(id);
+        } else {
+            store.pending.add(id);
+        }
     }
 
     private int drain(ServerLevel level, Store store, int budget) {
         int scan = store.pending.size();
-        while (budget > 0 && scan-- > 0) {
+        int built = 0;
+        while (scan-- > 0 && (budget > 0 || built < MIN_CHUNKS_PER_TICK)) {
             long id = store.pending.poll();
             store.pendingIds.remove(id);
             ChunkPos pos = new ChunkPos(id);
@@ -286,8 +253,7 @@ public final class SnapshotRepository {
             }
             ChunkSnapshot snapshot = ChunkSnapshot.build(chunk);
             store.snapshots.put(id, snapshot);
-            // 按实际扫描量扣预算：原来固定扣 2048，可高楼区块真实要扫到 8192，
-            // 分帧就失真了 —— 一 tick 内可能吃掉 4 倍的预算。
+            built++;
             budget -= Math.max(snapshot.scanCost(), MIN_BLOCKS_PER_CHUNK);
         }
         trim(store);
@@ -314,7 +280,7 @@ public final class SnapshotRepository {
         private final Map<Long, ChunkSnapshot> snapshots = new ConcurrentHashMap<>();
         private final ArrayDeque<Long> pending = new ArrayDeque<>();
         private final Set<Long> pendingIds = new HashSet<>();
-        /** 上次打脏的时间戳，用于 DIRTY_COOLDOWN_TICKS 防抖（同一区块 4 tick 内只重建一次）。 */
         private final Map<Long, Long> dirtyAt = new ConcurrentHashMap<>();
     }
 }
+ 
