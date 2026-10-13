@@ -18,10 +18,14 @@ import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.client.map.ClientMapScanner;
 import com.xy2407.kingdom.client.map.ClientMapStore;
 import com.xy2407.kingdom.client.map.MapOverlayStore;
+import com.xy2407.kingdom.client.map.RoadClientStore;
+import com.xy2407.kingdom.client.map.WorldRoadScreen;
 import com.xy2407.kingdom.common.building.BuildingType;
 import com.xy2407.kingdom.common.faction.Territory;
+import com.xy2407.kingdom.common.road.RoadPolyline;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FastColor;
 import net.minecraft.world.level.ChunkPos;
@@ -29,6 +33,7 @@ import net.minecraft.world.level.material.MapColor;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 
+import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
@@ -39,6 +44,7 @@ import java.awt.image.DataBufferInt;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -105,6 +111,13 @@ public class WorldMapElement extends Canvas {
     private static final int BUILDING_FILL = 0x6640A0FF;
     private static final int BUILDING_EDGE = 0xFF2F7FD0;
 
+    // 道路模式（世界道路页）：折线 = 半径 6 的圆头线；无根线红、合法线亮金、未加载格红警示
+    private static final int ROAD_VALID_COLOR = 0xD8F5E08A;
+    private static final int ROAD_INVALID_COLOR = 0xE0E04040;
+    private static final int ROAD_HOVER_FILL = 0x66E04040;
+    private static final int ROAD_HOVER_EDGE = 0xFFE04040;
+    private static final int ROAD_COMMITTED_COLOR = 0x904A3218;
+
     private static final double BUILDING_ICON_MIN_PIXELS_PER_BLOCK = 0.35;
     private static final int BUILDING_ICON_SIZE = 9;
     private static final int ICON_BORDER = 1;
@@ -164,6 +177,21 @@ public class WorldMapElement extends Canvas {
 
     private static boolean selectionDirty;
 
+    // 道路模式开关（WorldRoadScreen 进出时切）与画笔状态：static 与 selecting 同理，地图元素同时只有一个在用
+    private static boolean roadMode;
+
+    private static boolean roadDrawing;
+
+    private static double roadLastX = Double.NaN;
+
+    private static double roadLastZ = Double.NaN;
+
+    private static int roadHoverX;
+
+    private static int roadHoverZ;
+
+    private static boolean roadHoverInvalid;
+
     private static int brushChunkX;
 
     private static int brushChunkZ;
@@ -174,6 +202,17 @@ public class WorldMapElement extends Canvas {
 
     public interface SelectionListener {
         void onSelection(Set<Long> chunks);
+    }
+
+    // W15：道路模式下左键点中"有道路的区块"时回调（世界道路页弹传送确认）
+    private static RoadClickListener roadClickListener;
+
+    public interface RoadClickListener {
+        void onRoadChunk(int chunkX, int chunkZ);
+    }
+
+    public static void setRoadClickListener(RoadClickListener listener) {
+        roadClickListener = listener;
     }
 
     private boolean dragging;
@@ -508,8 +547,60 @@ public class WorldMapElement extends Canvas {
     private void drawOverlay(Graphics2D graphics, int surfaceWidth, int surfaceHeight,
                              int clipX0, int clipY0, int clipX1, int clipY1) {
         drawTerritoryLayer(graphics, surfaceWidth, surfaceHeight, clipX0, clipY0, clipX1, clipY1);
+        drawCommittedRoadLayer(graphics, clipX0, clipY0, clipX1, clipY1);
+        drawRoadLayer(graphics);
         drawBuildingLayer(graphics, surfaceWidth, surfaceHeight, clipX0, clipY0, clipX1, clipY1);
         drawIconLayer(graphics, surfaceWidth, surfaceHeight, clipX0, clipY0, clipX1, clipY1);
+    }
+
+    // W14：已提交的道路在任意地图上常显（随 MapOverlayDataPacket 下发）；按区块内行合并成水平段再画
+    private void drawCommittedRoadLayer(Graphics2D graphics, int clipX0, int clipY0, int clipX1, int clipY1) {
+        List<MapOverlayStore.RoadView> roads = MapOverlayStore.roads();
+        if (roads.isEmpty() || paintedPixelsPerBlock <= 0.0) {
+            return;
+        }
+        double cell = paintedPixelsPerBlock;
+        int height = Math.max(1, (int) Math.round(cell));
+        int chunkPixels = (int) Math.round(cell * CHUNK_SIZE);
+        graphics.setColor(new Color(ROAD_COMMITTED_COLOR, true));
+        for (int index = 0; index < roads.size(); index++) {
+            MapOverlayStore.RoadView road = roads.get(index);
+            if (!ClientMapStore.explored(road.chunkX(), road.chunkZ())) {
+                continue;
+            }
+            int px0 = pixelX(road.chunkX() * CHUNK_SIZE);
+            int py0 = pixelZ(road.chunkZ() * CHUNK_SIZE);
+            if (px0 > clipX1 || py0 > clipY1 || px0 + chunkPixels < clipX0 || py0 + chunkPixels < clipY0) {
+                continue;
+            }
+            drawRoadCells(graphics, road, cell, height);
+        }
+    }
+
+    private void drawRoadCells(Graphics2D graphics, MapOverlayStore.RoadView road, double cell, int height) {
+        boolean[][] grid = new boolean[CHUNK_SIZE][CHUNK_SIZE];
+        long[] cells = road.cells();
+        for (int index = 0; index < cells.length; index++) {
+            int localX = BlockPos.getX(cells[index]) & 15;
+            int localZ = BlockPos.getZ(cells[index]) & 15;
+            grid[localZ][localX] = true;
+        }
+        int baseX = road.chunkX() * CHUNK_SIZE;
+        int baseZ = road.chunkZ() * CHUNK_SIZE;
+        for (int localZ = 0; localZ < CHUNK_SIZE; localZ++) {
+            int runStart = -1;
+            for (int localX = 0; localX <= CHUNK_SIZE; localX++) {
+                boolean filled = localX < CHUNK_SIZE && grid[localZ][localX];
+                if (filled && runStart < 0) {
+                    runStart = localX;
+                } else if (!filled && runStart >= 0) {
+                    int px = pixelX(baseX + runStart);
+                    int py = pixelZ(baseZ + localZ);
+                    graphics.fillRect(px, py, (int) Math.max(1, (localX - runStart) * cell), height);
+                    runStart = -1;
+                }
+            }
+        }
     }
 
     private void drawTerritoryLayer(Graphics2D graphics, int surfaceWidth, int surfaceHeight,
@@ -671,6 +762,33 @@ public class WorldMapElement extends Canvas {
     private void handleClick(double screenX, double screenY) {
         if (paintedPixelsPerBlock <= 0.0) {
             return;
+        }
+        if (isRoadHost()) {
+            int worldX = paintedOriginX + (int) Math.round(toSurfaceX(screenX) / paintedPixelsPerBlock);
+            int worldZ = paintedOriginZ + (int) Math.round(toSurfaceY(screenY) / paintedPixelsPerBlock);
+            int chunkX = Math.floorDiv(worldX, CHUNK_SIZE);
+            int chunkZ = Math.floorDiv(worldZ, CHUNK_SIZE);
+            for (MapOverlayStore.RoadView road : MapOverlayStore.roads()) {
+                if (road.containsChunk(chunkX, chunkZ) && roadClickListener != null) {
+                    roadClickListener.onRoadChunk(chunkX, chunkZ);
+                    break;
+                }
+            }
+            return;
+        }
+        // 市政厅等非道路宿主：点中已提交道路区块 → 传送回调（W15 任意地图可传）；
+        // 没点中道路才走原有的建筑/领地选中
+        if (roadClickListener != null) {
+            int worldX = paintedOriginX + (int) Math.round(toSurfaceX(screenX) / paintedPixelsPerBlock);
+            int worldZ = paintedOriginZ + (int) Math.round(toSurfaceY(screenY) / paintedPixelsPerBlock);
+            int chunkX = Math.floorDiv(worldX, CHUNK_SIZE);
+            int chunkZ = Math.floorDiv(worldZ, CHUNK_SIZE);
+            for (MapOverlayStore.RoadView road : MapOverlayStore.roads()) {
+                if (road.containsBlock(worldX, worldZ)) {
+                    roadClickListener.onRoadChunk(chunkX, chunkZ);
+                    return;
+                }
+            }
         }
         if (showBuildings() && paintedPixelsPerBlock >= BUILDING_ICON_MIN_PIXELS_PER_BLOCK) {
             MapOverlayStore.BuildingView building = buildingAt(screenX, screenY);
@@ -975,6 +1093,9 @@ public class WorldMapElement extends Canvas {
         dragPixelX = 0.0;
         dragPixelY = 0.0;
         dragRebuild = true;
+        if (roadDrawing) {
+            endRoadStroke();
+        }
         if (selecting) {
             selecting = false;
             selectionDirty = true;
@@ -999,6 +1120,15 @@ public class WorldMapElement extends Canvas {
     private void onMouseDown(Event event) {
         MouseEvent e = (MouseEvent) event;
         hideTooltip();
+        if (isRoadHost() && e.button == RIGHT_BUTTON) {
+            roadDrawing = true;
+            roadLastX = Double.NaN;
+            roadLastZ = Double.NaN;
+            roadHoverInvalid = false;
+            RoadClientStore.beginStroke();
+            stampRoadPoint(e.offsetX, e.offsetY);
+            return;
+        }
         if (e.button == RIGHT_BUTTON) {
             selecting = true;
             SELECTION.clear();
@@ -1024,6 +1154,10 @@ public class WorldMapElement extends Canvas {
         MouseEvent e = (MouseEvent) event;
         hoverX = e.offsetX;
         hoverY = e.offsetY;
+        if (roadDrawing) {
+            stampRoadPoint(e.offsetX, e.offsetY);
+            return;
+        }
         if (selecting) {
             lastDragNanos = System.nanoTime();
             paintSelection(e.offsetX, e.offsetY);
@@ -1073,6 +1207,12 @@ public class WorldMapElement extends Canvas {
 
     private void onMouseUp(Event event) {
         MouseEvent e = (MouseEvent) event;
+        if (roadDrawing) {
+            if (e.button == RIGHT_BUTTON) {
+                endRoadStroke();
+            }
+            return;
+        }
         if (selecting) {
             selecting = false;
             selectionDirty = true;
@@ -1102,6 +1242,174 @@ public class WorldMapElement extends Canvas {
 
     public static void setSelectionListener(SelectionListener listener) {
         selectionListener = listener;
+    }
+
+    // 道路交互只认"当前 Screen 就是世界道路页"——roadMode 是 static，子模式被外部重置时可能失步，
+    // 市政厅地图绝不能因残留的 roadMode 变成画线板（真源以打开的 Screen 为准）
+    private static boolean isRoadHost() {
+        return roadMode && Minecraft.getInstance().screen instanceof WorldRoadScreen;
+    }
+
+    public static void setRoadMode(boolean value) {
+        roadMode = value;
+        if (!value) {
+            roadDrawing = false;
+            roadLastX = Double.NaN;
+            roadLastZ = Double.NaN;
+            roadHoverInvalid = false;
+        }
+        selectionDirty = true;
+    }
+
+    public static Set<Long> ownTerritoryChunks() {
+        Set<Long> chunks = new HashSet<>();
+        for (MapOverlayStore.TerritoryView territory : MapOverlayStore.territories()) {
+            if (territory.self()) {
+                chunks.addAll(territory.chunks());
+            }
+        }
+        return chunks;
+    }
+
+    private void endRoadStroke() {
+        roadDrawing = false;
+        roadLastX = Double.NaN;
+        roadLastZ = Double.NaN;
+        RoadClientStore.endStroke();
+        requestRepaint();
+    }
+
+    // 落笔把关（D1 双条件）：explored 且服务端已加载才可画；领地内按 W9 主动跳过并断线，
+    // 未加载/未探索处拒绝并断线（不许跨过空洞把两段连成一条），未加载格另给红色警示。
+    private void stampRoadPoint(double screenX, double screenY) {
+        if (paintedPixelsPerBlock <= 0.0 || !roadDrawing) {
+            return;
+        }
+        int worldX = paintedOriginX + (int) Math.round(toSurfaceX(screenX) / paintedPixelsPerBlock);
+        int worldZ = paintedOriginZ + (int) Math.round(toSurfaceY(screenY) / paintedPixelsPerBlock);
+        roadHoverX = worldX;
+        roadHoverZ = worldZ;
+        roadHoverInvalid = false;
+        if (Double.isNaN(roadLastX)) {
+            stampRoadCell(worldX, worldZ);
+        } else {
+            stampRoadLine((int) Math.floor(roadLastX), (int) Math.floor(roadLastZ), worldX, worldZ);
+        }
+    }
+
+    private void stampRoadLine(int fromX, int fromZ, int toX, int toZ) {
+        int steps = Math.max(Math.abs(toX - fromX), Math.abs(toZ - fromZ));
+        if (steps == 0) {
+            stampRoadCell(toX, toZ);
+            return;
+        }
+        for (int step = 0; step <= steps; step++) {
+            int x = fromX + Math.round((float) (toX - fromX) * step / steps);
+            int z = fromZ + Math.round((float) (toZ - fromZ) * step / steps);
+            stampRoadCell(x, z);
+        }
+    }
+
+    private void stampRoadCell(int worldX, int worldZ) {
+        int chunkX = Math.floorDiv(worldX, CHUNK_SIZE);
+        int chunkZ = Math.floorDiv(worldZ, CHUNK_SIZE);
+        if (inOwnTerritory(chunkX, chunkZ) || !ClientMapStore.explored(chunkX, chunkZ)) {
+            breakRoadStroke(worldX, worldZ);
+            return;
+        }
+        if (!RoadClientStore.isLoadedChunk(chunkX, chunkZ)) {
+            roadHoverInvalid = true;
+            breakRoadStroke(worldX, worldZ);
+            return;
+        }
+        if (!Double.isNaN(roadLastX) && worldX == (int) Math.floor(roadLastX)
+                && worldZ == (int) Math.floor(roadLastZ)) {
+            return;
+        }
+        RoadClientStore.appendPoint(worldX + 0.5D, worldZ + 0.5D);
+        roadLastX = worldX + 0.5D;
+        roadLastZ = worldZ + 0.5D;
+        requestRepaint();
+    }
+
+    private void breakRoadStroke(int worldX, int worldZ) {
+        RoadClientStore.breakPolyline();
+        roadLastX = Double.NaN;
+        roadLastZ = Double.NaN;
+        if (inOwnTerritory(Math.floorDiv(worldX, CHUNK_SIZE), Math.floorDiv(worldZ, CHUNK_SIZE))) {
+            return;
+        }
+        if (!ClientMapStore.explored(Math.floorDiv(worldX, CHUNK_SIZE), Math.floorDiv(worldZ, CHUNK_SIZE))) {
+            return;
+        }
+        requestRepaint();
+    }
+
+    private static boolean inOwnTerritory(int chunkX, int chunkZ) {
+        for (MapOverlayStore.TerritoryView territory : MapOverlayStore.territories()) {
+            if (territory.self() && territory.containsChunk(chunkX, chunkZ)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void drawRoadLayer(Graphics2D graphics) {
+        if (!isRoadHost() || paintedPixelsPerBlock <= 0.0) {
+            return;
+        }
+        Set<Long> ownChunks = ownTerritoryChunks();
+        List<RoadPolyline> lines = RoadClientStore.flatten();
+        boolean[] rooted = RoadClientStore.computeRooted(lines, ownChunks);
+        graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        float width = (float) Math.max(1.0, RoadPolyline.RADIUS * 2.0 * paintedPixelsPerBlock);
+        graphics.setStroke(new BasicStroke(width, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        int flatIndex = 0;
+        for (RoadClientStore.Stroke stroke : RoadClientStore.strokes()) {
+            for (RoadPolyline line : stroke.polylines()) {
+                drawRoadPolyline(graphics, line, rooted[flatIndex++]);
+            }
+            if (!stroke.openPoints().isEmpty()) {
+                drawRoadPolyline(graphics, RoadPolyline.of(stroke.openPoints()), rooted[flatIndex++]);
+            }
+        }
+        graphics.setStroke(new BasicStroke(1.0F));
+        graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
+        drawRoadHoverWarning(graphics);
+    }
+
+    private void drawRoadPolyline(Graphics2D graphics, RoadPolyline line, boolean rooted) {
+        graphics.setColor(new Color(rooted ? ROAD_VALID_COLOR : ROAD_INVALID_COLOR, true));
+        if (line.pointCount() == 1) {
+            int px = (int) Math.round((line.xs()[0] - paintedOriginX) * paintedPixelsPerBlock);
+            int py = (int) Math.round((line.zs()[0] - paintedOriginZ) * paintedPixelsPerBlock);
+            int radius = (int) Math.max(1.0, RoadPolyline.RADIUS * paintedPixelsPerBlock);
+            graphics.fillOval(px - radius, py - radius, radius * 2, radius * 2);
+            return;
+        }
+        for (int index = 1; index < line.pointCount(); index++) {
+            int x0 = (int) Math.round((line.xs()[index - 1] - paintedOriginX) * paintedPixelsPerBlock);
+            int y0 = (int) Math.round((line.zs()[index - 1] - paintedOriginZ) * paintedPixelsPerBlock);
+            int x1 = (int) Math.round((line.xs()[index] - paintedOriginX) * paintedPixelsPerBlock);
+            int y1 = (int) Math.round((line.zs()[index] - paintedOriginZ) * paintedPixelsPerBlock);
+            graphics.drawLine(x0, y0, x1, y1);
+        }
+    }
+
+    private void drawRoadHoverWarning(Graphics2D graphics) {
+        if (!roadHoverInvalid) {
+            return;
+        }
+        int size = Math.max(2, (int) Math.round(paintedPixelsPerBlock * CHUNK_SIZE));
+        int px0 = pixelX(roadHoverX - (Math.floorMod(roadHoverX, CHUNK_SIZE)));
+        int py0 = pixelZ(roadHoverZ - (Math.floorMod(roadHoverZ, CHUNK_SIZE)));
+        graphics.setColor(new Color(ROAD_HOVER_FILL, true));
+        graphics.fillRect(px0, py0, size, size);
+        graphics.setColor(new Color(ROAD_HOVER_EDGE, true));
+        graphics.fillRect(px0, py0, size, EDGE_WIDTH);
+        graphics.fillRect(px0, py0 + size - EDGE_WIDTH, size, EDGE_WIDTH);
+        graphics.fillRect(px0, py0, EDGE_WIDTH, size);
+        graphics.fillRect(px0 + size - EDGE_WIDTH, py0, EDGE_WIDTH, size);
     }
 
     public static void clearSelection() {

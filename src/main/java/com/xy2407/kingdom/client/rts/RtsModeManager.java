@@ -45,6 +45,8 @@ public final class RtsModeManager {
 
     private static boolean active = false;
 
+    private static RtsSubMode subMode = RtsSubMode.NONE;
+
     private static Vec3 cameraPos = null;
     private static float cameraYaw = 0.0F;
     private static float cameraPitch = 30.0F;
@@ -84,6 +86,34 @@ public final class RtsModeManager {
     private RtsModeManager() {
     }
 
+    public static RtsSubMode getSubMode() {
+        return subMode;
+    }
+
+    public static boolean isRoadMode() {
+        return subMode == RtsSubMode.ROAD_TERRITORY || subMode == RtsSubMode.ROAD_WORLD;
+    }
+
+    public static void enterSubMode(RtsSubMode mode) {
+        RtsSubMode next = mode == null ? RtsSubMode.NONE : mode;
+        if (subMode == next) {
+            return;
+        }
+        exitSubMode();
+        subMode = next;
+        boxSelecting = false;
+        ctrlBoxSelecting = false;
+        leftMouseDown = false;
+    }
+
+    public static void exitSubMode() {
+        if (subMode == RtsSubMode.NONE) {
+            return;
+        }
+        subMode = RtsSubMode.NONE;
+        RtsRoadState.reset();
+    }
+
     public static boolean isActive() {
         return active;
     }
@@ -111,6 +141,7 @@ public final class RtsModeManager {
         prevCameraPitch = cameraPitch;
 
         active = true;
+        subMode = RtsSubMode.NONE;
         orthoEnabled = false;
         selectedEntities.clear();
         moveTargets.clear();
@@ -131,6 +162,7 @@ public final class RtsModeManager {
     public static void exit() {
         Minecraft minecraft = Minecraft.getInstance();
         active = false;
+        subMode = RtsSubMode.NONE;
         orthoEnabled = false;
         cameraPos = null;
         prevCameraPos = null;

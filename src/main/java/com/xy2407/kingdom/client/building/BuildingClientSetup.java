@@ -8,6 +8,7 @@ import com.xy2407.kingdom.client.path.NpcPathDebugRenderer;
 import com.xy2407.kingdom.client.ranch.RanchPanelScreen;
 import com.xy2407.kingdom.client.industry.IndustryPanelScreen;
 import com.xy2407.kingdom.client.map.MapOverlayStore;
+import com.xy2407.kingdom.client.map.RoadClientStore;
 import com.xy2407.kingdom.client.rts.ClientBuildingStore;
 import com.xy2407.kingdom.client.structure.StructureDebugKeybind;
 import com.xy2407.kingdom.common.network.debug.NpcPathDebugHooks;
@@ -22,6 +23,7 @@ import com.xy2407.kingdom.common.network.cityhall.CityHallHooks;
 import com.xy2407.kingdom.common.network.mapoverlay.MapOverlayHooks;
 import com.xy2407.kingdom.common.network.farm.FarmPanelHooks;
 import com.xy2407.kingdom.common.network.ranch.RanchPanelHooks;
+import com.xy2407.kingdom.common.network.road.RoadHooks;
 
 import net.minecraft.client.KeyMapping;
 import net.neoforged.api.distmarker.Dist;
@@ -68,6 +70,7 @@ public final class BuildingClientSetup {
         MapOverlayHooks.dataSink = MapOverlayStore::accept;
         NpcPathDebugHooks.sink = NpcPathDebugRenderer::accept;
         NpcRosterHooks.rosterSink = StructureDebugKeybind::acceptRoster;
+        RoadHooks.loadedSink = RoadClientStore::setLoadedChunks;
     }
 
     @SubscribeEvent

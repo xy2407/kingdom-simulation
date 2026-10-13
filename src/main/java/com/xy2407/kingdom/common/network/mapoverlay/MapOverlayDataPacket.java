@@ -15,12 +15,13 @@ import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 /**
- * 服务端 → 客户端：地图叠层数据——领地列表（含区块集合）与可视范围内的建筑列表
+ * 服务端 → 客户端：地图叠层数据——领地列表（含区块集合）、可视范围内的建筑列表与世界道路区块（W14）
  */
 public record MapOverlayDataPacket(
         long revision,
         List<TerritoryEntry> territories,
-        List<BuildingEntry> buildings
+        List<BuildingEntry> buildings,
+        List<RoadChunkEntry> roads
 ) implements CustomPacketPayload {
 
     public static final CustomPacketPayload.Type<MapOverlayDataPacket> TYPE =
@@ -30,11 +31,13 @@ public record MapOverlayDataPacket(
     public static final StreamCodec<RegistryFriendlyByteBuf, MapOverlayDataPacket> STREAM_CODEC =
             StreamCodec.of(MapOverlayDataPacket::encode, MapOverlayDataPacket::decode);
 
-    public static final MapOverlayDataPacket EMPTY = new MapOverlayDataPacket(0L, List.of(), List.of());
+    public static final MapOverlayDataPacket EMPTY =
+            new MapOverlayDataPacket(0L, List.of(), List.of(), List.of());
 
     public MapOverlayDataPacket {
         territories = territories == null ? List.of() : List.copyOf(territories);
         buildings = buildings == null ? List.of() : List.copyOf(buildings);
+        roads = roads == null ? List.of() : List.copyOf(roads);
     }
 
     @Override
@@ -53,6 +56,14 @@ public record MapOverlayDataPacket(
 
     public record BuildingEntry(String id, String name, String type,
                                 int minX, int minZ, int maxX, int maxZ, String territoryId) {
+    }
+
+    // cells = 该区块内已铺的道路格（BlockPos.asLong，含真实地表 y），渲染按格画、传送按区块中心
+    public record RoadChunkEntry(int chunkX, int chunkZ, long[] cells) {
+
+        public RoadChunkEntry {
+            cells = cells == null ? new long[0] : cells;
+        }
     }
 
     private static void encode(RegistryFriendlyByteBuf buf, MapOverlayDataPacket packet) {
@@ -100,6 +111,16 @@ public record MapOverlayDataPacket(
             buildingTags.add(item);
         }
         root.put("buildings", buildingTags);
+
+        ListTag roadTags = new ListTag();
+        for (RoadChunkEntry entry : roads) {
+            CompoundTag item = new CompoundTag();
+            item.putInt("chunkX", entry.chunkX());
+            item.putInt("chunkZ", entry.chunkZ());
+            item.putLongArray("cells", entry.cells());
+            roadTags.add(item);
+        }
+        root.put("roads", roadTags);
         return root;
     }
 
@@ -128,7 +149,16 @@ public record MapOverlayDataPacket(
                     item.getString("territoryId")));
         }
 
-        return new MapOverlayDataPacket(root.getLong("revision"), territories, buildings);
+        List<RoadChunkEntry> roads = new ArrayList<>();
+        ListTag roadTags = root.getList("roads", Tag.TAG_COMPOUND);
+        for (int index = 0; index < roadTags.size(); index++) {
+            CompoundTag item = roadTags.getCompound(index);
+            roads.add(new RoadChunkEntry(
+                    item.getInt("chunkX"), item.getInt("chunkZ"),
+                    item.getLongArray("cells")));
+        }
+
+        return new MapOverlayDataPacket(root.getLong("revision"), territories, buildings, roads);
     }
 
     public static void handle(MapOverlayDataPacket packet, IPayloadContext context) {

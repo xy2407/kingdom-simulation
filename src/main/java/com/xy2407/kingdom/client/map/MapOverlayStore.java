@@ -8,6 +8,7 @@ import java.util.Set;
 import com.xy2407.kingdom.common.network.mapoverlay.MapOverlayDataPacket;
 import com.xy2407.kingdom.common.network.mapoverlay.MapOverlayRequestPacket;
 
+import net.minecraft.core.BlockPos;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -56,8 +57,25 @@ public final class MapOverlayStore {
         }
     }
 
+    public record RoadView(int chunkX, int chunkZ, long[] cells) {
+
+        public boolean containsBlock(int worldX, int worldZ) {
+            for (long cell : cells) {
+                if (BlockPos.getX(cell) == worldX && BlockPos.getZ(cell) == worldZ) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public boolean containsChunk(int x, int z) {
+            return chunkX == x && chunkZ == z;
+        }
+    }
+
     private static final List<TerritoryView> TERRITORIES = new ArrayList<>();
     private static final List<BuildingView> BUILDINGS = new ArrayList<>();
+    private static final List<RoadView> ROADS = new ArrayList<>();
 
     private static Runnable changeListener = () -> {
     };
@@ -78,6 +96,7 @@ public final class MapOverlayStore {
     public static void accept(MapOverlayDataPacket packet) {
         TERRITORIES.clear();
         BUILDINGS.clear();
+        ROADS.clear();
         List<MapOverlayDataPacket.TerritoryEntry> territories = packet.territories();
         for (int index = 0; index < territories.size(); index++) {
             MapOverlayDataPacket.TerritoryEntry entry = territories.get(index);
@@ -96,6 +115,11 @@ public final class MapOverlayStore {
             BUILDINGS.add(new BuildingView(entry.id(), entry.name(), entry.type(),
                     entry.minX(), entry.minZ(), entry.maxX(), entry.maxZ(), entry.territoryId()));
         }
+        List<MapOverlayDataPacket.RoadChunkEntry> roads = packet.roads();
+        for (int index = 0; index < roads.size(); index++) {
+            MapOverlayDataPacket.RoadChunkEntry entry = roads.get(index);
+            ROADS.add(new RoadView(entry.chunkX(), entry.chunkZ(), entry.cells()));
+        }
         revision++;
         if (!selectedId.isEmpty() && !contains(selectedId)) {
             clearSelection();
@@ -111,6 +135,7 @@ public final class MapOverlayStore {
     public static void clear() {
         TERRITORIES.clear();
         BUILDINGS.clear();
+        ROADS.clear();
         revision++;
         clearSelection();
         lastCenterX = Integer.MIN_VALUE;
@@ -143,6 +168,10 @@ public final class MapOverlayStore {
 
     public static List<BuildingView> buildings() {
         return BUILDINGS;
+    }
+
+    public static List<RoadView> roads() {
+        return ROADS;
     }
 
     public static long revision() {

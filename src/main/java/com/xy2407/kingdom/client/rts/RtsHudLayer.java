@@ -30,6 +30,11 @@ public final class RtsHudLayer implements LayeredDraw.Layer {
         if (minecraft.player == null || minecraft.screen != null) {
             return;
         }
+        if (RtsModeManager.getSubMode() == RtsSubMode.ROAD_TERRITORY) {
+            RtsModeManager.onMiddleDrag();
+            RtsRoadState.tick();
+            return;
+        }
         RtsModeManager.onLeftMouseDrag();
         RtsModeManager.onMiddleDrag();
         RtsWaypointState.pollKey();

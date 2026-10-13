@@ -1,0 +1,1902 @@
+/* ============================================================================
+   XY2407 · 像素风中世纪主题（ApricityUI 规范版）
+   ----------------------------------------------------------------------------
+   作用域：.pixel-medieval-theme（挂在根元素上，所有选择器都以它开头）
+   用法：  <link rel="stylesheet" href="pixel-medieval/pixel-medieval.css">
+           <body class="pixel-medieval-theme"> … </body>
+           画布底色由页面自己铺：background-color:var(--canvas)（主题根块不铺底，
+           这样同一份皮肤也能用在 HUD / 浮层文档里）。
+   契约：完整实现 theme-spec.md 的 §2 token、§3 核心组件与最小标记、§4 状态钩子、
+         §5 工具类与布局件。可与 t01-ore 等主题在 t00-example.html 里一键对换。
+   美术：与 aui经验/theme/pixel-medieval.css 同一套语言——羊皮纸四阶 + 木框五段坡 +
+         四角 bevel + 硬投影 + 金色渐变 + Zpix 像素字，类名换成规范契约名。
+   引擎换算（能力边界见 theme-spec.md §7）：
+     · radial-gradient 引擎不支持 → 火漆改用 linear-gradient
+     · text-shadow 引擎不支持 → 描边/立体字全部删掉，靠底色与色阶承担
+     · dotted / dashed 会被画成实线 → 声明保留，视觉按实线预期
+     · 填充宽度用内联 --value（引擎无 attr()，伪元素继承宿主自定义属性）
+     · 贴图走 /tex/*.png（AUI 侧是烘焙好的 PNG，浏览器预览同路径同样可用）
+     · @font-face 只读第一个 src → 只声明本地 /font/zpix.ttf，不走 CDN
+   kingdom 容器页红线（《AUI适配说明》§0）：页面里一处 flex-wrap 都不留，
+     .cluster / .grid 分栏 / 横向 gap 布局不要在容器页用；body 背景留 transparent。
+   ============================================================================ */
+
+/* 引擎只读第一个 src 的 url()（规范 §1）；第二条 local() 只在浏览器里兜底，
+   给"系统装过 Zpix"的场景用，引擎会忽略它。 */
+@font-face{font-family:'Zpix';src:url('/font/zpix.ttf') format('truetype'),local('Zpix');font-weight:400;font-style:normal;font-display:block}
+
+
+/* ============================================================================
+   §1 Token 契约（theme-spec §2）
+   ----------------------------------------------------------------------------
+   契约层只放"换肤时要改的值"；私有层放本主题自己的美术词汇（木框坡、羊皮纸别名、
+   贴图、槽位尺寸）。私有层一律引用契约 token，所以改契约就能整体换色。
+   ============================================================================ */
+
+.pixel-medieval-theme{
+  /* --- §2.1 必填基础色（26）--- */
+  /* 本主题是"浅色主题"：画布 = 浅羊皮纸桌面，文字 = 深墨。
+     原稿那层深木底是"页外装饰"，在规范里没有位置（AUI 页面背景必须 transparent），
+     深色角色的活由 --edge / --border-* / --overlay 承担。 */
+  --ink:#1a0e04;--ink-muted:#6a5028;--ink-dark:#0f0803;--canvas:#e0c9a2;
+  --surface:#c8ac7c;--surface-deep:#b89868;--surface-soft:#d6bc94;
+  --edge:#2a1a08;--edge-light:#8a6e3c;
+  --green:#4a7a1c;--green-hover:#3c6516;--green-shadow:#2a4a0e;
+  --purple:#5a3a8a;--purple-hover:#46286e;--purple-shadow:#341c54;
+  --gold:#c9a227;--gold-shadow:#8a6d17;
+  --red:#7a1414;--red-hover:#a02020;--red-shadow:#4a0a0a;
+  --blue:#1f4a6a;
+  --success:#4a7a1c;--warning:#b87a20;--danger:#c4332a;--info:#1f4a6a;
+  --focus:#3a2814;
+
+  /* --- §2.2 必填尺度与语义别名 --- */
+  --space-1:4px;--space-2:8px;--space-3:16px;--space-4:24px;--space-5:32px;
+  --font-sm:13px;--font-md:16px;--font-lg:20px;--font-xl:28px;
+  --size-unit:2px;--motion-fast:100ms;--radius-sm:0;--radius-md:0;
+  --color-foreground:var(--ink);--color-muted:var(--ink-muted);--color-background:var(--canvas);
+  --color-surface:var(--surface);--color-surface-deep:var(--surface-deep);
+  --color-border:var(--edge);--color-border-light:var(--edge-light);--color-focus:var(--focus);
+  --color-primary:var(--green);--color-primary-hover:var(--green-hover);--color-primary-active:var(--green-shadow);
+  --color-secondary:var(--purple);--color-danger:var(--red);
+
+  /* --- §2.3 必填灰阶 / 色相阶梯 / 禁用 / 遮罩 --- */
+  --gray-10:#f8f2e4;--gray-20:#ece0c8;--gray-30:#d6bc94;--gray-40:#c8ac7c;--gray-50:#b89868;
+  --gray-60:#9a7c4e;--gray-70:#7a5a34;--gray-80:#4a3218;--gray-90:#2a1a08;--gray-100:#150c03;
+  --green-30:#6f9a3a;--green-40:#5a8a28;--green-50:#4a7a1c;--green-60:#3c6516;--green-70:#2a4a0e;
+  --red-10:#e85848;--red-30:#c4332a;--red-50:#a02020;--red-60:#7a1414;--red-80:#4a0a0a;
+  --blue-10:#4a7a9a;--blue-20:#2f5a7a;--blue-30:#1f4a6a;
+  --yellow-10:#f5e08a;--yellow-20:#e0c85a;--orange-20:#b87a20;--purple-10:#8a6ab0;--gold-vip:#fee039;
+  --disabled-background:#b3a68e;--disabled-border:#7d7059;--disabled-shadow:#9c8f78;--disabled-foreground:#6b5f4a;
+  --overlay:rgba(6,4,2,.85);--overlay-soft:rgba(6,4,2,.55);
+
+  /* --- §2.5 私有美术 token：羊皮纸四阶（别名，改契约即整体换色）--- */
+  --parchment:var(--surface);--parchment-lo:var(--surface-deep);--parchment-hi:var(--surface-soft);--parchment-max:#e8d2a8;
+  /* 木框五段坡：最外到最内，本主题的边框主线 */
+  --border-outer:#2a1a08;--border-deep:#3a2814;--border-dark:#4a3218;--border-mid:#6a4a20;--border-light:#8a6e3c;--border-hi:#d8bc8c;--border-lo:#7a5a34;
+  /* 墨与光 */
+  --ink-2:#4a3218;--ink-3:#6a5028;--ink-mute:rgba(74,50,24,.65);--ink-on-dark:#f0e2c0;--ink-on-accent:#1a1208;
+  --shine:rgba(255,240,200,.45);--shine-soft:rgba(255,240,200,.28);--shine-strong:rgba(255,240,200,.7);
+  --shade:rgba(74,50,24,.45);--shade-soft:rgba(74,50,24,.3);--grid-line:rgba(58,40,20,.18);
+  --shadow-hard:rgba(42,26,8,.5);--shadow-harder:rgba(42,26,8,.7);--shadow-deep:rgba(0,0,0,.5);--shadow-deeper:rgba(0,0,0,.55);
+  /* 金与火漆 */
+  --gold-l:#f5e08a;--gold-dk:#8a6d17;--gold-ink:#1a1208;--gold-grad:linear-gradient(160deg,#f7e08a 0%,#c9a227 52%,#8a6d17 100%);
+  --wax:linear-gradient(135deg,#c4332a 0%,#8a1a12 55%,#4a0a0a 100%);
+  --danger-hi:#c4332a;--danger-deep:#4a0a0a;--danger-ink:#f5e08a;
+  /* 属性与条子色阶 */
+  --power:#7a3a10;--wisdom:#1f4a6a;--agility:#2f5a1c;--ok:#4a7a1c;
+  --bar-empty:#3a2814;--bar-empty-lo:#1a0e04;--bar-empty-hi:#5a4030;
+  --bar-hp:#b8281c;--bar-hp-hi:#e85848;--bar-hp-dk:#601008;
+  --bar-food:#b87a20;--bar-food-hi:#e0a848;--bar-food-dk:#604010;
+  /* 稀有度（MC 物品名配色，浅底上取深色以保证可读）*/
+  --rarity-common:#4a3218;--rarity-uncommon:#8a6d17;--rarity-rare:#1f4a6a;--rarity-epic:#5a3a8a;
+  /* 间距九档（私有，供像素级微调用；契约档位见 --space-*）*/
+  --sp-1:4px;--sp-2:6px;--sp-3:8px;--sp-4:12px;--sp-5:14px;--sp-6:16px;--sp-7:22px;--sp-8:28px;--sp-9:32px;
+  /* 组件尺寸：槽位只有 --slot 一档，栅格与定宽行共用 */
+  --avatar:74px;--avatar-sm:24px;--slot:48px;--bar-h:22px;--bar-cell:11px;--stat-h:74px;
+  --ring:2px;--ring-thin:1px;
+  /* 贴图：AUI 侧为烘焙 PNG，浏览器预览走同一路径 /tex/ */
+  --tex-panel:url('/tex/pane_gen.png');--tex-card:url('/tex/card_gen.png');
+  --tex-scroll:url('/tex/parchment_panel.png');--tex-avatar:url('/tex/parchment_avatar.png');
+  --tex-slot:url('/tex/slot_gen.png');--tex-status:url('/tex/parchment_status.png');
+
+  /* --- 根块：只写文字类属性，绝不写 background（画布归页面）--- */
+  min-width:320px;margin:0;
+  color:var(--ink);
+  font-family:'Zpix',monospace;
+  font-size:var(--font-md);
+  line-height:1.35;
+  letter-spacing:0;
+  caret-color:var(--gold);
+}
+
+/* 像素字保命三行：关掉抗锯齿、连字与字距调整，否则像素字会被糊掉 */
+.pixel-medieval-theme *,
+.pixel-medieval-theme *::before,
+.pixel-medieval-theme *::after{
+  box-sizing:border-box;margin:0;padding:0;
+  -webkit-font-smoothing:none;font-smooth:never;
+  font-feature-settings:"kern" 0,"liga" 0,"calt" 0;font-variant-ligatures:none;
+  text-rendering:geometricPrecision;
+}
+
+/* 像素资产一律最近邻 */
+.pixel-medieval-theme img,
+.pixel-medieval-theme canvas{image-rendering:pixelated;max-width:100%}
+
+
+/* ============================================================================
+   §2 排版（theme-spec §3 排版）
+   ----------------------------------------------------------------------------
+   像素等宽字加字距后末字会多出一段空隙，所以每个带字距的地方都配等值 text-indent
+   抵掉——这是本主题从原稿继承的固定搭配。
+   ============================================================================ */
+
+.pixel-medieval-theme h1,
+.pixel-medieval-theme h2,
+.pixel-medieval-theme h3,
+.pixel-medieval-theme h4,
+.pixel-medieval-theme h5,
+.pixel-medieval-theme h6,
+.pixel-medieval-theme .font-display,
+.pixel-medieval-theme p,
+.pixel-medieval-theme ul,
+.pixel-medieval-theme ol{
+  color:var(--ink);font-weight:400;font-family:'Zpix',monospace;
+}
+
+.pixel-medieval-theme h1{font-size:var(--font-xl);line-height:1.2;letter-spacing:.2em;text-indent:.2em;margin-bottom:var(--space-3)}
+.pixel-medieval-theme h2{font-size:24px;line-height:1.2;letter-spacing:.18em;text-indent:.18em;margin-bottom:14px}
+.pixel-medieval-theme h3{font-size:var(--font-lg);line-height:1.25;letter-spacing:.16em;text-indent:.16em;margin-bottom:12px}
+.pixel-medieval-theme h4{font-size:18px;line-height:1.25;letter-spacing:.14em;text-indent:.14em;margin-bottom:10px}
+.pixel-medieval-theme h5{font-size:var(--font-md);line-height:1.3;letter-spacing:.12em;text-indent:.12em;margin-bottom:8px}
+.pixel-medieval-theme h6{font-size:var(--font-sm);line-height:1.4;letter-spacing:.1em;text-indent:.1em;margin-bottom:8px;color:var(--ink-2)}
+.pixel-medieval-theme p{margin-bottom:var(--space-3);line-height:1.5}
+.pixel-medieval-theme a{color:var(--gold-dk);text-decoration:underline}
+.pixel-medieval-theme a:hover{color:var(--danger)}
+.pixel-medieval-theme strong{color:var(--ink-dark)}
+.pixel-medieval-theme small{font-size:var(--font-sm);color:var(--ink-muted)}
+.pixel-medieval-theme ul,
+.pixel-medieval-theme ol{padding-left:var(--space-4);margin-bottom:var(--space-3)}
+.pixel-medieval-theme li{line-height:1.5}
+
+/* 行内代码与键盘键：压深一档的木牌 */
+.pixel-medieval-theme code,
+.pixel-medieval-theme kbd{
+  padding:1px 4px;
+  color:var(--ink-on-dark);
+  background-color:var(--border-deep);
+  box-shadow:inset 1px 1px 0 0 rgba(0,0,0,.4),inset -1px -1px 0 0 var(--border-mid);
+  font-family:'Zpix',monospace;font-size:var(--font-sm);
+}
+
+/* 代码块：深色木匣，与外层羊皮纸形成对照 */
+.pixel-medieval-theme .code-block{
+  display:block;margin-bottom:var(--space-3);padding:var(--sp-4) var(--sp-6);
+  color:var(--ink-on-dark);background-color:var(--border-deep);
+  border:var(--ring) solid var(--border-outer);
+  box-shadow:inset 0 0 0 1px var(--border-mid),0 2px 0 0 var(--shadow-hard);
+  font-family:'Zpix',monospace;font-size:var(--font-sm);line-height:1.7;
+  white-space:pre-wrap;overflow:auto;
+}
+.pixel-medieval-theme .code-block code{padding:0;color:inherit;background:transparent;box-shadow:none}
+
+/* 分隔线：原稿的"2px 实线 + 1px 高光"，是标题条的压线 */
+.pixel-medieval-theme hr{
+  height:0;border:0;border-top:var(--ring) solid var(--border-mid);
+  box-shadow:0 1px 0 var(--shine-soft);margin:var(--space-3) 0;
+}
+
+/* 带标签分隔线：文字即元素内容，两侧线由伪元素撑开 */
+.pixel-medieval-theme .divider-label{
+  display:flex;align-items:center;gap:10px;
+  height:14px;margin:var(--space-3) 0;
+  color:var(--ink-2);font-size:var(--font-sm);letter-spacing:.16em;text-indent:.16em;
+}
+.pixel-medieval-theme .divider-label::before,
+.pixel-medieval-theme .divider-label::after{
+  content:"";flex:1 1 auto;height:0;border-top:var(--ring-thin) solid var(--border-mid);
+}
+
+
+/* ============================================================================
+   §3 布局件（theme-spec §5）
+   ----------------------------------------------------------------------------
+   ⚠ 容器页红线：kingdom 的 AUI 容器页里不要使用 .cluster（flex-wrap）与 .grid 分栏，
+   改用显式行（.stack 或手排的定宽行）；这两件是规范要求提供的，留给浏览器向页面。
+   ============================================================================ */
+
+.pixel-medieval-theme .container{width:100%;max-width:1180px;margin:0 auto;padding:0 20px}
+.pixel-medieval-theme .container-fluid{width:100%;padding:0 20px}
+.pixel-medieval-theme .grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--space-3)}
+.pixel-medieval-theme .col-1{grid-column:span 1}
+.pixel-medieval-theme .col-2{grid-column:span 2}
+.pixel-medieval-theme .col-3{grid-column:span 3}
+.pixel-medieval-theme .col-4{grid-column:span 4}
+.pixel-medieval-theme .col-5{grid-column:span 5}
+.pixel-medieval-theme .col-6{grid-column:span 6}
+.pixel-medieval-theme .col-7{grid-column:span 7}
+.pixel-medieval-theme .col-8{grid-column:span 8}
+.pixel-medieval-theme .col-9{grid-column:span 9}
+.pixel-medieval-theme .col-10{grid-column:span 10}
+.pixel-medieval-theme .col-11{grid-column:span 11}
+.pixel-medieval-theme .col-12{grid-column:span 12}
+.pixel-medieval-theme .col-full{grid-column:span 12}
+.pixel-medieval-theme .stack{display:flex;flex-direction:column;gap:12px}
+.pixel-medieval-theme .cluster{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.pixel-medieval-theme .split{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3)}
+.pixel-medieval-theme .toolbar{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3);background-color:var(--parchment-lo);box-shadow:inset 0 0 0 1px var(--border-mid)}
+.pixel-medieval-theme .toolbar-separator{flex:0 0 auto;width:var(--ring);height:22px;background-color:var(--border-mid);box-shadow:1px 0 0 var(--shine-soft)}
+.pixel-medieval-theme .toolbar-spacer{flex:1 1 auto;min-width:0}
+
+
+/* ============================================================================
+   §4 工具类（theme-spec §5）
+   ============================================================================ */
+
+.pixel-medieval-theme .hidden{display:none}
+.pixel-medieval-theme .invisible{visibility:hidden}
+.pixel-medieval-theme .w-full{width:100%}
+.pixel-medieval-theme .m-0{margin:0}
+.pixel-medieval-theme .mt-1{margin-top:var(--space-1)}
+.pixel-medieval-theme .mt-2{margin-top:var(--space-2)}
+.pixel-medieval-theme .mt-3{margin-top:var(--space-3)}
+.pixel-medieval-theme .mt-4{margin-top:var(--space-4)}
+.pixel-medieval-theme .mb-1{margin-bottom:var(--space-1)}
+.pixel-medieval-theme .mb-2{margin-bottom:var(--space-2)}
+.pixel-medieval-theme .mb-3{margin-bottom:var(--space-3)}
+.pixel-medieval-theme .mb-4{margin-bottom:var(--space-4)}
+.pixel-medieval-theme .p-1{padding:var(--space-1)}
+.pixel-medieval-theme .p-2{padding:var(--space-2)}
+.pixel-medieval-theme .p-3{padding:var(--space-3)}
+.pixel-medieval-theme .p-4{padding:var(--space-4)}
+.pixel-medieval-theme .text-left{text-align:left}
+.pixel-medieval-theme .text-center{text-align:center}
+.pixel-medieval-theme .text-right{text-align:right}
+.pixel-medieval-theme .text-muted{color:var(--ink-muted)}
+.pixel-medieval-theme .text-2{color:var(--ink-2)}
+.pixel-medieval-theme .text-3{color:var(--ink-mute)}
+.pixel-medieval-theme .text-gold{color:var(--gold-dk)}
+.pixel-medieval-theme .text-success{color:var(--success)}
+.pixel-medieval-theme .text-warning{color:var(--warning)}
+.pixel-medieval-theme .text-danger{color:var(--danger)}
+.pixel-medieval-theme .text-info{color:var(--info)}
+.pixel-medieval-theme .text-common{color:var(--rarity-common)}
+.pixel-medieval-theme .text-uncommon{color:var(--rarity-uncommon)}
+.pixel-medieval-theme .text-rare{color:var(--rarity-rare)}
+.pixel-medieval-theme .text-epic{color:var(--rarity-epic)}
+.pixel-medieval-theme .font-sm{font-size:var(--font-sm)}
+.pixel-medieval-theme .font-lg{font-size:var(--font-lg)}
+.pixel-medieval-theme .font-display{font-family:'Zpix',monospace;letter-spacing:.14em;text-indent:.14em}
+
+/* @media 内同样要带作用域类（引擎支持 min/max-width 与 and）*/
+@media (max-width:900px){
+  .pixel-medieval-theme .col-3,
+  .pixel-medieval-theme .col-4,
+  .pixel-medieval-theme .col-5,
+  .pixel-medieval-theme .col-6,
+  .pixel-medieval-theme .col-7,
+  .pixel-medieval-theme .col-8,
+  .pixel-medieval-theme .col-9{grid-column:span 12}
+}
+
+/* ============================================================================
+   §5 表面：卡片与面板（theme-spec §3 表面）
+   ----------------------------------------------------------------------------
+   card 与 panel 同构。规范要求"只写 <div class="card"> 也要有边框和表面色"，
+   所以原稿里"边框交给 .frame 叠"的做法在这里并进 .card 本体。
+   ============================================================================ */
+
+.pixel-medieval-theme .card,
+.pixel-medieval-theme .panel{
+  position:relative;
+  color:var(--ink);
+  background-color:var(--parchment);
+  background-image:var(--tex-card);
+  background-size:100% 100%;background-repeat:no-repeat;image-rendering:pixelated;
+  border:var(--ring) solid var(--border-dark);
+  box-shadow:
+    0 0 0 1px var(--border-mid),
+    inset 0 0 0 1px var(--border-light),
+    inset 2px 2px 0 0 var(--border-hi),
+    inset -2px -2px 0 0 var(--border-mid),
+    2px 2px 0 0 var(--shadow-hard);
+}
+
+.pixel-medieval-theme .card-header,
+.pixel-medieval-theme .panel-header{
+  padding:7px 10px;
+  color:var(--ink);font-size:var(--font-md);letter-spacing:.2em;text-indent:.2em;
+  background-color:var(--parchment-lo);
+  background-image:var(--tex-status);
+  background-size:100% 100%;background-repeat:no-repeat;image-rendering:pixelated;
+  border-bottom:var(--ring) solid var(--border-mid);
+  box-shadow:inset 0 1px 0 var(--shine-soft);
+}
+
+.pixel-medieval-theme .card-body,
+.pixel-medieval-theme .panel-body{padding:var(--sp-6);line-height:1.5}
+
+.pixel-medieval-theme .card-footer,
+.pixel-medieval-theme .panel-footer{
+  display:flex;align-items:center;justify-content:flex-end;gap:var(--sp-4);
+  padding:8px 10px;
+  background-color:var(--parchment-lo);
+  background-image:var(--tex-status);
+  background-size:100% 100%;background-repeat:no-repeat;image-rendering:pixelated;
+  border-top:var(--ring) solid var(--border-mid);
+  box-shadow:inset 0 -1px 0 var(--shine-soft);
+}
+
+/* 顶部色条：加厚上边框，不改其余三边 */
+.pixel-medieval-theme .card-accent-green{border-top:4px solid var(--green)}
+.pixel-medieval-theme .card-accent-purple{border-top:4px solid var(--purple)}
+.pixel-medieval-theme .card-accent-gold{border-top:4px solid var(--gold)}
+
+
+/* ============================================================================
+   §6 按钮（theme-spec §3 按钮）
+   ----------------------------------------------------------------------------
+   三件套共用基底：.button / .form-button（表单提交键）/ .page-button（分页键）。
+   几何是"凸一块木头"：border + 四段环 + 四角 bevel + 右下硬投影；
+   悬停描金并往左上抬 1px，按下反相往右下陷 1px。
+   <button> 在浏览器带 UA padding、引擎没有，所以 padding 必须显式写全。
+   ============================================================================ */
+
+.pixel-medieval-theme .button,
+.pixel-medieval-theme .form-button,
+.pixel-medieval-theme .page-button{
+  display:inline-flex;align-items:center;justify-content:center;gap:var(--sp-2);
+  min-height:42px;margin:0;padding:11px 22px;
+  font-family:'Zpix',monospace;font-size:14px;line-height:18px;
+  letter-spacing:.14em;text-indent:.14em;text-align:center;text-decoration:none;
+  color:var(--ink);background-color:var(--parchment);
+  border:var(--ring) solid var(--border-dark);
+  box-shadow:
+    0 0 0 1px var(--border-mid),
+    inset 0 0 0 1px var(--border-light),
+    inset 2px 2px 0 0 var(--border-hi),
+    inset -2px -2px 0 0 var(--border-mid),
+    2px 2px 0 0 var(--shadow-hard);
+  cursor:pointer;user-select:none;appearance:none;
+}
+
+.pixel-medieval-theme .button:hover,
+.pixel-medieval-theme .form-button:hover,
+.pixel-medieval-theme .page-button:hover{
+  border-color:var(--gold);
+  transform:translate(-1px,-1px);
+  box-shadow:
+    0 0 0 1px var(--gold),
+    inset 0 0 0 1px var(--gold-l),
+    inset 2px 2px 0 0 var(--border-hi),
+    inset -2px -2px 0 0 var(--border-mid),
+    3px 3px 0 0 var(--shadow-hard);
+}
+
+.pixel-medieval-theme .button:active,
+.pixel-medieval-theme .form-button:active,
+.pixel-medieval-theme .page-button:active{
+  transform:translate(1px,1px);
+  box-shadow:
+    0 0 0 1px var(--border-mid),
+    inset 0 0 0 1px var(--border-light),
+    inset 2px 2px 0 0 var(--border-mid),
+    inset -2px -2px 0 0 var(--border-hi);
+}
+
+/* 焦点环用 outline 画（画在边框盒外、不占布局，也不必重写整条阴影列表） */
+.pixel-medieval-theme .button:focus,
+.pixel-medieval-theme .button:focus-visible,
+.pixel-medieval-theme .form-button:focus,
+.pixel-medieval-theme .page-button:focus{
+  outline:3px solid var(--focus);outline-offset:2px;
+}
+
+/* 禁用：三个钩子 + 各自的 :hover 守卫，逐个覆盖 hover 改过的属性
+   （border-color / transform / box-shadow / 背景图），否则 hover 会漏过来 */
+.pixel-medieval-theme .button[disabled],
+.pixel-medieval-theme .button.disabled,
+.pixel-medieval-theme .button[aria-disabled="true"],
+.pixel-medieval-theme .button[disabled]:hover,
+.pixel-medieval-theme .button.disabled:hover,
+.pixel-medieval-theme .button[aria-disabled="true"]:hover,
+.pixel-medieval-theme .form-button[disabled],
+.pixel-medieval-theme .form-button[disabled]:hover,
+.pixel-medieval-theme .page-button[disabled],
+.pixel-medieval-theme .page-button[disabled]:hover{
+  color:var(--disabled-foreground);
+  background-color:var(--disabled-background);
+  background-image:none;
+  border-color:var(--disabled-border);
+  box-shadow:
+    0 0 0 1px var(--disabled-border),
+    inset 2px 2px 0 0 var(--disabled-shadow),
+    inset -2px -2px 0 0 var(--disabled-border);
+  transform:none;cursor:not-allowed;
+}
+
+/* 6.1 主按钮：金色渐变 + 金上黑字 */
+.pixel-medieval-theme .button-primary{
+  color:var(--gold-ink);
+  background-color:var(--gold);
+  background-image:var(--gold-grad);
+  background-size:100% 100%;
+  border-color:var(--border-deep);
+  box-shadow:
+    0 0 0 1px var(--border-deep),
+    inset 0 0 0 1px rgba(255,248,220,.5),
+    inset 1px 1px 0 0 rgba(255,248,220,.6),
+    inset -1px -1px 0 0 var(--gold-dk),
+    2px 2px 0 0 var(--shadow-harder);
+}
+.pixel-medieval-theme .button-primary:hover{
+  border-color:var(--gold-dk);
+  box-shadow:
+    0 0 0 1px var(--gold-l),
+    inset 0 0 0 1px rgba(255,248,220,.6),
+    inset 1px 1px 0 0 rgba(255,248,220,.7),
+    inset -1px -1px 0 0 var(--gold-dk),
+    3px 3px 0 0 var(--shadow-harder);
+}
+.pixel-medieval-theme .button-primary[disabled],
+.pixel-medieval-theme .button-primary.disabled,
+.pixel-medieval-theme .button-primary[aria-disabled="true"],
+.pixel-medieval-theme .button-primary[disabled]:hover,
+.pixel-medieval-theme .button-primary.disabled:hover,
+.pixel-medieval-theme .button-primary[aria-disabled="true"]:hover{
+  color:var(--disabled-foreground);background-image:none;background-color:var(--disabled-background);
+  border-color:var(--disabled-border);
+  box-shadow:0 0 0 1px var(--disabled-border),inset 2px 2px 0 0 var(--disabled-shadow),inset -2px -2px 0 0 var(--disabled-border);
+  transform:none;cursor:not-allowed;
+}
+
+/* 6.2 次按钮：贵族紫 */
+.pixel-medieval-theme .button-secondary{
+  color:var(--ink-on-dark);
+  background-color:var(--purple);
+  border-color:var(--purple-shadow);
+  box-shadow:
+    0 0 0 1px var(--purple-shadow),
+    inset 0 0 0 1px rgba(255,240,220,.28),
+    inset 2px 2px 0 0 var(--purple-hover),
+    inset -2px -2px 0 0 var(--purple-shadow),
+    2px 2px 0 0 var(--shadow-hard);
+}
+.pixel-medieval-theme .button-secondary:hover{background-color:var(--purple-hover);border-color:var(--gold)}
+.pixel-medieval-theme .button-secondary[disabled],
+.pixel-medieval-theme .button-secondary.disabled,
+.pixel-medieval-theme .button-secondary[aria-disabled="true"],
+.pixel-medieval-theme .button-secondary[disabled]:hover,
+.pixel-medieval-theme .button-secondary.disabled:hover,
+.pixel-medieval-theme .button-secondary[aria-disabled="true"]:hover{
+  color:var(--disabled-foreground);background-color:var(--disabled-background);
+  border-color:var(--disabled-border);
+  box-shadow:0 0 0 1px var(--disabled-border),inset 2px 2px 0 0 var(--disabled-shadow),inset -2px -2px 0 0 var(--disabled-border);
+  transform:none;cursor:not-allowed;
+}
+
+/* 6.3 三级按钮：浅色面，用于不想抢戏的次要动作 */
+.pixel-medieval-theme .button-tertiary{
+  color:var(--ink-2);
+  background-color:var(--parchment-hi);
+  box-shadow:
+    0 0 0 1px var(--border-mid),
+    inset 2px 2px 0 0 var(--border-hi),
+    inset -2px -2px 0 0 var(--border-lo),
+    2px 2px 0 0 var(--shadow-hard);
+}
+.pixel-medieval-theme .button-tertiary:hover{border-color:var(--gold);color:var(--ink)}
+.pixel-medieval-theme .button-tertiary[disabled],
+.pixel-medieval-theme .button-tertiary.disabled,
+.pixel-medieval-theme .button-tertiary[aria-disabled="true"],
+.pixel-medieval-theme .button-tertiary[disabled]:hover,
+.pixel-medieval-theme .button-tertiary.disabled:hover,
+.pixel-medieval-theme .button-tertiary[aria-disabled="true"]:hover{
+  color:var(--disabled-foreground);background-color:var(--disabled-background);
+  border-color:var(--disabled-border);
+  box-shadow:0 0 0 1px var(--disabled-border),inset 2px 2px 0 0 var(--disabled-shadow),inset -2px -2px 0 0 var(--disabled-border);
+  transform:none;cursor:not-allowed;
+}
+
+/* 6.4 危险按钮：火漆红，压在木框上 */
+.pixel-medieval-theme .button-danger{
+  color:var(--danger-ink);
+  background-color:var(--red);
+  border-color:var(--danger-deep);
+  box-shadow:
+    0 0 0 1px var(--danger-deep),
+    inset 0 0 0 1px rgba(255,220,200,.28),
+    inset 2px 2px 0 0 var(--danger-hi),
+    inset -2px -2px 0 0 var(--danger-deep),
+    2px 2px 0 0 var(--shadow-hard);
+}
+.pixel-medieval-theme .button-danger:hover{background-color:var(--red-hover);border-color:var(--danger-deep)}
+.pixel-medieval-theme .button-danger[disabled],
+.pixel-medieval-theme .button-danger.disabled,
+.pixel-medieval-theme .button-danger[aria-disabled="true"],
+.pixel-medieval-theme .button-danger[disabled]:hover,
+.pixel-medieval-theme .button-danger.disabled:hover,
+.pixel-medieval-theme .button-danger[aria-disabled="true"]:hover{
+  color:var(--disabled-foreground);background-color:var(--disabled-background);
+  border-color:var(--disabled-border);
+  box-shadow:0 0 0 1px var(--disabled-border),inset 2px 2px 0 0 var(--disabled-shadow),inset -2px -2px 0 0 var(--disabled-border);
+  transform:none;cursor:not-allowed;
+}
+
+/* 6.5 素按钮：与 .button 同框架，只是底色换成压深一档的羊皮纸 */
+.pixel-medieval-theme .button-normal{
+  color:var(--ink);
+  background-color:var(--parchment-lo);
+}
+
+/* 6.6 尺寸档 */
+.pixel-medieval-theme .button-small{min-height:32px;padding:6px 12px;font-size:var(--font-sm);line-height:16px}
+.pixel-medieval-theme .button-wide{width:100%}
+
+/* 6.7 加载态：文字退到次要色，右侧转一个方框指针 */
+.pixel-medieval-theme .button[data-state="loading"]{color:var(--ink-mute);cursor:progress}
+.pixel-medieval-theme .button[data-state="loading"]::after{
+  content:"";flex:0 0 auto;width:12px;height:12px;
+  border:2px solid var(--border-mid);border-top-color:var(--gold);border-radius:50%;
+  animation:pm-spin .8s steps(8,end) infinite;
+}
+.pixel-medieval-theme .button-primary[data-state="loading"]::after{border-color:rgba(26,18,8,.45);border-top-color:var(--gold-ink)}
+
+/* 6.8 图标按钮：方形外壳，图标由页面给（SVG 或字符） */
+.pixel-medieval-theme .icon-button{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:32px;height:32px;margin:0;padding:0;
+  font-family:'Zpix',monospace;font-size:15px;line-height:1;
+  color:var(--ink);background-color:var(--parchment-hi);
+  border:var(--ring) solid var(--border-dark);
+  box-shadow:
+    0 0 0 1px var(--border-mid),
+    inset 1px 1px 0 0 var(--border-hi),
+    inset -1px -1px 0 0 var(--border-mid);
+  cursor:pointer;user-select:none;
+}
+.pixel-medieval-theme .icon-button:hover{
+  color:var(--ink-dark);border-color:var(--gold);
+  box-shadow:0 0 0 2px var(--gold),inset 1px 1px 0 0 var(--gold-l),inset -1px -1px 0 0 var(--border-mid);
+}
+.pixel-medieval-theme .icon-button:focus,
+.pixel-medieval-theme .icon-button:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.pixel-medieval-theme .icon-button[disabled],
+.pixel-medieval-theme .icon-button.disabled,
+.pixel-medieval-theme .icon-button[aria-disabled="true"],
+.pixel-medieval-theme .icon-button[disabled]:hover,
+.pixel-medieval-theme .icon-button.disabled:hover,
+.pixel-medieval-theme .icon-button[aria-disabled="true"]:hover{
+  color:var(--disabled-foreground);background-color:var(--disabled-background);
+  border-color:var(--disabled-border);
+  box-shadow:0 0 0 1px var(--disabled-border),inset 1px 1px 0 0 var(--disabled-shadow);
+  cursor:not-allowed;
+}
+
+/* 6.9 连体按钮：后继项去掉左边框（引擎把负 margin 钳成 0，不能靠压边） */
+.pixel-medieval-theme .button-group{display:inline-flex;align-items:stretch}
+.pixel-medieval-theme .button-group > .button{border-radius:0}
+.pixel-medieval-theme .button-group > .button + .button{border-left-width:0}
+
+/* 6.10 分裂按钮：主段 + 窄下拉段，接缝靠去掉主按钮右边框 */
+.pixel-medieval-theme .split-button{display:inline-flex;align-items:stretch}
+.pixel-medieval-theme .split-button > .button{border-right-width:0}
+.pixel-medieval-theme .split-button-arrow{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:30px;min-height:42px;margin:0;padding:0;
+  color:var(--ink);background-color:var(--parchment);
+  border:var(--ring) solid var(--border-dark);
+  box-shadow:0 0 0 1px var(--border-mid),2px 2px 0 0 var(--shadow-hard);
+  cursor:pointer;
+}
+.pixel-medieval-theme .button-small + .split-button-arrow{min-height:32px;width:26px}
+.pixel-medieval-theme .split-button-arrow::before{
+  content:"";width:0;height:0;
+  border-left:5px solid transparent;border-right:5px solid transparent;
+  border-top:6px solid var(--border-mid);
+}
+.pixel-medieval-theme .split-button-arrow:hover{border-color:var(--gold)}
+.pixel-medieval-theme .split-button-arrow:hover::before{border-top-color:var(--ink)}
+
+
+/* ============================================================================
+   §7 表单（theme-spec §3 表单）
+   ----------------------------------------------------------------------------
+   输入类控件是"压进羊皮纸的凹坑"：外圈深描边 + 左上/右下反相 bevel。
+   引擎没有 ::placeholder（§7）→ 用 :placeholder-shown 兜底，两条分开写。
+   ============================================================================ */
+
+.pixel-medieval-theme .form-group{margin-bottom:var(--space-3)}
+.pixel-medieval-theme .form-label{
+  display:block;margin-bottom:6px;
+  color:var(--ink-2);font-size:var(--font-sm);letter-spacing:.2em;text-indent:.2em;
+}
+.pixel-medieval-theme .form-help{margin-top:5px;color:var(--ink-muted);font-size:var(--font-sm);line-height:1.4}
+
+.pixel-medieval-theme .form-input,
+.pixel-medieval-theme .form-select,
+.pixel-medieval-theme .form-textarea{
+  width:100%;min-height:38px;margin:0;padding:6px 8px;
+  color:var(--ink);
+  background-color:var(--parchment-hi);
+  background-image:var(--tex-card);
+  background-size:100% 100%;background-repeat:no-repeat;image-rendering:pixelated;
+  border:0;
+  box-shadow:
+    0 0 0 2px var(--border-deep),
+    inset 1px 1px 0 0 var(--border-mid),
+    inset -1px -1px 0 0 var(--parchment-hi);
+  font-family:'Zpix',monospace;font-size:var(--font-md);line-height:1.4;
+}
+
+.pixel-medieval-theme .form-input:placeholder-shown,
+.pixel-medieval-theme .form-textarea:placeholder-shown{color:var(--ink-muted)}
+
+.pixel-medieval-theme .form-input:hover,
+.pixel-medieval-theme .form-select:hover,
+.pixel-medieval-theme .form-textarea:hover{box-shadow:0 0 0 2px var(--border-deep),0 0 0 3px var(--border-light),inset 1px 1px 0 0 var(--border-mid)}
+
+.pixel-medieval-theme .form-input:focus,
+.pixel-medieval-theme .form-select:focus,
+.pixel-medieval-theme .form-textarea:focus{
+  background-color:var(--parchment-max);
+  box-shadow:0 0 0 2px var(--border-deep),inset 1px 1px 0 0 var(--border-mid);
+  outline:3px solid var(--focus);outline-offset:1px;
+}
+
+.pixel-medieval-theme .form-input[disabled],
+.pixel-medieval-theme .form-select[disabled],
+.pixel-medieval-theme .form-textarea[disabled],
+.pixel-medieval-theme .form-input[disabled]:hover,
+.pixel-medieval-theme .form-select[disabled]:hover,
+.pixel-medieval-theme .form-textarea[disabled]:hover{
+  color:var(--disabled-foreground);
+  background-color:var(--disabled-background);background-image:none;
+  box-shadow:0 0 0 2px var(--disabled-border),inset 1px 1px 0 0 var(--disabled-shadow);
+  cursor:not-allowed;
+}
+
+.pixel-medieval-theme .form-input.is-valid{box-shadow:0 0 0 2px var(--success),inset 1px 1px 0 0 var(--border-mid)}
+.pixel-medieval-theme .form-input.is-invalid,
+.pixel-medieval-theme .form-input[aria-invalid="true"]{box-shadow:0 0 0 2px var(--danger),inset 1px 1px 0 0 var(--border-mid)}
+
+/* 下拉：去掉原生外观，箭头用纯 CSS 三角（引擎没有 attr()，只能画） */
+.pixel-medieval-theme .form-select{
+  padding-right:26px;cursor:pointer;
+  appearance:none;
+}
+.pixel-medieval-theme select.form-select{
+  background-image:var(--tex-card),linear-gradient(45deg,transparent 50%,var(--border-mid) 50%),linear-gradient(135deg,var(--border-mid) 50%,transparent 50%);
+  background-position:0 0,calc(100% - 15px) 17px,calc(100% - 9px) 17px;
+  background-size:100% 100%,6px 6px,6px 6px;
+  background-repeat:no-repeat;
+}
+
+.pixel-medieval-theme .form-textarea{min-height:88px;resize:vertical;line-height:1.6}
+
+/* 输入组：输入框吃掉剩余宽度，按钮贴右 */
+.pixel-medieval-theme .input-group{display:flex;align-items:stretch;gap:0}
+.pixel-medieval-theme .input-group > .form-input{flex:1 1 auto;min-width:0}
+.pixel-medieval-theme .input-group > .button{flex:0 0 auto;min-width:96px}
+
+/* 选项组：原生 input 必须给尺寸与 accent-color，不能漏成浏览器默认蓝 */
+.pixel-medieval-theme .choice-list{display:flex;flex-direction:column;gap:var(--sp-4)}
+.pixel-medieval-theme .choice{
+  display:inline-flex;align-items:center;gap:var(--sp-3);
+  min-height:26px;color:var(--ink);cursor:pointer;
+}
+.pixel-medieval-theme .choice input{
+  flex:0 0 auto;width:18px;height:18px;margin:0;
+  accent-color:var(--green);cursor:pointer;
+}
+.pixel-medieval-theme .choice input:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+
+
+/* ============================================================================
+   §8 选择控件（theme-spec §3 选择控件）
+   ----------------------------------------------------------------------------
+   铁律：每个控件都只要求**一个元素**（规范 §3 最小标记），
+   所以轨道/滑块/勾/点全用伪元素；带文字时靠 padding-left 给控件让位
+   （:empty 时收窄，这样空控件与带标签控件都是同一个类）。
+   状态钩子五个等价写法全部实现：.on / :checked / [checked] / [aria-checked="true"] / [data-state="on"]。
+   ============================================================================ */
+
+/* 8.1 开关：轨道 = ::before，滑块 = ::after，开态换私有变量 */
+.pixel-medieval-theme .switch{
+  --switch-track:var(--bar-empty);
+  --switch-knob:var(--parchment);
+  --switch-knob-x:2px;
+  position:relative;display:inline-flex;align-items:center;min-height:30px;
+  padding-left:58px;cursor:pointer;user-select:none;
+  color:var(--ink);font-size:var(--font-sm);letter-spacing:.14em;text-indent:.14em;
+}
+.pixel-medieval-theme .switch:empty{padding-left:44px}
+.pixel-medieval-theme .switch::before{
+  content:"";position:absolute;left:0;top:calc(50% - 9px);
+  width:40px;height:18px;box-sizing:border-box;
+  background-color:var(--switch-track);
+  box-shadow:0 0 0 2px var(--border-deep),inset 1px 1px 0 0 var(--border-deep),inset -1px -1px 0 0 var(--border-light);
+}
+.pixel-medieval-theme .switch::after{
+  content:"";position:absolute;left:var(--switch-knob-x);top:calc(50% - 7px);
+  width:14px;height:14px;box-sizing:border-box;
+  background-color:var(--switch-knob);
+  box-shadow:inset 1px 1px 0 0 var(--border-hi),inset -1px -1px 0 0 var(--border-mid);
+}
+.pixel-medieval-theme .switch:hover::before{box-shadow:0 0 0 2px var(--gold),inset 1px 1px 0 0 var(--border-deep)}
+.pixel-medieval-theme .switch:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.pixel-medieval-theme .switch.on,
+.pixel-medieval-theme .switch:checked,
+.pixel-medieval-theme .switch[checked],
+.pixel-medieval-theme .switch[aria-checked="true"],
+.pixel-medieval-theme .switch[data-state="on"]{--switch-track:var(--gold-dk);--switch-knob:var(--gold-l);--switch-knob-x:24px}
+/* [variant="icons"]：关=空心环，开=实心竖条，都画在轨道上 */
+.pixel-medieval-theme .switch[variant="icons"]:not(.on)::before,
+.pixel-medieval-theme .switch.switch-icons:not(.on)::before{background-image:linear-gradient(var(--border-mid),var(--border-mid)),linear-gradient(var(--border-mid),var(--border-mid)),linear-gradient(var(--border-mid),var(--border-mid)),linear-gradient(var(--border-mid),var(--border-mid));background-position:14px 5px,14px 11px,14px 5px,24px 5px;background-size:12px 2px,12px 2px,2px 8px,2px 8px;background-repeat:no-repeat}
+.pixel-medieval-theme .switch[variant="icons"].on::before,
+.pixel-medieval-theme .switch[variant="icons"][aria-checked="true"]::before,
+.pixel-medieval-theme .switch.switch-icons.on::before,
+.pixel-medieval-theme .switch.switch-icons[aria-checked="true"]::before{background-image:linear-gradient(var(--gold-ink),var(--gold-ink));background-position:19px 4px;background-size:2px 10px;background-repeat:no-repeat}
+.pixel-medieval-theme .switch[color="secondary"].on,.pixel-medieval-theme .switch[color="secondary"][aria-checked="true"]{--switch-track:var(--purple);--switch-knob:var(--parchment-max)}
+.pixel-medieval-theme .switch[color="destructive"].on,.pixel-medieval-theme .switch[color="destructive"][aria-checked="true"]{--switch-track:var(--red);--switch-knob:var(--parchment-max)}
+.pixel-medieval-theme .switch[color="dungeons"].on,.pixel-medieval-theme .switch[color="dungeons"][aria-checked="true"]{--switch-track:var(--orange-20);--switch-knob:var(--parchment-max)}
+.pixel-medieval-theme .switch[color="legends"].on,.pixel-medieval-theme .switch[color="legends"][aria-checked="true"]{--switch-track:var(--blue-10);--switch-knob:var(--border-outer)}
+.pixel-medieval-theme .switch[color="realms"].on,.pixel-medieval-theme .switch[color="realms"][aria-checked="true"]{--switch-track:var(--purple-10);--switch-knob:var(--border-outer)}
+.pixel-medieval-theme .switch[color="gold"].on,.pixel-medieval-theme .switch[color="gold"][aria-checked="true"]{--switch-track:var(--gold);--switch-knob:var(--border-outer)}
+.pixel-medieval-theme .switch[disabled],
+.pixel-medieval-theme .switch.disabled,
+.pixel-medieval-theme .switch[aria-disabled="true"],
+.pixel-medieval-theme .switch[disabled]:hover,
+.pixel-medieval-theme .switch.disabled:hover,
+.pixel-medieval-theme .switch[aria-disabled="true"]:hover{
+  --switch-track:var(--disabled-background);
+  --switch-knob:var(--disabled-shadow);
+  color:var(--disabled-foreground);cursor:not-allowed;
+}
+
+/* 8.2 复选框与单选框：框 = ::before，勾/点 = ::after */
+.pixel-medieval-theme .checkbox,
+.pixel-medieval-theme .radio{
+  --check-fill:var(--parchment-hi);
+  position:relative;display:inline-flex;align-items:center;
+  min-height:24px;padding-left:26px;cursor:pointer;user-select:none;
+  color:var(--ink);font-size:var(--font-sm);
+}
+.pixel-medieval-theme .checkbox:empty,
+.pixel-medieval-theme .radio:empty{padding-left:20px}
+.pixel-medieval-theme .checkbox::before,
+.pixel-medieval-theme .radio::before{
+  content:"";position:absolute;left:0;top:calc(50% - 9px);
+  width:18px;height:18px;box-sizing:border-box;
+  background-color:var(--check-fill);
+  box-shadow:0 0 0 2px var(--border-deep),inset 1px 1px 0 0 var(--border-mid),inset -1px -1px 0 0 var(--border-hi);
+}
+.pixel-medieval-theme .checkbox:hover::before,
+.pixel-medieval-theme .radio:hover::before{box-shadow:0 0 0 2px var(--gold),inset 1px 1px 0 0 var(--border-mid)}
+.pixel-medieval-theme .checkbox:focus-visible,
+.pixel-medieval-theme .radio:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.pixel-medieval-theme .checkbox.on,
+.pixel-medieval-theme .checkbox:checked,
+.pixel-medieval-theme .checkbox[checked],
+.pixel-medieval-theme .checkbox[aria-checked="true"],
+.pixel-medieval-theme .checkbox[data-state="on"]{--check-fill:var(--gold)}
+.pixel-medieval-theme .checkbox.on::after,
+.pixel-medieval-theme .checkbox:checked::after,
+.pixel-medieval-theme .checkbox[checked]::after,
+.pixel-medieval-theme .checkbox[aria-checked="true"]::after,
+.pixel-medieval-theme .checkbox[data-state="on"]::after{
+  content:"";position:absolute;left:5px;top:calc(50% - 6px);
+  width:6px;height:10px;
+  border-right:2px solid var(--gold-ink);border-bottom:2px solid var(--gold-ink);
+  transform:rotate(40deg);
+}
+.pixel-medieval-theme .radio.on,
+.pixel-medieval-theme .radio:checked,
+.pixel-medieval-theme .radio[checked],
+.pixel-medieval-theme .radio[aria-checked="true"],
+.pixel-medieval-theme .radio[data-state="on"]{--check-fill:var(--gold)}
+.pixel-medieval-theme .radio.on::after,
+.pixel-medieval-theme .radio:checked::after,
+.pixel-medieval-theme .radio[checked]::after,
+.pixel-medieval-theme .radio[aria-checked="true"]::after,
+.pixel-medieval-theme .radio[data-state="on"]::after{
+  content:"";position:absolute;left:5px;top:calc(50% - 4px);
+  width:8px;height:8px;background-color:var(--gold-ink);
+}
+.pixel-medieval-theme .checkbox[disabled],
+.pixel-medieval-theme .checkbox.disabled,
+.pixel-medieval-theme .checkbox[aria-disabled="true"],
+.pixel-medieval-theme .checkbox[disabled]:hover,
+.pixel-medieval-theme .checkbox.disabled:hover,
+.pixel-medieval-theme .checkbox[aria-disabled="true"]:hover,
+.pixel-medieval-theme .radio[disabled],
+.pixel-medieval-theme .radio.disabled,
+.pixel-medieval-theme .radio[aria-disabled="true"],
+.pixel-medieval-theme .radio[disabled]:hover,
+.pixel-medieval-theme .radio.disabled:hover,
+.pixel-medieval-theme .radio[aria-disabled="true"]:hover{
+  --check-fill:var(--disabled-background);
+  color:var(--disabled-foreground);cursor:not-allowed;
+}
+
+/* 8.3 滑杆：--value 同时驱动填充宽度与滑块位置；.slider-plain 只留滑块 */
+.pixel-medieval-theme .slider{
+  --value:0;
+  --slider-fill:var(--gold);
+  position:relative;display:block;width:100%;min-width:80px;height:14px;
+  margin:14px 0;padding:0;
+  background-color:var(--bar-empty);
+  box-shadow:0 0 0 2px var(--border-deep),inset 1px 1px 0 0 var(--border-deep),inset -1px -1px 0 0 var(--border-light);
+  cursor:pointer;
+}
+.pixel-medieval-theme .slider::before{
+  content:"";position:absolute;left:0;top:0;height:100%;width:var(--value);
+  background-color:var(--slider-fill);
+  box-shadow:inset 0 1px 0 0 var(--shine-strong),inset 0 -1px 0 0 var(--gold-dk);
+}
+.pixel-medieval-theme .slider::after{
+  content:"";position:absolute;left:var(--value);top:calc(50% - 9px);
+  width:10px;height:18px;
+  transform:translateX(-50%);
+  background-color:var(--parchment-max);
+  box-shadow:0 0 0 2px var(--border-deep),inset 1px 1px 0 0 var(--border-hi),inset -1px -1px 0 0 var(--border-mid);
+}
+.pixel-medieval-theme .slider:hover::after{background-color:var(--gold-l)}
+.pixel-medieval-theme .slider:focus-visible{outline:3px solid var(--focus);outline-offset:4px}
+.pixel-medieval-theme .slider-plain::before{display:none}
+.pixel-medieval-theme .slider-segment{
+  position:absolute;top:0;width:1px;height:100%;background-color:var(--border-mid);
+}
+.pixel-medieval-theme .slider-value{
+  display:inline-flex;align-items:center;min-height:20px;padding:0 6px;
+  color:var(--ink-on-dark);background-color:var(--border-deep);
+  font-size:var(--font-sm);
+}
+.pixel-medieval-theme .slider-scale{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-top:-8px;color:var(--ink-muted);font-size:var(--font-sm);
+}
+/* 分段轨道变体：用重复渐变画成一格一格 */
+.pixel-medieval-theme .slider-2{
+  --value:0;
+  --slider-fill:var(--green);
+  position:relative;display:block;width:100%;min-width:80px;height:18px;
+  margin:14px 0;
+  background-color:var(--bar-empty-lo);
+  background-image:repeating-linear-gradient(90deg,var(--border-mid) 0 1px,transparent 1px 12px);
+  box-shadow:0 0 0 2px var(--border-deep),inset 2px 2px 0 0 var(--border-outer);
+}
+.pixel-medieval-theme .slider-2::before{
+  content:"";position:absolute;left:0;top:0;height:100%;width:var(--value);
+  background-color:var(--slider-fill);
+  box-shadow:inset 0 2px 0 0 var(--shine-soft),inset 0 -2px 0 0 var(--green-shadow);
+}
+.pixel-medieval-theme .slider-2::after{
+  content:"";position:absolute;left:var(--value);top:calc(50% - 11px);
+  width:8px;height:22px;transform:translateX(-50%);
+  background-color:var(--parchment-max);
+  box-shadow:0 0 0 2px var(--border-deep),inset 1px 1px 0 0 var(--border-hi);
+}
+.pixel-medieval-theme .slider[disabled],
+.pixel-medieval-theme .slider.disabled,
+.pixel-medieval-theme .slider[aria-disabled="true"],
+.pixel-medieval-theme .slider-2[disabled],
+.pixel-medieval-theme .slider-2.disabled{
+  --slider-fill:var(--disabled-shadow);
+  background-color:var(--disabled-background);background-image:none;
+  box-shadow:0 0 0 2px var(--disabled-border),inset 1px 1px 0 0 var(--disabled-shadow);
+  cursor:not-allowed;
+}
+.pixel-medieval-theme .slider[disabled]::after,
+.pixel-medieval-theme .slider.disabled::after,
+.pixel-medieval-theme .slider[disabled]:hover::after,
+.pixel-medieval-theme .slider.disabled:hover::after,
+.pixel-medieval-theme .slider-2[disabled]::after,
+.pixel-medieval-theme .slider-2.disabled::after{background-color:var(--disabled-background);box-shadow:0 0 0 2px var(--disabled-border)}
+
+/* 8.4 数值加减：三件套 .stepper-button / .stepper-value / .stepper-button */
+.pixel-medieval-theme .stepper{display:inline-flex;align-items:stretch}
+.pixel-medieval-theme .stepper-button{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:28px;min-height:28px;margin:0;padding:0;
+  color:var(--ink);background-color:var(--parchment-hi);
+  border:var(--ring) solid var(--border-dark);
+  box-shadow:0 0 0 1px var(--border-mid),inset 1px 1px 0 0 var(--border-hi),inset -1px -1px 0 0 var(--border-mid);
+  font:inherit;font-size:15px;line-height:1;cursor:pointer;
+}
+.pixel-medieval-theme .stepper-button:hover{border-color:var(--gold);color:var(--ink-dark)}
+.pixel-medieval-theme .stepper-button:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.pixel-medieval-theme .stepper-value{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:46px;min-height:28px;padding:0 var(--sp-3);
+  color:var(--ink);background-color:var(--parchment);
+  box-shadow:inset 0 2px 0 0 var(--border-mid),inset 0 -2px 0 0 var(--border-mid);
+  font-size:var(--font-sm);
+}
+.pixel-medieval-theme .stepper-button[disabled],
+.pixel-medieval-theme .stepper-button.disabled,
+.pixel-medieval-theme .stepper-button[aria-disabled="true"],
+.pixel-medieval-theme .stepper-button[disabled]:hover,
+.pixel-medieval-theme .stepper-button.disabled:hover,
+.pixel-medieval-theme .stepper-button[aria-disabled="true"]:hover{
+  color:var(--disabled-foreground);background-color:var(--disabled-background);
+  border-color:var(--disabled-border);
+  box-shadow:0 0 0 1px var(--disabled-border),inset 1px 1px 0 0 var(--disabled-shadow);
+  cursor:not-allowed;
+}
+
+/* ============================================================================
+   §9 数据展示（theme-spec §3 数据）
+   ============================================================================ */
+
+/* 9.1 表格：引擎没有表格布局（display:table 会降级），所以行内用 flex 均分单元格 */
+.pixel-medieval-theme .table-wrap{
+  width:100%;overflow:auto;
+  background-color:var(--parchment-lo);
+  border:var(--ring) solid var(--border-dark);
+  box-shadow:0 0 0 1px var(--border-mid),inset 0 0 0 1px var(--border-light);
+}
+.pixel-medieval-theme .table{width:100%;border-collapse:collapse;color:var(--ink);font-size:var(--font-sm)}
+.pixel-medieval-theme .table thead,
+.pixel-medieval-theme .table tbody{display:block}
+.pixel-medieval-theme .table tr{display:flex}
+.pixel-medieval-theme .table th,
+.pixel-medieval-theme .table td{
+  flex:1 1 0;min-width:0;padding:7px 10px;text-align:left;
+  border-right:var(--ring-thin) solid var(--border-mid);
+  border-bottom:var(--ring-thin) solid var(--border-mid);
+}
+.pixel-medieval-theme .table th{
+  color:var(--ink-2);letter-spacing:.16em;text-indent:.16em;
+  background-color:var(--parchment-hi);
+  box-shadow:inset 0 2px 0 0 var(--shine-soft),inset 0 -2px 0 0 var(--border-mid);
+}
+.pixel-medieval-theme .table tbody tr:hover td{background-color:rgba(255,240,200,.35)}
+.pixel-medieval-theme .table tbody tr.active td{background-color:var(--parchment-max)}
+.pixel-medieval-theme .table th:last-child,
+.pixel-medieval-theme .table td:last-child{border-right:0}
+.pixel-medieval-theme .table tbody tr:last-child td{border-bottom:0}
+
+/* 9.2 列表组：分隔线画在相邻项之间，不依赖 :last-child */
+.pixel-medieval-theme .list-group{
+  margin:0;padding:0;list-style:none;
+  background-color:var(--parchment-hi);
+  border:var(--ring) solid var(--border-dark);
+  box-shadow:0 0 0 1px var(--border-mid),inset 0 0 0 1px var(--border-light);
+}
+.pixel-medieval-theme .list-group-item{
+  display:flex;align-items:center;justify-content:space-between;gap:var(--sp-4);
+  min-height:40px;padding:6px 10px;
+  color:var(--ink);
+  box-shadow:inset 1px 1px 0 0 rgba(255,240,200,.5),inset -1px -1px 0 0 var(--shade-soft);
+  cursor:pointer;
+}
+.pixel-medieval-theme .list-group-item + .list-group-item{border-top:var(--ring-thin) solid var(--border-mid)}
+.pixel-medieval-theme .list-group-item:hover{background-color:var(--parchment)}
+.pixel-medieval-theme .list-group-item.active,
+.pixel-medieval-theme .list-group-item[aria-selected="true"]{
+  background-color:var(--parchment-lo);
+  box-shadow:inset 0 0 0 2px var(--gold),inset 2px 2px 0 0 var(--gold-l);
+}
+.pixel-medieval-theme .list-group-item:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.pixel-medieval-theme .list-group-item.disabled,
+.pixel-medieval-theme .list-group-item[aria-disabled="true"],
+.pixel-medieval-theme .list-group-item[disabled]{
+  color:var(--disabled-foreground);background-color:var(--disabled-background);cursor:not-allowed;
+}
+
+/* 9.3 键值列表：值靠 margin-left:auto 贴右 */
+.pixel-medieval-theme .kv{display:flex;flex-direction:column;gap:0}
+.pixel-medieval-theme .kv-row{
+  display:flex;align-items:center;gap:var(--sp-3);
+  min-height:24px;padding:3px 0;
+  border-bottom:var(--ring-thin) solid var(--border-mid);
+}
+.pixel-medieval-theme .kv-row:last-child{border-bottom:0}
+.pixel-medieval-theme .kv-key{flex:0 0 auto;color:var(--ink-2);font-size:var(--font-sm)}
+.pixel-medieval-theme .kv-value{flex:0 0 auto;margin-left:auto;color:var(--ink);overflow:hidden;white-space:nowrap}
+
+/* 9.4 徽章：小金块；标签：木牌 */
+.pixel-medieval-theme .badge{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:20px;min-height:20px;padding:1px 6px;
+  color:var(--gold-ink);background-image:var(--gold-grad);background-size:100% 100%;
+  box-shadow:0 0 0 1px var(--border-deep),inset 1px 1px 0 0 rgba(255,248,220,.55);
+  font-size:var(--font-sm);line-height:1.2;
+}
+.pixel-medieval-theme .badge-success{color:var(--ink-on-dark);background-image:none;background-color:var(--green)}
+.pixel-medieval-theme .badge-warning{color:var(--gold-ink);background-image:none;background-color:var(--warning)}
+.pixel-medieval-theme .badge-danger{color:var(--danger-ink);background-image:none;background-color:var(--red)}
+.pixel-medieval-theme .badge-purple{color:var(--ink-on-dark);background-image:none;background-color:var(--purple)}
+.pixel-medieval-theme .tag{
+  display:inline-flex;align-items:center;gap:4px;
+  min-height:18px;padding:1px 5px;
+  color:var(--parchment-hi);background-color:var(--border-deep);
+  font-size:var(--font-sm);line-height:1.3;letter-spacing:.1em;text-indent:.1em;
+}
+.pixel-medieval-theme .tag-primary{color:var(--ink-on-dark);background-color:var(--green)}
+.pixel-medieval-theme .tag-informative{color:var(--ink-on-dark);background-color:var(--info)}
+.pixel-medieval-theme .tag-notice{color:var(--gold-ink);background-image:var(--gold-grad);background-size:100% 100%}
+.pixel-medieval-theme .tag-warning{color:var(--gold-ink);background-color:var(--warning)}
+.pixel-medieval-theme .tag-realms{color:var(--ink-on-dark);background-color:var(--purple)}
+.pixel-medieval-theme .tag-outlined{
+  color:var(--ink-2);background-color:var(--parchment-lo);
+  box-shadow:inset 0 0 0 1px var(--border-mid);
+}
+.pixel-medieval-theme .tag-close{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:14px;height:14px;margin-left:2px;
+  color:inherit;background-color:rgba(0,0,0,.28);cursor:pointer;font-size:11px;line-height:1;
+}
+.pixel-medieval-theme .tag-close:hover{background-color:var(--danger-hi);color:var(--danger-ink)}
+
+/* 9.5 统计块：大数字走标题字族 */
+.pixel-medieval-theme .stat{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  min-height:var(--stat-h);padding:6px 4px;
+  background-color:var(--parchment);
+  background-image:var(--tex-card);
+  background-size:100% 100%;background-repeat:no-repeat;image-rendering:pixelated;
+  border:var(--ring) solid var(--border-dark);
+  box-shadow:0 0 0 1px var(--border-mid),inset 0 0 0 1px var(--border-light),inset 2px 2px 0 0 var(--border-hi),inset -2px -2px 0 0 var(--border-mid);
+}
+.pixel-medieval-theme .stat-value{font-size:20px;line-height:1.2;letter-spacing:.1em;text-indent:.1em;color:var(--ink)}
+.pixel-medieval-theme .stat-label{font-size:var(--font-sm);line-height:14px;letter-spacing:.14em;text-indent:.14em;color:var(--ink-2)}
+.pixel-medieval-theme .stat--power{border-color:var(--power)}
+.pixel-medieval-theme .stat--power .stat-label{color:var(--power)}
+.pixel-medieval-theme .stat--wisdom{border-color:var(--wisdom)}
+.pixel-medieval-theme .stat--wisdom .stat-label{color:var(--wisdom)}
+.pixel-medieval-theme .stat--agility{border-color:var(--agility)}
+.pixel-medieval-theme .stat--agility .stat-label{color:var(--agility)}
+
+/* 9.6 分页 */
+.pixel-medieval-theme .pagination{display:flex;align-items:center;gap:var(--sp-3)}
+.pixel-medieval-theme .page-button{min-width:32px;min-height:32px;padding:5px 8px;font-size:var(--font-sm)}
+.pixel-medieval-theme .page-button.active{
+  color:var(--gold-ink);background-image:var(--gold-grad);background-size:100% 100%;
+  border-color:var(--border-deep);
+}
+
+/* 9.7 槽位：外观走 /tex/slot_gen.png，CSS 只管尺寸、排列与交互态。
+   尺寸约定：一律等大，只由 --slot 一个变量决定；栅格列宽写死 --slot，不用 1fr。 */
+.pixel-medieval-theme .inventory-grid{display:grid;grid-template-columns:repeat(9,var(--slot));gap:var(--sp-3)}
+.pixel-medieval-theme .hotbar{display:flex;gap:var(--sp-3);padding:var(--sp-3);background-color:var(--parchment-lo);box-shadow:0 0 0 2px var(--border-dark),inset 1px 1px 0 0 var(--border-hi)}
+.pixel-medieval-theme .slot{
+  position:relative;
+  width:var(--slot);height:var(--slot);
+  color:var(--ink-on-dark);
+  background-color:var(--parchment-lo);
+  background-image:var(--tex-slot);
+  background-size:100% 100%;background-repeat:no-repeat;image-rendering:pixelated;
+  display:flex;align-items:center;justify-content:center;
+  font-size:var(--font-sm);
+  cursor:pointer;
+}
+.pixel-medieval-theme .slot:hover{box-shadow:0 0 0 2px var(--gold)}
+.pixel-medieval-theme .slot:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.pixel-medieval-theme .slot.active,
+.pixel-medieval-theme .slot[aria-selected="true"]{box-shadow:0 0 0 2px var(--parchment-max),0 0 0 3px var(--border-deep),0 0 0 6px var(--gold)}
+.pixel-medieval-theme .slot-count{
+  position:absolute;right:1px;bottom:0;
+  padding:0 2px;
+  color:#fff;background-color:rgba(10,6,4,.62);
+  font-size:11px;line-height:14px;pointer-events:none;
+}
+.pixel-medieval-theme .slot.is-empty{background-color:var(--parchment-lo)}
+.pixel-medieval-theme .slot.is-selected{box-shadow:0 0 0 2px var(--gold),0 0 0 3px var(--border-deep),2px 2px 0 0 var(--shadow-hard)}
+.pixel-medieval-theme .slot.is-disabled,
+.pixel-medieval-theme .slot[disabled],
+.pixel-medieval-theme .slot[aria-disabled="true"]{color:var(--disabled-foreground);cursor:not-allowed}
+.pixel-medieval-theme .slot.is-disabled:hover,
+.pixel-medieval-theme .slot[disabled]:hover{box-shadow:none}
+.pixel-medieval-theme .slot.is-drop-target{box-shadow:0 0 0 2px var(--gold-l),0 0 0 4px var(--gold),inset 0 0 0 2px var(--gold-l)}
+
+
+/* ============================================================================
+   §10 反馈（theme-esque §3 反馈）
+   ----------------------------------------------------------------------------
+   进度条不用贴图：格缝由重复渐变画，填充宽度由内联 --value 驱动。
+   这样浏览器与 AUI 引擎里是同一套像素格，不依赖 extra asset。
+   ============================================================================ */
+
+/* 10.1 厚进度条：逐格刻度 + 金色填充（生命/饥饿/经验共用一条底） */
+.pixel-medieval-theme .progress{
+  --value:0;
+  --progress-fill:var(--bar-hp);
+  --progress-fill-hi:var(--bar-hp-hi);
+  --progress-fill-dk:var(--bar-hp-dk);
+  position:relative;
+  height:var(--bar-h);padding:0;overflow:hidden;
+  background-color:#0e0804;
+  background-image:repeating-linear-gradient(90deg,var(--border-outer) 0 1px,transparent 1px var(--bar-cell));
+  box-shadow:0 0 0 2px var(--border-outer),inset 1px 1px 0 0 rgba(0,0,0,.6);
+}
+.pixel-medieval-theme .progress::before{
+  content:"";display:block;width:var(--value);height:100%;min-width:0;
+  background-color:var(--progress-fill);
+  background-image:repeating-linear-gradient(90deg,rgba(0,0,0,.35) 0 1px,transparent 1px var(--bar-cell));
+  box-shadow:inset 0 2px 0 0 var(--progress-fill-hi),inset 0 -2px 0 0 var(--progress-fill-dk);
+}
+.pixel-medieval-theme .progress-purple{--progress-fill:var(--purple);--progress-fill-hi:var(--purple-10);--progress-fill-dk:var(--purple-shadow)}
+.pixel-medieval-theme .progress-food{--progress-fill:var(--bar-food);--progress-fill-hi:var(--bar-food-hi);--progress-fill-dk:var(--bar-food-dk)}
+.pixel-medieval-theme .progress-gold{--progress-fill:var(--gold);--progress-fill-hi:var(--gold-l);--progress-fill-dk:var(--gold-dk)}
+/* 进度标签：绝对居中、不吃点击 */
+.pixel-medieval-theme .progress-label{
+  position:absolute;left:0;right:0;top:0;bottom:0;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--parchment-max);font-size:var(--font-sm);letter-spacing:.12em;text-indent:.12em;
+  pointer-events:none;
+}
+.pixel-medieval-theme .progress[disabled],
+.pixel-medieval-theme .progress.disabled{--progress-fill:var(--disabled-shadow);background-color:var(--disabled-background);background-image:none;box-shadow:0 0 0 2px var(--disabled-border);cursor:not-allowed}
+
+/* 10.2 细进度条：胶囊型，不定态用条纹平移（扫光只走 transform） */
+.pixel-medieval-theme .progress-2{
+  --value:0;
+  --progress-2-fill:var(--gold);
+  position:relative;height:12px;padding:0;overflow:hidden;
+  background-color:var(--bar-empty-lo);
+  box-shadow:0 0 0 2px var(--border-dark),inset 1px 1px 0 0 var(--border-outer);
+}
+.pixel-medieval-theme .progress-2::before{
+  content:"";display:block;width:var(--value);height:100%;min-width:0;
+  background-color:var(--progress-2-fill);
+  box-shadow:inset 0 2px 0 0 var(--shine-strong),inset 0 -2px 0 0 var(--gold-dk);
+}
+.pixel-medieval-theme .progress-2-danger{--progress-2-fill:var(--red);box-shadow:0 0 0 2px var(--danger-deep),inset 1px 1px 0 0 var(--border-outer)}
+.pixel-medieval-theme .progress-2-indeterminate{--value:45%}
+.pixel-medieval-theme .progress-2-indeterminate::before{
+  background-image:repeating-linear-gradient(90deg,rgba(255,248,220,.22) 0 10px,transparent 10px 20px);
+  animation:pm-progress-sweep 1.1s linear infinite;
+}
+
+/* 10.3 顶部加载条：不定态细条 */
+.pixel-medieval-theme .loading-bar{
+  position:relative;width:100%;height:6px;overflow:hidden;
+  background-color:var(--bar-empty-lo);
+  box-shadow:0 0 0 1px var(--border-outer),inset 0 1px 0 0 rgba(0,0,0,.5);
+}
+.pixel-medieval-theme .loading-bar::before{
+  content:"";position:absolute;left:0;top:0;width:30%;height:100%;
+  background-color:var(--gold);
+  box-shadow:inset 0 1px 0 0 var(--gold-l),inset 0 -1px 0 0 var(--gold-dk);
+  animation:pm-loading-bar 1.3s linear infinite;
+}
+
+/* 10.4 提示条（alert）：只有左侧色条 */
+.pixel-medieval-theme .alert{
+  padding:var(--sp-4) var(--sp-5);
+  color:var(--ink);
+  background-color:var(--parchment-hi);
+  border-left:6px solid var(--border-mid);
+  box-shadow:0 0 0 1px var(--border-mid),inset 1px 1px 0 0 rgba(255,240,200,.5);
+  font-size:var(--font-sm);line-height:1.5;
+}
+.pixel-medieval-theme .alert-success{border-left-color:var(--success)}
+.pixel-medieval-theme .alert-warning{border-left-color:var(--warning)}
+.pixel-medieval-theme .alert-danger{border-left-color:var(--danger)}
+.pixel-medieval-theme .alert-info{border-left-color:var(--info)}
+
+/* 10.5 横幅（banner）：整条木牌 */
+.pixel-medieval-theme .banner{
+  padding:var(--sp-4) var(--sp-5);
+  color:var(--ink-on-dark);
+  background-color:var(--border-deep);
+  box-shadow:inset 0 0 0 1px var(--border-mid),0 2px 0 0 var(--shadow-hard);
+  font-size:var(--font-sm);line-height:1.5;letter-spacing:.1em;text-indent:.1em;
+}
+.pixel-medieval-theme .banner-information{color:var(--ink-on-dark);background-color:var(--wisdom)}
+.pixel-medieval-theme .banner-important{color:var(--gold-ink);background-image:var(--gold-grad);background-size:100% 100%;box-shadow:inset 0 0 0 1px var(--gold-dk),0 2px 0 0 var(--shadow-hard)}
+
+/* 10.6 骨架屏：扫光用 transform 动画（其余属性在引擎里会跳变） */
+.pixel-medieval-theme .skeleton{
+  position:relative;overflow:hidden;
+  background-color:var(--parchment-lo);
+  box-shadow:inset 0 0 0 1px var(--border-mid);
+}
+.pixel-medieval-theme .skeleton::after{
+  content:"";position:absolute;left:0;top:0;width:45%;height:100%;
+  background-image:linear-gradient(90deg,transparent,var(--shine-strong),transparent);
+  animation:pm-sweep 1.4s linear infinite;
+}
+.pixel-medieval-theme .skeleton-title{height:22px;width:50%;margin-bottom:var(--sp-3)}
+.pixel-medieval-theme .skeleton-text{height:14px;margin-bottom:var(--sp-2)}
+.pixel-medieval-theme .skeleton-block{height:88px}
+.pixel-medieval-theme .skeleton-circle{width:44px;height:44px}
+
+/* 10.7 空状态 */
+.pixel-medieval-theme .empty-state{
+  display:flex;flex-direction:column;align-items:center;gap:var(--sp-3);
+  padding:var(--space-4) var(--sp-6);text-align:center;
+  color:var(--ink-2);
+}
+.pixel-medieval-theme .empty-state-icon{
+  display:flex;align-items:center;justify-content:center;
+  width:56px;height:56px;
+  color:var(--border-mid);background-color:var(--parchment-lo);
+  box-shadow:0 0 0 2px var(--border-mid),inset 1px 1px 0 0 var(--border-hi);
+  font-size:24px;line-height:1;
+}
+.pixel-medieval-theme .empty-state-title{color:var(--ink);font-size:var(--font-md);letter-spacing:.16em;text-indent:.16em}
+.pixel-medieval-theme .empty-state-text{margin:0;color:var(--ink-muted);font-size:var(--font-sm);line-height:1.5}
+.pixel-medieval-theme .empty-state-actions{display:flex;align-items:center;gap:var(--sp-4)}
+
+/* 10.8 通知：底部居中的金条，最新的一条在最上（column-reverse） */
+.pixel-medieval-theme .toast-area{
+  position:fixed;left:50%;bottom:28px;z-index:800;
+  display:flex;flex-direction:column-reverse;align-items:center;gap:var(--sp-3);
+  transform:translateX(-50%);
+}
+.pixel-medieval-theme .toast{
+  padding:var(--sp-4) var(--sp-7);
+  color:var(--gold-ink);
+  background-image:var(--gold-grad);background-size:100% 100%;
+  box-shadow:0 0 0 2px var(--border-deep),inset 1px 1px 0 0 rgba(255,248,220,.55),4px 4px 0 0 var(--shadow-deep);
+  font-size:14px;line-height:20px;letter-spacing:.16em;text-indent:.16em;
+  opacity:0;visibility:hidden;
+}
+.pixel-medieval-theme .toast.show,
+.pixel-medieval-theme .toast[data-state="open"],
+.pixel-medieval-theme .toast.open{opacity:1;visibility:visible}
+.pixel-medieval-theme .toast-success{color:var(--ink-on-dark);background-image:none;background-color:var(--green)}
+.pixel-medieval-theme .toast-warning{color:var(--gold-ink);background-image:none;background-color:var(--warning)}
+.pixel-medieval-theme .toast-danger{color:var(--danger-ink);background-image:none;background-color:var(--red)}
+.pixel-medieval-theme .toast-info{color:var(--ink-on-dark);background-image:none;background-color:var(--info)}
+.pixel-medieval-theme .toast-vip{color:var(--gold-ink);background-color:var(--gold-vip)}
+.pixel-medieval-theme .toast-debug{color:var(--ink-on-dark);background-image:none;background-color:var(--gray-70)}
+
+/* 10.9 转圈与遮罩：方块指针逐格转（像素风不用圆角渐变） */
+.pixel-medieval-theme .spinner{
+  display:inline-block;position:relative;
+  width:20px;height:20px;
+  background-color:transparent;
+  animation:pm-spin 1s steps(8,end) infinite;
+}
+.pixel-medieval-theme .spinner::before{
+  content:"";position:absolute;left:0;top:0;width:6px;height:6px;
+  background-color:var(--gold);
+  box-shadow:0 0 0 1px var(--border-deep);
+}
+.pixel-medieval-theme .spinner-small{width:14px;height:14px}
+.pixel-medieval-theme .spinner-small::before{width:4px;height:4px}
+.pixel-medieval-theme .spinner-large{width:28px;height:28px}
+.pixel-medieval-theme .spinner-large::before{width:8px;height:8px}
+.pixel-medieval-theme .spinner-text{color:var(--parchment-hi);font-size:var(--font-md);letter-spacing:.16em;text-indent:.16em}
+.pixel-medieval-theme .loading-error-text{color:var(--danger);font-size:var(--font-sm)}
+.pixel-medieval-theme .loading-mask{
+  position:fixed;left:0;top:0;right:0;bottom:0;z-index:900;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--sp-4);
+  background-color:var(--overlay);
+}
+.pixel-medieval-theme .loading-mask::before{
+  content:"";width:14px;height:14px;
+  background-color:var(--gold);
+  box-shadow:0 0 0 2px var(--border-deep);
+  animation:pm-spin 1s steps(8,end) infinite;
+}
+.pixel-medieval-theme .loading-mask.hidden,
+.pixel-medieval-theme .loading-mask[data-state="closed"]{display:none;opacity:0;visibility:hidden}
+
+/* ============================================================================
+   §11 结构组件（theme-spec §3 结构与导航）
+   ----------------------------------------------------------------------------
+   这一组的共同点：遮罩必须是**独立元素**（宿主背景画在负 z-index 子层之下，
+   伪元素做不成遮罩），气泡里必须是**真文本**（引擎没有 attr()）。
+   展开类状态一律实现四个等价钩子：.open / [data-state="open"] / details[open] / :focus-within。
+   ============================================================================ */
+
+/* 11.1 下拉：label 是按钮，options 是浮层，展开时箭头转 180° */
+.pixel-medieval-theme .dropdown{position:relative;display:inline-block;min-width:200px}
+.pixel-medieval-theme .dropdown-label{
+  position:relative;width:100%;min-height:38px;margin:0;
+  padding:8px 30px 8px 10px;
+  color:var(--ink);background-color:var(--parchment-hi);
+  border:var(--ring) solid var(--border-dark);
+  box-shadow:0 0 0 1px var(--border-mid),inset 2px 2px 0 0 var(--border-hi),inset -2px -2px 0 0 var(--border-lo);
+  font:inherit;font-size:var(--font-sm);text-align:left;cursor:pointer;
+}
+.pixel-medieval-theme .dropdown-label::after{
+  content:"";position:absolute;top:14px;right:11px;
+  width:0;height:0;
+  border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid var(--border-mid);
+}
+.pixel-medieval-theme .dropdown-label:hover{border-color:var(--gold)}
+.pixel-medieval-theme .dropdown-label:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.pixel-medieval-theme .dropdown.open .dropdown-label,
+.pixel-medieval-theme .dropdown[data-state="open"] .dropdown-label,
+.pixel-medieval-theme details.dropdown[open] .dropdown-label,
+.pixel-medieval-theme .dropdown-label[aria-expanded="true"]{
+  box-shadow:0 0 0 1px var(--gold),inset 2px 2px 0 0 var(--border-mid),inset -2px -2px 0 0 var(--border-hi);
+}
+.pixel-medieval-theme .dropdown.open .dropdown-label::after,
+.pixel-medieval-theme .dropdown[data-state="open"] .dropdown-label::after,
+.pixel-medieval-theme details.dropdown[open] .dropdown-label::after,
+.pixel-medieval-theme .dropdown-label[aria-expanded="true"]::after{
+  top:17px;
+  transform:rotate(180deg);
+}
+.pixel-medieval-theme .dropdown-label[disabled],
+.pixel-medieval-theme .dropdown-label.disabled,
+.pixel-medieval-theme .dropdown-label[aria-disabled="true"],
+.pixel-medieval-theme .dropdown-label[disabled]:hover,
+.pixel-medieval-theme .dropdown-label.disabled:hover,
+.pixel-medieval-theme .dropdown-label[aria-disabled="true"]:hover{
+  color:var(--disabled-foreground);background-color:var(--disabled-background);
+  border-color:var(--disabled-border);
+  box-shadow:0 0 0 1px var(--disabled-border),inset 2px 2px 0 0 var(--disabled-shadow);
+  cursor:not-allowed;
+}
+.pixel-medieval-theme .dropdown-label[disabled]::after,
+.pixel-medieval-theme .dropdown-label.disabled::after,
+.pixel-medieval-theme .dropdown-label[aria-disabled="true"]::after{border-top-color:var(--disabled-foreground)}
+.pixel-medieval-theme .dropdown-options{
+  position:absolute;left:0;top:100%;z-index:20;
+  display:none;width:100%;min-width:180px;max-height:180px;overflow:auto;
+  padding:2px;
+  color:var(--ink);background-color:var(--parchment-hi);
+  border:var(--ring) solid var(--border-dark);
+  box-shadow:0 0 0 1px var(--border-mid),4px 4px 0 0 var(--shadow-hard);
+}
+.pixel-medieval-theme .dropdown.open .dropdown-options,
+.pixel-medieval-theme .dropdown[data-state="open"] .dropdown-options,
+.pixel-medieval-theme details.dropdown[open] .dropdown-options,
+.pixel-medieval-theme .dropdown:focus-within .dropdown-options{display:block}
+.pixel-medieval-theme .dropdown-option{
+  display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);
+  min-height:30px;padding:4px 8px;
+  color:var(--ink);font-size:var(--font-sm);
+  box-shadow:inset 0 -1px 0 0 var(--border-mid);
+  cursor:pointer;
+}
+.pixel-medieval-theme .dropdown-option:hover{background-color:var(--parchment-max)}
+.pixel-medieval-theme .dropdown-option:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.pixel-medieval-theme .dropdown-option.selected,
+.pixel-medieval-theme .dropdown-option[aria-selected="true"]{font-weight:400;color:var(--ink-dark);background-color:var(--parchment)}
+.pixel-medieval-theme .dropdown-option.selected::after,
+.pixel-medieval-theme .dropdown-option[aria-selected="true"]::after{
+  content:"";flex:0 0 auto;width:6px;height:11px;margin-top:-4px;
+  border-right:2px solid var(--gold-dk);border-bottom:2px solid var(--gold-dk);
+  transform:rotate(40deg);
+}
+.pixel-medieval-theme .dropdown-option.disabled,
+.pixel-medieval-theme .dropdown-option[disabled],
+.pixel-medieval-theme .dropdown-option[aria-disabled="true"],
+.pixel-medieval-theme .dropdown-option.disabled:hover{color:var(--disabled-foreground);background-color:var(--disabled-background);cursor:not-allowed}
+
+/* 11.2 气泡：四方向；默认隐藏、悬浮或聚焦显示；文字必须是真元素 */
+.pixel-medieval-theme .tooltip{position:relative;display:inline-flex}
+.pixel-medieval-theme .tooltip-content{
+  position:absolute;left:50%;bottom:calc(100% + 8px);z-index:30;
+  padding:3px 7px;
+  color:var(--parchment-hi);background-color:var(--border-deep);
+  box-shadow:0 0 0 2px var(--border-mid),0 0 0 3px var(--border-deep),2px 2px 0 0 rgba(0,0,0,.4);
+  font-size:var(--font-sm);line-height:16px;white-space:nowrap;
+  transform:translateX(-50%);
+  opacity:0;visibility:hidden;pointer-events:none;
+}
+.pixel-medieval-theme .tooltip:hover .tooltip-content,
+.pixel-medieval-theme .tooltip:focus-within .tooltip-content,
+.pixel-medieval-theme .tooltip[data-state="open"] .tooltip-content{opacity:1;visibility:visible}
+.pixel-medieval-theme .tooltip-bottom .tooltip-content{top:calc(100% + 8px);bottom:auto}
+.pixel-medieval-theme .tooltip-right .tooltip-content{left:calc(100% + 8px);bottom:auto;top:50%;transform:translateY(-50%)}
+.pixel-medieval-theme .tooltip-left .tooltip-content{left:auto;right:calc(100% + 8px);bottom:auto;top:50%;transform:translateY(-50%)}
+
+/* 11.3 模态：遮罩与面板同级，.modal-dismiss 是"点外面关闭"的载体 */
+.pixel-medieval-theme .modal-backdrop{
+  position:fixed;left:0;top:0;right:0;bottom:0;z-index:900;
+  display:none;align-items:center;justify-content:center;padding:24px;
+  background-color:var(--overlay);
+}
+.pixel-medieval-theme .modal-backdrop.open,
+.pixel-medieval-theme .modal-backdrop[data-state="open"]{display:flex}
+.pixel-medieval-theme .modal-dismiss{position:absolute;left:0;top:0;right:0;bottom:0;cursor:default}
+.pixel-medieval-theme .modal{
+  position:relative;z-index:1;
+  width:520px;max-width:100%;max-height:92%;
+  overflow:auto;
+  color:var(--ink);
+  background-color:var(--parchment);
+  background-image:var(--tex-scroll);
+  background-size:100% 100%;background-repeat:no-repeat;image-rendering:pixelated;
+  border:var(--ring) solid var(--border-dark);
+  box-shadow:
+    0 0 0 1px var(--border-mid),
+    inset 0 0 0 1px var(--border-light),
+    0 0 0 3px var(--border-deep),
+    0 0 0 5px var(--border-mid),
+    0 0 0 7px var(--border-deep),
+    8px 8px 0 7px var(--shadow-deeper);
+}
+.pixel-medieval-theme .modal-sm{width:360px}
+.pixel-medieval-theme .modal-lg{width:760px}
+.pixel-medieval-theme .modal-header{
+  display:flex;align-items:center;gap:var(--sp-4);
+  padding:10px 14px;
+  color:var(--ink);font-size:var(--font-lg);letter-spacing:.2em;text-indent:.2em;
+  background-color:var(--parchment-lo);
+  background-image:var(--tex-status);
+  background-size:100% 100%;background-repeat:no-repeat;
+  border-bottom:var(--ring) solid var(--border-mid);
+  box-shadow:inset 0 1px 0 var(--shine-soft);
+}
+.pixel-medieval-theme .modal-body{padding:var(--sp-7) var(--sp-8);line-height:1.6}
+.pixel-medieval-theme .modal-footer{
+  display:flex;align-items:center;justify-content:flex-end;gap:var(--sp-4);
+  padding:10px 14px;
+  background-color:var(--parchment-lo);
+  background-image:var(--tex-status);
+  background-size:100% 100%;background-repeat:no-repeat;
+  border-top:var(--ring) solid var(--border-mid);
+}
+
+/* 11.4 抽屉：方向靠 transform 移出屏幕，展开时归位 */
+.pixel-medieval-theme .drawer-overlay{
+  position:fixed;left:0;top:0;right:0;bottom:0;z-index:21;
+  background-color:var(--overlay-soft);
+  opacity:0;visibility:hidden;
+}
+.pixel-medieval-theme .drawer-overlay.show,
+.pixel-medieval-theme .drawer-overlay.open{opacity:1;visibility:visible}
+.pixel-medieval-theme .drawer{
+  position:fixed;z-index:40;
+  display:flex;flex-direction:column;
+  color:var(--ink);
+  background-color:var(--parchment);
+  background-image:var(--tex-panel);
+  background-size:100% 100%;background-repeat:no-repeat;image-rendering:pixelated;
+  border:var(--ring) solid var(--border-dark);
+  box-shadow:0 0 0 1px var(--border-mid),inset 0 0 0 1px var(--border-light),0 0 0 4px var(--border-deep);
+  visibility:hidden;
+}
+.pixel-medieval-theme .drawer-left{left:0;top:0;bottom:0;width:360px;max-width:100%;transform:translateX(-102%)}
+.pixel-medieval-theme .drawer-right{right:0;top:0;bottom:0;width:360px;max-width:100%;transform:translateX(102%)}
+.pixel-medieval-theme .drawer-top{left:0;right:0;top:0;max-height:360px;transform:translateY(-102%)}
+.pixel-medieval-theme .drawer-bottom{left:0;right:0;bottom:0;max-height:360px;transform:translateY(102%)}
+.pixel-medieval-theme .drawer.open,
+.pixel-medieval-theme .drawer[data-state="open"]{transform:none;visibility:visible}
+.pixel-medieval-theme .drawer-sm{width:260px}
+.pixel-medieval-theme .drawer-lg{width:480px}
+.pixel-medieval-theme .drawer-short{max-height:220px}
+.pixel-medieval-theme .drawer-tall{max-height:80%}
+.pixel-medieval-theme .drawer-header{
+  display:flex;align-items:center;justify-content:space-between;gap:var(--sp-4);
+  min-height:44px;padding:0 8px 0 14px;
+  background-color:var(--parchment-lo);
+  background-image:var(--tex-status);
+  background-size:100% 100%;background-repeat:no-repeat;
+  border-bottom:var(--ring) solid var(--border-mid);
+}
+.pixel-medieval-theme .drawer-title{color:var(--ink);font-size:var(--font-lg);letter-spacing:.2em;text-indent:.2em}
+.pixel-medieval-theme .drawer-close{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:30px;height:30px;margin:0;padding:0;
+  color:var(--ink);background-color:var(--parchment-hi);
+  border:var(--ring) solid var(--border-dark);
+  box-shadow:0 0 0 1px var(--border-mid),inset 1px 1px 0 0 var(--border-hi);
+  font:inherit;font-size:15px;line-height:1;cursor:pointer;
+}
+.pixel-medieval-theme .drawer-close:hover{color:var(--danger-ink);background-color:var(--red);border-color:var(--danger-deep)}
+.pixel-medieval-theme .drawer-body{flex:1 1 auto;min-height:0;overflow:auto;padding:var(--sp-6);line-height:1.6}
+.pixel-medieval-theme .drawer-footer{
+  display:flex;align-items:center;justify-content:flex-end;gap:var(--sp-4);
+  padding:10px 12px;
+  background-color:var(--parchment-lo);
+  background-image:var(--tex-status);
+  background-size:100% 100%;background-repeat:no-repeat;
+  border-top:var(--ring) solid var(--border-mid);
+}
+
+/* 11.5 侧栏：与抽屉同构，带独立遮罩 */
+.pixel-medieval-theme .sidebar-mask{
+  position:fixed;left:0;top:0;right:0;bottom:0;z-index:29;
+  background-color:var(--overlay-soft);
+  opacity:0;visibility:hidden;
+}
+.pixel-medieval-theme .sidebar-mask.show,
+.pixel-medieval-theme .sidebar-mask.open{opacity:1;visibility:visible}
+.pixel-medieval-theme .sidebar{
+  position:fixed;left:0;top:0;bottom:0;z-index:30;
+  display:flex;flex-direction:column;gap:2px;
+  width:260px;max-width:100%;padding:var(--sp-3);
+  color:var(--ink);
+  background-color:var(--parchment);
+  background-image:var(--tex-panel);
+  background-size:100% 100%;background-repeat:no-repeat;image-rendering:pixelated;
+  border-right:var(--ring) solid var(--border-dark);
+  box-shadow:0 0 0 1px var(--border-mid),inset -2px 0 0 0 var(--border-hi);
+  visibility:hidden;transform:translateX(-102%);
+}
+.pixel-medieval-theme .sidebar.open,
+.pixel-medieval-theme .sidebar[data-state="open"]{transform:none;visibility:visible}
+.pixel-medieval-theme .sidebar-title{color:var(--ink);font-size:var(--font-lg);letter-spacing:.2em;text-indent:.2em;padding:6px 8px}
+.pixel-medieval-theme .sidebar-divider{height:0;border-top:var(--ring) solid var(--border-mid);box-shadow:0 1px 0 var(--shine-soft);margin:4px 0}
+.pixel-medieval-theme .sidebar-item{
+  display:flex;align-items:center;gap:var(--sp-2);
+  min-height:30px;padding:4px 8px;
+  color:var(--ink-2);font-size:var(--font-sm);cursor:pointer;
+}
+.pixel-medieval-theme .sidebar-item:hover{background-color:var(--parchment-hi);color:var(--ink)}
+.pixel-medieval-theme .sidebar-item.active,
+.pixel-medieval-theme .sidebar-item[aria-selected="true"]{
+  color:var(--ink);background-color:var(--parchment-lo);
+  box-shadow:inset 4px 0 0 0 var(--gold);
+}
+.pixel-medieval-theme .sidebar-item:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.pixel-medieval-theme .sidebar-button{
+  min-height:32px;margin:3px 0 0;padding:5px 10px;
+  color:var(--ink);background-color:var(--parchment-hi);
+  border:var(--ring) solid var(--border-dark);
+  box-shadow:0 0 0 1px var(--border-mid),inset 1px 1px 0 0 var(--border-hi),inset -1px -1px 0 0 var(--border-mid);
+  font:inherit;font-size:var(--font-sm);cursor:pointer;
+}
+.pixel-medieval-theme .sidebar-button:hover{border-color:var(--gold)}
+
+/* 11.6 菜单：靠 margin-left:auto 把快捷键推到最右 */
+.pixel-medieval-theme .menu{
+  display:flex;flex-direction:column;gap:0;
+  min-width:190px;padding:3px;
+  color:var(--ink);background-color:var(--parchment-hi);
+  border:var(--ring) solid var(--border-dark);
+  box-shadow:0 0 0 1px var(--border-mid),3px 3px 0 0 var(--shadow-hard);
+}
+.pixel-medieval-theme .menu-label{padding:4px 8px;color:var(--ink-muted);font-size:var(--font-sm);letter-spacing:.2em;text-indent:.2em}
+.pixel-medieval-theme .menu-separator{height:0;margin:3px 4px;border-top:var(--ring-thin) solid var(--border-mid);box-shadow:0 1px 0 var(--shine-soft)}
+.pixel-medieval-theme .menu-item{
+  display:flex;align-items:center;gap:var(--sp-3);
+  min-height:28px;padding:4px 8px;
+  color:var(--ink);font-size:var(--font-sm);cursor:pointer;
+}
+.pixel-medieval-theme .menu-item:hover{background-color:var(--parchment-max)}
+.pixel-medieval-theme .menu-item:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.pixel-medieval-theme .menu-item.active,
+.pixel-medieval-theme .menu-item[aria-selected="true"],
+.pixel-medieval-theme .menu-item[aria-pressed="true"]{
+  color:var(--ink);background-color:var(--parchment-lo);
+  box-shadow:inset 4px 0 0 0 var(--gold);
+}
+.pixel-medieval-theme .menu-shortcut{margin-left:auto;color:var(--ink-mute);font-size:var(--font-sm)}
+.pixel-medieval-theme .menu-item.disabled,
+.pixel-medieval-theme .menu-item[disabled],
+.pixel-medieval-theme .menu-item[aria-disabled="true"],
+.pixel-medieval-theme .menu-item.disabled:hover,
+.pixel-medieval-theme .menu-item[disabled]:hover,
+.pixel-medieval-theme .menu-item[aria-disabled="true"]:hover{
+  color:var(--disabled-foreground);background-color:var(--disabled-background);box-shadow:none;cursor:not-allowed;
+}
+.pixel-medieval-theme .menu-item.disabled .menu-shortcut,
+.pixel-medieval-theme .menu-item[disabled] .menu-shortcut{color:var(--disabled-foreground)}
+
+/* 11.7 互斥按钮组：一排木牌，选中项压金 */
+.pixel-medieval-theme .segmented,
+.pixel-medieval-theme .toggle-group{
+  display:inline-flex;align-items:stretch;
+  background-color:var(--parchment-lo);
+  box-shadow:0 0 0 2px var(--border-dark),inset 1px 1px 0 0 var(--border-mid);
+}
+.pixel-medieval-theme .segmented-item,
+.pixel-medieval-theme .toggle-item{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-height:28px;margin:0;padding:4px 11px;
+  color:var(--ink-2);background-color:transparent;
+  border:0;border-right:var(--ring-thin) solid var(--border-mid);
+  font:inherit;font-size:var(--font-sm);letter-spacing:.12em;text-indent:.12em;cursor:pointer;
+}
+.pixel-medieval-theme .segmented-item:last-child,
+.pixel-medieval-theme .toggle-item:last-child{border-right:0}
+.pixel-medieval-theme .segmented-item:hover,
+.pixel-medieval-theme .toggle-item:hover{color:var(--ink);background-color:var(--parchment-hi)}
+.pixel-medieval-theme .segmented-item:focus-visible,
+.pixel-medieval-theme .toggle-item:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.pixel-medieval-theme .segmented-item.active,
+.pixel-medieval-theme .segmented-item[aria-pressed="true"],
+.pixel-medieval-theme .segmented-item[aria-selected="true"],
+.pixel-medieval-theme .toggle-item.active,
+.pixel-medieval-theme .toggle-item[aria-pressed="true"]{
+  color:var(--gold-ink);
+  background-image:var(--gold-grad);background-size:100% 100%;
+  box-shadow:inset 1px 1px 0 0 rgba(255,248,220,.6),inset -1px -1px 0 0 var(--gold-dk);
+}
+.pixel-medieval-theme .segmented-item[disabled],
+.pixel-medieval-theme .segmented-item.disabled,
+.pixel-medieval-theme .segmented-item[aria-disabled="true"],
+.pixel-medieval-theme .segmented-item[disabled]:hover{
+  color:var(--disabled-foreground);background-color:var(--disabled-background);
+  background-image:none;cursor:not-allowed;
+}
+
+/* 11.8 折叠面板：箭头由 CSS 画，收起时向右 */
+.pixel-medieval-theme .accordion{
+  color:var(--ink);background-color:var(--parchment-hi);
+  border:var(--ring) solid var(--border-dark);
+  box-shadow:0 0 0 1px var(--border-mid),inset 0 0 0 1px var(--border-light);
+}
+.pixel-medieval-theme .accordion-item + .accordion-item{border-top:var(--ring) solid var(--border-mid)}
+.pixel-medieval-theme .accordion-header{
+  display:flex;align-items:center;gap:var(--sp-3);
+  min-height:34px;padding:6px 10px;
+  color:var(--ink);font-size:var(--font-sm);letter-spacing:.14em;text-indent:.14em;
+  cursor:pointer;
+}
+.pixel-medieval-theme .accordion-header::before{
+  content:"";flex:0 0 auto;
+  width:0;height:0;
+  border-top:5px solid transparent;border-bottom:5px solid transparent;border-left:7px solid var(--border-mid);
+}
+.pixel-medieval-theme .accordion-header:hover{background-color:var(--parchment)}
+.pixel-medieval-theme .accordion-header:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.pixel-medieval-theme .accordion-item.open > .accordion-header::before,
+.pixel-medieval-theme .accordion-item[data-state="open"] > .accordion-header::before{transform:rotate(90deg)}
+.pixel-medieval-theme .accordion-item.open > .accordion-header,
+.pixel-medieval-theme .accordion-item[data-state="open"] > .accordion-header{box-shadow:inset 1px 1px 0 0 var(--border-hi),inset -1px -1px 0 0 var(--border-mid)}
+.pixel-medieval-theme .accordion-body{display:none;padding:var(--sp-4) var(--sp-6);line-height:1.6;box-shadow:inset 0 2px 0 0 var(--border-mid)}
+.pixel-medieval-theme .accordion-item.open > .accordion-body,
+.pixel-medieval-theme .accordion-item[data-state="open"] > .accordion-body{display:block}
+
+/* 11.9 树：缩进靠嵌套 .tree-group；空 .tree-toggle 必须自绘箭头 */
+.pixel-medieval-theme .tree{display:flex;flex-direction:column;gap:1px;color:var(--ink);font-size:var(--font-sm)}
+.pixel-medieval-theme .tree-item{
+  display:flex;align-items:center;gap:var(--sp-2);
+  min-height:26px;padding:2px 6px;cursor:pointer;
+}
+.pixel-medieval-theme .tree-item:hover{background-color:var(--parchment-hi)}
+.pixel-medieval-theme .tree-item:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.pixel-medieval-theme .tree-item.active,
+.pixel-medieval-theme .tree-item[aria-selected="true"]{
+  color:var(--ink);background-color:var(--parchment-lo);
+  box-shadow:inset 4px 0 0 0 var(--gold);
+}
+.pixel-medieval-theme .tree-toggle{
+  flex:0 0 auto;
+  width:0;height:0;
+  border-top:4px solid transparent;border-bottom:4px solid transparent;border-left:6px solid var(--border-mid);
+}
+.pixel-medieval-theme .tree-item.open > .tree-toggle{transform:rotate(90deg)}
+.pixel-medieval-theme .tree-group{display:none;padding-left:16px}
+.pixel-medieval-theme .tree-group.open,
+.pixel-medieval-theme .tree-group[data-state="open"]{display:block}
+.pixel-medieval-theme .tree-item.disabled,
+.pixel-medieval-theme .tree-item[aria-disabled="true"]{color:var(--disabled-foreground);cursor:not-allowed}
+
+/* 11.10 标签页：活动指示条在顶部；纵向版在左侧 */
+.pixel-medieval-theme .tabs{display:flex;align-items:stretch;border-bottom:var(--ring) solid var(--border-mid)}
+.pixel-medieval-theme .tab{
+  display:inline-flex;align-items:center;gap:var(--sp-2);
+  min-height:32px;margin:0;padding:6px 12px;
+  color:var(--ink-2);background-color:var(--parchment-lo);
+  border:0;border-right:var(--ring-thin) solid var(--border-mid);
+  font:inherit;font-size:var(--font-sm);letter-spacing:.14em;text-indent:.14em;cursor:pointer;
+}
+.pixel-medieval-theme .tab:hover{color:var(--ink);background-color:var(--parchment)}
+.pixel-medieval-theme .tab:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.pixel-medieval-theme .tab.active,
+.pixel-medieval-theme .tab[aria-selected="true"]{
+  color:var(--ink);background-color:var(--parchment-hi);
+  box-shadow:inset 0 4px 0 0 var(--gold);
+}
+.pixel-medieval-theme .tab-close{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:14px;height:14px;margin-left:2px;
+  color:inherit;background-color:rgba(0,0,0,.22);font-size:11px;line-height:1;cursor:pointer;
+}
+.pixel-medieval-theme .tab-close:hover{background-color:var(--danger-hi);color:var(--danger-ink)}
+.pixel-medieval-theme .tabs-vertical{
+  flex-direction:column;border-bottom:0;border-left:var(--ring) solid var(--border-mid);
+}
+.pixel-medieval-theme .tabs-vertical .tab{border-right:0;border-bottom:var(--ring-thin) solid var(--border-mid)}
+.pixel-medieval-theme .tabs-vertical .tab.active,
+.pixel-medieval-theme .tabs-vertical .tab[aria-selected="true"]{box-shadow:inset 4px 0 0 0 var(--gold)}
+
+/* 11.11 步骤条：连接线由 .step + .step::before 生成 */
+.pixel-medieval-theme .steps{display:flex;align-items:center}
+.pixel-medieval-theme .step{
+  position:relative;
+  display:inline-flex;align-items:center;gap:var(--sp-2);
+  padding:0 var(--sp-7);
+  color:var(--ink-muted);font-size:var(--font-sm);
+}
+.pixel-medieval-theme .step:first-child{padding-left:0}
+.pixel-medieval-theme .step + .step::before{
+  content:"";position:absolute;left:0;top:50%;
+  width:var(--sp-7);height:2px;background-color:var(--border-mid);
+}
+.pixel-medieval-theme .step-number{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:22px;height:22px;
+  color:var(--ink-2);background-color:var(--parchment-lo);
+  box-shadow:0 0 0 2px var(--border-mid);
+  font-size:var(--font-sm);
+}
+.pixel-medieval-theme .step.done{color:var(--ink-2)}
+.pixel-medieval-theme .step.done .step-number{color:var(--ink-on-dark);background-color:var(--green);box-shadow:0 0 0 2px var(--green-shadow)}
+.pixel-medieval-theme .step.active{color:var(--ink)}
+.pixel-medieval-theme .step.active .step-number{color:var(--gold-ink);background-image:var(--gold-grad);background-size:100% 100%;box-shadow:0 0 0 2px var(--border-deep)}
+.pixel-medieval-theme .step-label{letter-spacing:.14em;text-indent:.14em}
+
+/* 11.12 设置行：说明在标签下方；滑杆要吃掉控制列的可用宽度 */
+.pixel-medieval-theme .settings-list{
+  color:var(--ink);background-color:var(--parchment-hi);
+  border:var(--ring) solid var(--border-dark);
+  box-shadow:0 0 0 1px var(--border-mid),inset 0 0 0 1px var(--border-light);
+}
+.pixel-medieval-theme .settings-list > .settings-row + .settings-row{border-top:var(--ring-thin) solid var(--border-mid)}
+.pixel-medieval-theme .settings-row{
+  display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);
+  min-height:38px;padding:7px 11px;
+  color:var(--ink);font-size:var(--font-sm);
+}
+.pixel-medieval-theme .settings-label{display:flex;flex-direction:column;gap:2px;min-width:0}
+.pixel-medieval-theme .settings-help{color:var(--ink-muted);font-size:var(--font-sm)}
+.pixel-medieval-theme .settings-control{display:flex;align-items:center;gap:var(--sp-3);flex:0 1 auto;min-width:0}
+.pixel-medieval-theme .settings-row:hover{background-color:var(--parchment)}
+.pixel-medieval-theme .settings-row.active,
+.pixel-medieval-theme .settings-row[aria-selected="true"]{
+  background-color:var(--parchment-lo);
+  box-shadow:inset 0 0 0 2px var(--gold);
+}
+.pixel-medieval-theme .settings-row.active .settings-label{color:var(--ink-dark)}
+/* 控制列里的滑杆要占满可用宽度，否则内部只有绝对定位的伪元素、轨道会缩成一条 */
+.pixel-medieval-theme .settings-control > .slider,
+.pixel-medieval-theme .settings-control > .slider-2{flex:1 1 0;min-width:0}
+.pixel-medieval-theme .settings-row[disabled],
+.pixel-medieval-theme .settings-row.disabled{color:var(--disabled-foreground);background-color:var(--disabled-background);cursor:not-allowed}
+
+/* 11.13 导航条与面包屑 */
+.pixel-medieval-theme .navbar{
+  display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);
+  min-height:56px;padding:8px 14px;
+  color:var(--ink);
+  background-color:var(--parchment-lo);
+  background-image:var(--tex-status);
+  background-size:100% 100%;background-repeat:no-repeat;image-rendering:pixelated;
+  border-bottom:3px solid var(--border-dark);
+  box-shadow:inset 0 1px 0 var(--shine-soft);
+}
+.pixel-medieval-theme .navbar-brand{color:var(--ink);font-size:var(--font-lg);letter-spacing:.2em;text-indent:.2em}
+.pixel-medieval-theme .navbar-nav{display:flex;align-items:center;gap:var(--sp-3);margin:0;padding:0;list-style:none}
+.pixel-medieval-theme .navbar-nav li{list-style:none}
+.pixel-medieval-theme .navbar-nav label,
+.pixel-medieval-theme .navbar-nav button,
+.pixel-medieval-theme .navbar-nav a{
+  display:inline-flex;align-items:center;
+  min-height:30px;padding:4px 10px;
+  color:var(--ink-2);background-color:transparent;
+  border:var(--ring) solid transparent;
+  font:inherit;font-size:var(--font-sm);letter-spacing:.14em;text-indent:.14em;text-decoration:none;cursor:pointer;
+}
+.pixel-medieval-theme .navbar-nav label:hover,
+.pixel-medieval-theme .navbar-nav button:hover,
+.pixel-medieval-theme .navbar-nav a:hover{color:var(--ink);border-color:var(--border-mid)}
+.pixel-medieval-theme .navbar-nav .active{
+  color:var(--gold-ink);background-color:var(--gold-dk);
+  border-color:var(--border-deep);box-shadow:inset 1px 1px 0 0 var(--gold);
+}
+.pixel-medieval-theme .breadcrumb{
+  display:flex;align-items:center;gap:var(--sp-3);
+  margin:0;padding:8px 0;list-style:none;
+  color:var(--ink-muted);font-size:var(--font-sm);
+}
+.pixel-medieval-theme .breadcrumb > * + *::before{
+  content:">";margin-right:var(--sp-3);color:var(--border-mid);
+}
+
+
+/* ============================================================================
+   §12 滚动条（theme-spec §3 兜底项）
+   ----------------------------------------------------------------------------
+   引擎的 ::-webkit-scrollbar* 只读 width / height / background-color / display:none，
+   border 与 box-shadow 会被忽略——所以立体描边在引擎里看不见，这里只上色。
+   scrollbar-color 会盖掉 WebKit 定制，所以两套取同一组木色，保证两边观感一致。
+   ============================================================================ */
+
+/* scrollbar-width 写长度值：引擎用它定粗细（规范 §3）；浏览器只认 auto/thin/none，
+   会忽略长度值并回退到默认宽度，由下面的 ::-webkit-scrollbar 接管 */
+.pixel-medieval-theme{scrollbar-width:10px;scrollbar-color:var(--border-light) var(--border-deep);selection-color:var(--gold-l)}
+.pixel-medieval-theme ::-webkit-scrollbar{width:10px;height:10px}
+.pixel-medieval-theme ::-webkit-scrollbar-track{background-color:var(--border-deep)}
+.pixel-medieval-theme ::-webkit-scrollbar-thumb{background-color:var(--border-light)}
+.pixel-medieval-theme ::-webkit-scrollbar-thumb:hover{background-color:var(--gold)}
+.pixel-medieval-theme ::-webkit-scrollbar-corner{background-color:var(--border-deep)}
+
+/* 12.1 选中文字底色：引擎走扩展属性 selection-color（写在上面根块里），
+   浏览器走 ::selection；两条各归各家，互不干扰。 */
+.pixel-medieval-theme ::selection{background-color:var(--gold-dk);color:var(--parchment-max)}
+
+/* 12.2 contenteditable 的输入框皮肤：页面躲不掉，必须兜（规范 §3） */
+.pixel-medieval-theme [contenteditable]{
+  min-height:38px;padding:6px 8px;
+  color:var(--ink);background-color:var(--parchment-hi);
+  box-shadow:0 0 0 2px var(--border-deep),inset 1px 1px 0 0 var(--border-mid);
+  font-family:'Zpix',monospace;font-size:var(--font-md);line-height:1.5;
+  caret-color:var(--gold);
+}
+.pixel-medieval-theme [contenteditable]:focus{
+  background-color:var(--parchment-max);
+  outline:3px solid var(--focus);outline-offset:1px;
+}
+.pixel-medieval-theme [contenteditable][aria-disabled="true"],
+.pixel-medieval-theme [contenteditable].disabled,
+.pixel-medieval-theme [contenteditable][aria-disabled="true"]:hover{
+  color:var(--disabled-foreground);background-color:var(--disabled-background);
+  box-shadow:0 0 0 2px var(--disabled-border);cursor:not-allowed;
+}
+
+
+/* ============================================================================
+   §13 装饰与动画
+   ----------------------------------------------------------------------------
+   引擎支持 transform 与 @keyframes，但不支持 radial-gradient 与 text-shadow；
+   也没有 prefers-reduced-motion 条件（写它整块会被丢弃），所以不写降级媒体查询。
+   ============================================================================ */
+
+/* 13.1 菱形结点：45° 旋转的实心方块，分隔线与标题复用 */
+.pixel-medieval-theme .diamond{
+  display:inline-block;
+  width:6px;height:6px;
+  transform:rotate(45deg);
+  background-color:var(--border-mid);
+  box-shadow:0 0 0 2px var(--border-deep),0 0 0 3px var(--parchment);
+}
+
+/* 13.2 旗帜：杆 + 双色旗面 */
+.pixel-medieval-theme .flag{position:relative;flex:0 0 auto;width:32px;height:74px}
+.pixel-medieval-theme .flag-pole{position:absolute;left:0;top:0;width:3px;height:100%;background-color:var(--border-mid);box-shadow:0 0 0 1px var(--border-deep)}
+.pixel-medieval-theme .flag-cloth{
+  position:absolute;left:3px;top:3px;width:29px;height:28px;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--flag-ink,#fff);
+  background-image:linear-gradient(90deg,var(--flag-1,#7a1414) 0 50%,var(--flag-2,#c8ac7c) 50% 100%);
+  border:var(--ring) solid var(--border-deep);
+  box-shadow:inset 1px 1px 0 rgba(255,240,200,.22),inset -1px -1px 0 rgba(0,0,0,.32),2px 2px 0 0 rgba(42,26,8,.7);
+  font-size:15px;line-height:1;
+}
+
+/* 13.3 状态点：带闪烁，用于"在线/进行中" */
+.pixel-medieval-theme .dot{
+  display:inline-block;
+  width:9px;height:9px;
+  background-color:var(--ok);
+  box-shadow:0 0 0 1px var(--border-deep),inset 1px 1px 0 0 rgba(255,255,255,.3);
+  animation:pm-pulse 1s steps(2,end) infinite;
+}
+
+/* 13.4 动画骨架：keyframes 名称统一加 pm- 前缀，避免与页面其它主题撞名 */
+@keyframes pm-spin{
+  0%{transform:rotate(0deg)}
+  100%{transform:rotate(360deg)}
+}
+
+@keyframes pm-pulse{
+  0%,100%{opacity:1}
+  50%{opacity:.25}
+}
+
+@keyframes pm-hint{
+  0%,100%{opacity:.45}
+  50%{opacity:1}
+}
+
+@keyframes pm-glow{
+  0%{opacity:.34}
+  100%{opacity:.62}
+}
+
+@keyframes pm-sweep{
+  0%{transform:translateX(-100%)}
+  100%{transform:translateX(240%)}
+}
+
+@keyframes pm-loading-bar{
+  0%{transform:translateX(-100%)}
+  100%{transform:translateX(340%)}
+}
+
+@keyframes pm-progress-sweep{
+  0%{transform:translateX(-16px)}
+  100%{transform:translateX(16px)}
+}
+
+/* 13.5 动画挂载类：按需给元素加，不绑死在组件上 */
+.pixel-medieval-theme .anim-pulse{animation:pm-pulse 1s steps(2,end) infinite}
+.pixel-medieval-theme .anim-hint{animation:pm-hint 2.4s ease-in-out infinite}
+.pixel-medieval-theme .anim-glow{animation:pm-glow 2.6s ease-in-out infinite alternate}
+

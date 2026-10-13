@@ -1384,6 +1384,21 @@ npc-bar,kingdom-entity-avatar,world-map,img{
     </div>
   </div>
 
+  <!-- 道路传送确认（W15）：地图上左键点中已提交道路区块时弹出，内容由 CityHallScreen 填 -->
+  <div class="modal" id="chRoadModal">
+    <div class="modal-box modal-box--buy">
+      <header class="modal-head">
+        <span class="modal-title">道 路 传 送</span>
+        <span class="modal-close" id="chRoadModalCancel">✕</span>
+      </header>
+      <div class="modal-body" id="chRoadModalBody"></div>
+      <div class="modal-actions">
+        <span class="modal-btn" id="chRoadModalCancel">取 消</span>
+        <span class="modal-btn modal-btn--main" id="chRoadModalConfirm">确 认</span>
+      </div>
+    </div>
+  </div>
+
   <!-- 全屏地图 -->
   <div class="map-full" id="chMapFull">
     <div class="map-full-box" id="chMapFullBox">

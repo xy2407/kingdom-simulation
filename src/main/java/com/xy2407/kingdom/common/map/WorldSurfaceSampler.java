@@ -16,7 +16,13 @@ public final class WorldSurfaceSampler {
 
     public static final int UNEXPLORED = -1;
 
+    public static final int NO_WALKABLE = Integer.MIN_VALUE;
+
     private static final int NO_SURFACE = Integer.MIN_VALUE;
+
+    private static final int MAX_STEP_HEIGHT = 1;
+
+    private static final int CLEARANCE_HEIGHT = 3;
 
     private static final int CHUNK_SIDE = 16;
     private static final int CHUNK_CELLS = CHUNK_SIDE * CHUNK_SIDE;
@@ -168,6 +174,56 @@ public final class WorldSurfaceSampler {
             return MapColor.Brightness.LOW;
         }
         return MapColor.Brightness.NORMAL;
+    }
+
+    // 道路面的可行走采样：地面候选必须 ① "有支撑"（本格与下一格都有碰撞形状，排除悬空的屋檐/树叶）；
+    // ② 上方 3 格净空（NPC 能站/能通过，相邻格因以同一条规则入选而同样满足）；
+    // ③ 在相邻参考高度 ±1 内（NPC 步高限制）；从候选中取满足约束的最高者，找不到返回 NO_WALKABLE。
+    // refY 传 NO_WALKABLE 表示无相邻参考（起笔/传送落点），只查支撑与净空。
+    public static int walkableSurfaceY(Level level, int worldX, int worldZ, int refY) {
+        int top = Math.min(level.getMaxBuildHeight() - 1,
+                level.getHeight(Heightmap.Types.WORLD_SURFACE, worldX, worldZ));
+        int bottom = level.getMinBuildHeight();
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        for (int y = top; y > bottom; y--) {
+            if (!hasCollision(level, cursor, worldX, y, worldZ)) {
+                continue;
+            }
+            if (!hasCollision(level, cursor, worldX, y - 1, worldZ)) {
+                continue;
+            }
+            if (!hasClearance(level, cursor, worldX, y, worldZ)) {
+                continue;
+            }
+            if (refY != NO_WALKABLE && Math.abs(y - refY) > MAX_STEP_HEIGHT) {
+                continue;
+            }
+            return y;
+        }
+        return NO_WALKABLE;
+    }
+
+    private static boolean hasClearance(Level level, BlockPos.MutableBlockPos cursor,
+                                        int x, int y, int z) {
+        for (int above = 1; above <= CLEARANCE_HEIGHT; above++) {
+            if (y + above > level.getMaxBuildHeight() - 1) {
+                return true;
+            }
+            if (hasCollision(level, cursor, x, y + above, z)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean hasCollision(Level level, BlockPos.MutableBlockPos cursor,
+                                        int x, int y, int z) {
+        if (y < level.getMinBuildHeight() || y > level.getMaxBuildHeight() - 1) {
+            return false;
+        }
+        cursor.set(x, y, z);
+        BlockState state = level.getBlockState(cursor);
+        return !state.isAir() && !state.getCollisionShape(level, cursor).isEmpty();
     }
 
     private static int surfaceY(Level level, BlockPos.MutableBlockPos cursor,

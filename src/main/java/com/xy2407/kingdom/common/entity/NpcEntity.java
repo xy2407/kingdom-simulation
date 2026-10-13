@@ -4,6 +4,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
@@ -13,6 +14,7 @@ import com.xy2407.kingdom.common.npc.*;
 import com.xy2407.kingdom.common.path.ChunkSnapshot;
 import com.xy2407.kingdom.common.path.NpcPathRetry;
 import com.xy2407.kingdom.common.path.NpcPathfinder;
+import com.xy2407.kingdom.common.path.RtsSharedPath;
 import com.xy2407.kingdom.common.path.SnapshotRepository;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.persistence.NpcSchema;
@@ -84,10 +86,11 @@ public class NpcEntity extends PathfinderMob {
     private static final double WORK_ARRIVE_SQR = 4.0D;
     private static final double HOME_ARRIVE_SQR = 4.0D;
     private static final int STATIONARY_TRAVEL_INTERVAL = 20;
-    private static final int RTS_REPATH_INTERVAL = 40;
     private static final double RTS_DENSE_ARRIVE_SQR = 0.5625D;
     private static final double RTS_CROWD_ARRIVE_SQR = 2.25D;
+    private static final double RTS_GROUP_HANDOFF_SQR = 9.0D;
     private static final double RTS_ARRIVE_HEIGHT = 3.0D;
+    private static final int RTS_GIVE_UP_TICKS = 600;
     private static final int WORK_STUCK_TICKS = 40;
     private static final int WORK_STUCK_LIMIT = 3;
     private static final int WORK_SEARCH_FAIL_LIMIT = 8;
@@ -125,14 +128,19 @@ public class NpcEntity extends PathfinderMob {
     private final NpcPathRetry pathRetry = new NpcPathRetry();
     private BlockPos rtsTarget;
     private boolean rtsClearOnArrive;
-    private boolean rtsHighPath;
     private double rtsArriveSqr = RTS_DENSE_ARRIVE_SQR;
-    private int rtsRepathCooldown;
+    private BlockPos rtsGroupDest;
+    private int rtsStuckTicks;
+    private BlockPos rtsStuckAnchor;
     private final ArrayDeque<BlockPos> rtsWaypoints = new ArrayDeque<>();
     private Future<NpcPathfinder.PathResult> workPathFuture;
+    private boolean workPathJoined;
     private NpcPathfinder.Session workSession;
     private List<NpcPathfinder.Waypoint> followPath = List.of();
     private int followIndex;
+    private boolean followCompleted;
+    private BlockPos followEndPos;
+    private long sharedPathUsedKey = Long.MIN_VALUE;
     private int workRepathCooldown;
     private long workPathDeadlineNanos;
     private int workClimbCooldown;
@@ -149,12 +157,24 @@ public class NpcEntity extends PathfinderMob {
 
     public void setRtsTarget(BlockPos target, boolean clearOnArrive) {
         rtsWaypoints.clear();
-        applyRtsTarget(target, clearOnArrive, false);
+        rtsGroupDest = null;
+        rtsStuckTicks = 0;
+        rtsStuckAnchor = null;
+        sharedPathUsedKey = Long.MIN_VALUE;
+        applyRtsTarget(target, clearOnArrive);
     }
 
     public void setHighRtsTarget(BlockPos target, boolean clearOnArrive) {
+        setRtsTarget(target, clearOnArrive);
+    }
+
+    public void setRtsGroupTarget(BlockPos landing, BlockPos groupTarget, boolean clearOnArrive) {
         rtsWaypoints.clear();
-        applyRtsTarget(target, clearOnArrive, true);
+        rtsGroupDest = groupTarget;
+        rtsStuckTicks = 0;
+        rtsStuckAnchor = null;
+        sharedPathUsedKey = Long.MIN_VALUE;
+        applyRtsTarget(landing, clearOnArrive);
     }
 
     public void setRtsWaypoints(List<BlockPos> waypoints) {
@@ -166,18 +186,15 @@ public class NpcEntity extends PathfinderMob {
         rtsTarget = rtsWaypoints.peekLast();
         rtsClearOnArrive = false;
         rtsArriveSqr = RTS_CROWD_ARRIVE_SQR;
-        rtsHighPath = true;
-        rtsRepathCooldown = 0;
+        rtsGroupDest = null;
+        rtsStuckTicks = 0;
+        rtsStuckAnchor = null;
+        sharedPathUsedKey = Long.MIN_VALUE;
         stopConstructionPath();
         NpcData data = citizenId == null ? null : NpcManager.INSTANCE.getNpc(citizenId);
         if (data != null) {
             data.getBrain().setRtsControlled(true);
         }
-        List<NpcPathfinder.Waypoint> converted = new ArrayList<>(rtsWaypoints.size());
-        for (BlockPos pos : rtsWaypoints) {
-            converted.add(new NpcPathfinder.Waypoint(pos, NpcPathfinder.Waypoint.Move.WALK));
-        }
-        applyPath(converted);
         setNavTarget(rtsTarget);
     }
 
@@ -192,6 +209,8 @@ public class NpcEntity extends PathfinderMob {
     private void releaseRtsControl() {
         rtsTarget = null;
         rtsWaypoints.clear();
+        rtsGroupDest = null;
+        sharedPathUsedKey = Long.MIN_VALUE;
         NpcData data = citizenId == null ? null : NpcManager.INSTANCE.getNpc(citizenId);
         if (data != null) {
             data.getBrain().setRtsControlled(false);
@@ -203,24 +222,20 @@ public class NpcEntity extends PathfinderMob {
         farmTarget = null;
         ranchTarget = null;
         rtsTarget = null;
+        rtsGroupDest = null;
+        sharedPathUsedKey = Long.MIN_VALUE;
         rtsWaypoints.clear();
         clearNavTarget();
     }
 
-    private void applyRtsTarget(BlockPos target, boolean clearOnArrive, boolean highPath) {
+    private void applyRtsTarget(BlockPos target, boolean clearOnArrive) {
         rtsTarget = target;
         rtsClearOnArrive = clearOnArrive;
-        rtsHighPath = highPath;
         rtsArriveSqr = RTS_DENSE_ARRIVE_SQR;
-        rtsRepathCooldown = 0;
+        stopConstructionPath();
         NpcData data = citizenId == null ? null : NpcManager.INSTANCE.getNpc(citizenId);
         if (data != null) {
             data.getBrain().setRtsControlled(true);
-        }
-        if (highPath) {
-            stopConstructionPath();
-        } else {
-            getNavigation().moveTo(target.getX() + 0.5D, target.getY(), target.getZ() + 0.5D, WALK_SPEED);
         }
         setNavTarget(target);
     }
@@ -233,7 +248,6 @@ public class NpcEntity extends PathfinderMob {
             return;
         }
         if (isRtsArrived(target)) {
-            rtsHighPath = false;
             rtsWaypoints.clear();
             if (rtsClearOnArrive) {
                 discard();
@@ -245,23 +259,38 @@ public class NpcEntity extends PathfinderMob {
             return;
         }
         stopSitting();
-        if (rtsHighPath) {
-            tickHighPath(target);
+        BlockPos now = blockPosition();
+        if (rtsStuckAnchor == null || !rtsStuckAnchor.equals(now)) {
+            rtsStuckAnchor = now;
+            rtsStuckTicks = 0;
+        } else if (++rtsStuckTicks >= RTS_GIVE_UP_TICKS) {
+            getNavigation().stop();
+            releaseRtsControl();
             return;
         }
-        if (getNavigation().isInProgress()) {
-            rtsRepathCooldown = 0;
-        } else if (rtsRepathCooldown-- <= 0) {
-            rtsRepathCooldown = RTS_REPATH_INTERVAL;
-            getNavigation().moveTo(target.getX() + 0.5D, target.getY(), target.getZ() + 0.5D, WALK_SPEED);
-            setNavTarget(target);
-        }
-        pathRetry.tick(this);
+        advanceRtsWaypoints();
+        BlockPos segment = rtsWaypoints.isEmpty() ? target : rtsWaypoints.peekFirst();
+        tickHighPath(segment);
     }
 
     private void tickHighPath(BlockPos target) {
         if (tickPathTo(target)) {
             getNavigation().stop();
+        }
+    }
+
+    private void advanceRtsWaypoints() {
+        BlockPos node = rtsWaypoints.peekFirst();
+        if (node == null) {
+            return;
+        }
+        double dx = getX() - (node.getX() + 0.5D);
+        double dz = getZ() - (node.getZ() + 0.5D);
+        if (dx * dx + dz * dz < RTS_CROWD_ARRIVE_SQR
+                && Math.abs(getY() - node.getY()) < RTS_ARRIVE_HEIGHT) {
+            rtsWaypoints.poll();
+            sharedPathUsedKey = Long.MIN_VALUE;
+            stopConstructionPath();
         }
     }
 
@@ -272,6 +301,8 @@ public class NpcEntity extends PathfinderMob {
             Thread.currentThread().interrupt();
             return null;
         } catch (ExecutionException e) {
+            return null;
+        } catch (CancellationException e) {
             return null;
         }
     }
@@ -289,12 +320,17 @@ public class NpcEntity extends PathfinderMob {
 
     private boolean tickPathTo(BlockPos target) {
         stopSitting();
-        BlockPos stand = resolveWorkStand(target);
+        BlockPos effective = rtsGroupDest == null ? target : rtsGroupDest;
+        BlockPos stand = resolveWorkStand(effective);
         stand = applySegment(stand);
         double dx = getX() - (stand.getX() + 0.5D);
         double dz = getZ() - (stand.getZ() + 0.5D);
-        if (dx * dx + dz * dz < 1.0D && Math.abs(Math.floor(getY() + 0.5D) - stand.getY()) < 1.0D) {
+        double arriveSqr = rtsTarget == null ? 1.0D : (rtsClearOnArrive ? RTS_CROWD_ARRIVE_SQR : rtsArriveSqr);
+        if (dx * dx + dz * dz < arriveSqr && Math.abs(Math.floor(getY() + 0.5D) - stand.getY()) < 1.0D) {
             stopConstructionPath();
+            if (rtsGroupDest != null && blockPosition().distSqr(rtsGroupDest) < RTS_GROUP_HANDOFF_SQR) {
+                rtsGroupDest = null;
+            }
             return true;
         }
         if (followIndex < followPath.size()) {
@@ -308,6 +344,19 @@ public class NpcEntity extends PathfinderMob {
             }
             return false;
         }
+        if (rtsGroupDest != null && followCompleted) {
+            double gdx = getX() - (rtsGroupDest.getX() + 0.5D);
+            double gdz = getZ() - (rtsGroupDest.getZ() + 0.5D);
+            boolean atAnchor = followEndPos != null
+                    && followEndPos.getX() == stand.getX()
+                    && followEndPos.getZ() == stand.getZ()
+                    && Math.abs(followEndPos.getY() - stand.getY()) <= 1;
+            if (gdx * gdx + gdz * gdz < RTS_GROUP_HANDOFF_SQR || !atAnchor) {
+                rtsGroupDest = null;
+                stopConstructionPath();
+                return false;
+            }
+        }
         workAnchor = null;
         workStuckTicks = 0;
         if (workPathFuture != null) {
@@ -316,15 +365,25 @@ public class NpcEntity extends PathfinderMob {
             }
             Future<NpcPathfinder.PathResult> future = workPathFuture;
             workPathFuture = null;
+            boolean joined = workPathJoined;
+            workPathJoined = false;
+            if (joined) {
+                workRepathCooldown = 0;
+                return false;
+            }
             NpcPathfinder.PathResult result = future.isDone() ? takeResult(future) : null;
             future.cancel(false);
             List<NpcPathfinder.Waypoint> waypoints = result == null ? null : result.waypoints();
             if (waypoints != null && waypoints.size() > 1) {
                 if (endpointMatches(waypoints, stand)) {
+                    List<NpcPathfinder.Waypoint> trimmed = trimForLanding(waypoints);
+                    if (trimmed.size() < waypoints.size()) {
+                        sharedPathUsedKey = stand.asLong();
+                    }
                     workRepathCooldown = 20;
                     workFailures = 0;
                     pathPaddingStage = 0;
-                    applyPath(waypoints);
+                    applyPath(trimmed);
                 } else if (result.missingChunks() > 0) {
                     workRepathCooldown = 10;
                 } else {
@@ -348,18 +407,43 @@ public class NpcEntity extends PathfinderMob {
         if (!(level() instanceof ServerLevel level)) {
             return false;
         }
-        SnapshotRepository repository = SnapshotRepository.get(level.getServer());
-        if (repository == null) {
-            return false;
-        }
         BlockPos from = blockPosition();
-        NpcPathfinder.Session session = workSession;
-        if (session == null || !session.matches(from, stand)) {
-            session = new NpcPathfinder.Session(from, stand);
-            workSession = session;
+        Future<NpcPathfinder.PathResult> future = null;
+        if (rtsTarget != null) {
+            RtsSharedPath.Join join = RtsSharedPath.get(level.getServer())
+                    .joinOrSubmit(level, from, stand, NpcPathfinder.paddingOf(pathPaddingStage), getId());
+            if (join != null) {
+                if (join.readyPath() != null) {
+                    List<NpcPathfinder.Waypoint> trimmed = trimForLanding(join.readyPath());
+                    if (trimmed.size() < join.readyPath().size()) {
+                        sharedPathUsedKey = stand.asLong();
+                    }
+                    workRepathCooldown = 20;
+                    workFailures = 0;
+                    pathPaddingStage = 0;
+                    workSession = null;
+                    applyPath(trimmed);
+                    return false;
+                }
+                future = join.future();
+                workPathJoined = join.shared();
+                workSession = null;
+            }
         }
-        Future<NpcPathfinder.PathResult> future = repository.submitSessionSearch(level, session, from, stand,
-                NpcPathfinder.paddingOf(pathPaddingStage));
+        if (future == null) {
+            SnapshotRepository repository = SnapshotRepository.get(level.getServer());
+            if (repository == null) {
+                return false;
+            }
+            NpcPathfinder.Session session = workSession;
+            if (session == null || !session.matches(from, stand)) {
+                session = new NpcPathfinder.Session(from, stand);
+                workSession = session;
+            }
+            future = repository.submitSessionSearch(level, session, from, stand,
+                    NpcPathfinder.paddingOf(pathPaddingStage));
+            workPathJoined = false;
+        }
         if (future == null) {
             workRepathCooldown = 10;
             escalateWork(stand, WORK_SEARCH_FAIL_LIMIT);
@@ -375,6 +459,9 @@ public class NpcEntity extends PathfinderMob {
             workPathFuture.cancel(false);
             workPathFuture = null;
         }
+        workPathJoined = false;
+        followCompleted = false;
+        followEndPos = null;
         workRepathCooldown = 0;
         workPathDeadlineNanos = 0L;
         workClimbCooldown = 0;
@@ -499,9 +586,13 @@ public class NpcEntity extends PathfinderMob {
             return stand;
         }
         SnapshotRepository repository = SnapshotRepository.get(serverLevel.getServer());
-        segmentTarget = NpcPathfinder.midway(repository, serverLevel.dimension(),
+        BlockPos midway = NpcPathfinder.midway(repository, serverLevel.dimension(),
                 blockPosition(), stand, NpcPathfinder.paddingOf(pathPaddingStage));
-        return segmentTarget == null ? stand : segmentTarget;
+        if (midway == null) {
+            return stand;
+        }
+        segmentTarget = new BlockPos((midway.getX() >> 3) << 3, midway.getY(), (midway.getZ() >> 3) << 3);
+        return segmentTarget;
     }
 
     private BlockPos resolveWorkStand(BlockPos target) {
@@ -575,6 +666,10 @@ public class NpcEntity extends PathfinderMob {
         while (followIndex < followPath.size()) {
             NpcPathfinder.Waypoint waypoint = followPath.get(followIndex);
             BlockPos pos = waypoint.pos();
+            if (passedWaypoint(followIndex)) {
+                followIndex++;
+                continue;
+            }
             double dx = getX() - (pos.getX() + 0.5D);
             double dz = getZ() - (pos.getZ() + 0.5D);
             double arrive = switch (waypoint.move()) {
@@ -596,8 +691,31 @@ public class NpcEntity extends PathfinderMob {
                     waypoint.move() == NpcPathfinder.Waypoint.Move.CLIMB ? WALK_SPEED * 0.9D : WALK_SPEED);
             return;
         }
+        followCompleted = true;
         followPath = List.of();
         followIndex = 0;
+    }
+
+    private boolean passedWaypoint(int index) {
+        if (index + 1 >= followPath.size()) {
+            return false;
+        }
+        NpcPathfinder.Waypoint waypoint = followPath.get(index);
+        NpcPathfinder.Waypoint next = followPath.get(index + 1);
+        if (waypoint.move() == NpcPathfinder.Waypoint.Move.CLIMB
+                || next.move() == NpcPathfinder.Waypoint.Move.CLIMB) {
+            return false;
+        }
+        BlockPos pos = waypoint.pos();
+        BlockPos nextPos = next.pos();
+        if (Math.abs(nextPos.getY() - pos.getY()) > 1) {
+            return false;
+        }
+        double dirX = nextPos.getX() - pos.getX();
+        double dirZ = nextPos.getZ() - pos.getZ();
+        double relX = getX() - (pos.getX() + 0.5D);
+        double relZ = getZ() - (pos.getZ() + 0.5D);
+        return relX * dirX + relZ * dirZ > 0.0D;
     }
 
     private void resyncFollowIndex() {
@@ -750,9 +868,31 @@ public class NpcEntity extends PathfinderMob {
                 && Math.abs(reached.getY() - stand.getY()) <= 1;
     }
 
+    private List<NpcPathfinder.Waypoint> trimForLanding(List<NpcPathfinder.Waypoint> path) {
+        if (rtsGroupDest == null || rtsTarget == null || path.size() < 3) {
+            return path;
+        }
+        BlockPos landing = rtsTarget;
+        int best = path.size() - 1;
+        double bestDist = Math.sqrt(path.get(best).pos().distSqr(landing));
+        for (int i = best - 1; i >= 0; i--) {
+            double dist = Math.sqrt(path.get(i).pos().distSqr(landing));
+            if (dist < bestDist) {
+                bestDist = dist;
+                best = i;
+            }
+        }
+        if (best >= path.size() - 1) {
+            return path;
+        }
+        return path.subList(0, best + 1);
+    }
+
     public void applyPath(List<NpcPathfinder.Waypoint> waypoints) {
         followPath = waypoints == null ? List.of() : List.copyOf(waypoints);
         followIndex = 0;
+        followCompleted = false;
+        followEndPos = followPath.isEmpty() ? null : followPath.get(followPath.size() - 1).pos();
         slideTarget = null;
         slideTicks = 0;
         slideCooldown = 0;
@@ -761,7 +901,7 @@ public class NpcEntity extends PathfinderMob {
             navTarget = null;
             return;
         }
-        navTarget = followPath.get(followPath.size() - 1).pos();
+        navTarget = followEndPos;
         while (followIndex < followPath.size()
                 && followPath.get(followIndex).pos().distSqr(blockPosition()) <= 0.25D) {
             followIndex++;

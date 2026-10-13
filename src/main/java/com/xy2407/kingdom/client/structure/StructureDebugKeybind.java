@@ -12,8 +12,10 @@ import com.xy2407.kingdom.client.aui.KingdomAuiStencil;
 import com.xy2407.kingdom.client.aui.StructurePreviewElement;
 import com.xy2407.kingdom.client.building.BuildingPanelClient;
 import com.xy2407.kingdom.client.building.BuildingPlacementManager;
+import com.xy2407.kingdom.client.map.WorldRoadScreen;
 import com.xy2407.kingdom.client.rts.ClientBuildingStore;
 import com.xy2407.kingdom.client.rts.RtsModeManager;
+import com.xy2407.kingdom.client.rts.RtsSubMode;
 import com.xy2407.kingdom.common.entity.NpcEntity;
 import com.xy2407.kingdom.common.network.npc.NpcRosterPacket;
 import com.xy2407.kingdom.common.network.npc.NpcRosterRequestPacket;
@@ -367,10 +369,58 @@ public final class StructureDebugKeybind {
         }
         setFieldActive(document, FIELD_NONE);
         setSideMode(document, true);
+        if (isRoadPage()) {
+            renderRoadEntries(document);
+            return;
+        }
         if (isPopulationPage()) {
             PacketDistributor.sendToServer(new NpcRosterRequestPacket());
         }
         renderSideList(document);
+    }
+
+    private static boolean isRoadPage() {
+        return SECTION_KEYS[3].equals(currentSection);
+    }
+
+    private static void renderRoadEntries(Document document) {
+        Element host = document.getElementById(SIDE_LIST_ID);
+        if (host == null) {
+            return;
+        }
+        host.setInnerHTML("<div class=\"side-item\" id=\"road-territory\">"
+                + "<span class=\"side-name\">领地道路</span>"
+                + "<span class=\"side-sub\">徒手刷</span></div>"
+                + "<div class=\"side-item\" id=\"road-world\">"
+                + "<span class=\"side-name\">世界道路</span>"
+                + "<span class=\"side-sub\">地图画线</span></div>");
+        Element territory = document.getElementById("road-territory");
+        if (territory != null) {
+            territory.addEventListener("click", event -> enterRoadTerritory(document));
+        }
+        Element world = document.getElementById("road-world");
+        if (world != null) {
+            world.addEventListener("click", event -> enterRoadWorld());
+        }
+        Element title = document.getElementById(SIDE_TITLE_ID);
+        if (title != null) {
+            title.setInnerHTML("道路");
+        }
+    }
+
+    private static void enterRoadTerritory(Document document) {
+        if (!RtsModeManager.isActive()) {
+            StructureDebugChat.chat("先按 F6 进 RTS 模式，才能画领地道路");
+            return;
+        }
+        closeViewer();
+        RtsModeManager.enterSubMode(RtsSubMode.ROAD_TERRITORY);
+        StructureDebugChat.chat("领地道路：按住右键拖拽画路，C 撤回，Enter 提交");
+    }
+
+    private static void enterRoadWorld() {
+        closeViewer();
+        WorldRoadScreen.open();
     }
 
     private static void exitSection(Document document) {
@@ -660,7 +710,7 @@ public final class StructureDebugKeybind {
                     .append(sectionRowsHtml(index)).append("</div></div>");
         }
         host.setInnerHTML(html.toString());
-        for (int index = 0; index <= 1; index++) {
+        for (int index = 0; index < SECTION_KEYS.length; index++) {
             String key = SECTION_KEYS[index];
             Element sect = document.getElementById("sect-" + key);
             if (sect != null) {

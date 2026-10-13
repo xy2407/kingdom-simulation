@@ -71,31 +71,37 @@ public record RtsMoveCommandPacket(List<UUID> entityIds, Vec3 target) implements
         }
         context.enqueueWork(() -> {
             Set<UUID> allowed = RtsSelectionService.filterControllable(level, player, new HashSet<>(ids));
-            int index = 0;
+            List<NpcEntity> units = new ArrayList<>();
+            List<RtsFakePlayerEntity> fakes = new ArrayList<>();
             for (UUID id : ids) {
                 if (!allowed.contains(id)) {
                     continue;
                 }
                 Entity entity = RtsSelectionService.findEntity(level, id);
-                Vec3 landing = target.add(scatterOffset(index, 2.0D));
                 if (entity instanceof NpcEntity npc) {
-                    index++;
-                    npc.setRtsTarget(BlockPos.containing(landing), false);
+                    units.add(npc);
                 } else if (entity instanceof RtsFakePlayerEntity fake
                         && player.getUUID().equals(fake.getOwnerUUID())) {
-                    fake.setMoveTarget(target);
+                    fakes.add(fake);
                 }
+            }
+            int total = units.size() + fakes.size();
+            int cols = Math.max(1, (int) Math.ceil(Math.sqrt(total)));
+            int rows = Math.max(1, (total + cols - 1) / cols);
+            BlockPos center = BlockPos.containing(target);
+            int index = 0;
+            for (NpcEntity npc : units) {
+                npc.setRtsGroupTarget(formationLanding(center, index, cols, rows), center, false);
+                index++;
+            }
+            for (RtsFakePlayerEntity fake : fakes) {
+                BlockPos landing = formationLanding(center, index++, cols, rows);
+                fake.setMoveTarget(Vec3.atLowerCornerOf(landing).add(0.5D, 0.0D, 0.5D));
             }
         });
     }
 
-    private static Vec3 scatterOffset(int index, double spacing) {
-        if (index == 0) {
-            return Vec3.ZERO;
-        }
-        final double goldenAngle = 2.39996D;
-        double radius = spacing * Math.sqrt(index);
-        double angle = index * goldenAngle;
-        return new Vec3(Math.cos(angle) * radius, 0.0D, Math.sin(angle) * radius);
+    private static BlockPos formationLanding(BlockPos center, int index, int cols, int rows) {
+        return center.offset(index % cols - (cols - 1) / 2, 0, index / cols - (rows - 1) / 2);
     }
 }

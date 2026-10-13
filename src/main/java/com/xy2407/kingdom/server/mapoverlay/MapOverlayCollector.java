@@ -18,6 +18,7 @@ import com.xy2407.kingdom.server.faction.NationRegistry;
 import com.xy2407.kingdom.server.faction.PlayerProfileStore;
 import com.xy2407.kingdom.server.faction.TerritoryRegistry;
 import com.xy2407.kingdom.server.faction.TerritoryVitalsService;
+import com.xy2407.kingdom.server.road.RoadStore;
 
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -30,6 +31,8 @@ import net.neoforged.neoforge.network.PacketDistributor;
 public final class MapOverlayCollector {
 
     private static final int BUILDING_LIMIT = 512;
+
+    private static final int ROAD_CHUNK_LIMIT = 128;
 
     private static final int PUSH_RADIUS = 512;
 
@@ -118,7 +121,12 @@ public final class MapOverlayCollector {
                     territoryId));
         }
 
-        return new MapOverlayDataPacket(System.nanoTime(), territories, buildings);
+        // W14：世界道路随叠层下发，任意地图可见；超出上限按到视野中心距离取最近的
+        List<MapOverlayDataPacket.RoadChunkEntry> roads = RoadStore.INSTANCE.roadChunksIn(
+                dimension, minX >> 4, maxX >> 4, minZ >> 4, maxZ >> 4,
+                centerX >> 4, centerZ >> 4, ROAD_CHUNK_LIMIT);
+
+        return new MapOverlayDataPacket(System.nanoTime(), territories, buildings, roads);
     }
 
     private static String territoryIdOf(List<Territory> territories, BuildingRecord record) {

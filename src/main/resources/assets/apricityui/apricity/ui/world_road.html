@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <!-- 世界道路地图页：mode=gui 全屏铺开（与 structures/viewer.html 同一套视口），
+         纯 DOM 页 + 自定义元素 <world-map>，必须 intercept 否则地图拖不动。 -->
+    <meta name="aui-viewport" content="mode=gui">
+    <meta name="aui-mouse-events" content="intercept">
+    <title>世界道路</title>
+    <style>
+        @font-face {
+            font-family: 'Zpix';
+            src: url('/font/zpix.ttf') format('truetype');
+            font-display: block;
+        }
+
+        /* 主题令牌：内联自 aui经验/theme/pixel-medieval.css（只取本页用到的部分） */
+        :root {
+            --parchment: #c8ac7c;
+            --parchment-lo: #b89868;
+            --parchment-hi: #d6bc94;
+            --parchment-max: #e8d2a8;
+            --border-deep: #3a2814;
+            --border-dark: #4a3218;
+            --border-mid: #6a4a20;
+            --border-light: #8a6e3c;
+            --border-hi: #d8bc8c;
+            --ink: #1a0e04;
+            --ink-2: #4a3218;
+            --gold: #c9a227;
+            --gold-l: #f5e08a;
+            --shine-soft: rgba(255, 240, 200, .28);
+            --shade-soft: rgba(74, 50, 24, .3);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+        }
+
+        body {
+            font-family: 'Zpix', monospace;
+            font-size: 12px;
+            color: var(--ink);
+        }
+
+        world-map {
+            image-rendering: pixelated;
+        }
+
+        /* 舞台：铺满视口；地图自身在最底层，顶栏与按钮排叠在上面 */
+        .stage {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        .stage world-map {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* 木框配方（.frame--flat，贴视口边缘不用硬投影）：顶栏专用 */
+        .topbar {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 38px;
+            display: flex;
+            align-items: center;
+            padding: 0 10px;
+
+            background-color: var(--parchment);
+            background-image: url('/tex/parchment_bar.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            border-bottom: 2px solid var(--border-dark);
+            box-shadow:
+                0 0 0 1px var(--border-mid),
+                inset 0 1px 0 var(--shine-soft);
+        }
+
+        .topbar-title {
+            flex: 0 0 auto;
+            font-size: 14px;
+            line-height: 18px;
+            letter-spacing: 2px;
+            color: var(--gold);
+            text-stroke: 1px var(--border-deep);
+        }
+
+        .topbar-status {
+            flex: 1 1 auto;
+            min-width: 0;
+            margin-left: 12px;
+            font-size: 12px;
+            line-height: 16px;
+            color: var(--ink);
+            white-space: nowrap;
+            overflow: hidden;
+        }
+
+        .topbar-hint {
+            flex: 0 0 auto;
+            margin-left: 12px;
+            font-size: 11px;
+            line-height: 15px;
+            color: var(--ink-2);
+        }
+
+        /* 底部按钮排：退出 / 撤回 / 提交；提交在阶段 5 接入前置灰 */
+        .btnrow {
+            position: absolute;
+            left: 0;
+            bottom: 20px;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+        }
+
+        .wbtn {
+            flex: 0 0 auto;
+            margin: 0 4px;
+            padding: 4px 14px;
+            font-size: 13px;
+            line-height: 18px;
+            letter-spacing: 2px;
+            color: var(--ink);
+
+            background-image: url('/tex/parchment_status.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            background-color: var(--parchment-lo);
+            border: 2px solid var(--border-dark);
+            box-shadow:
+                0 0 0 1px var(--border-mid),
+                inset 0 1px 0 var(--shine-soft);
+            cursor: pointer;
+        }
+
+        .wbtn:hover {
+            color: var(--gold-l);
+            text-stroke: 1px var(--border-deep);
+        }
+
+        .wbtn--dim {
+            color: var(--ink-2);
+            cursor: default;
+        }
+
+        .wbtn--dim:hover {
+            color: var(--ink-2);
+            text-stroke: none;
+        }
+
+        /* 提交二次确认（D7）：全屏遮罩 + 居中木框小窗；is-open 切换显示 */
+        .modal {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(26, 14, 4, .55);
+        }
+
+        .modal.is-open {
+            display: flex;
+        }
+
+        .modal-box {
+            width: 340px;
+            padding: 10px 12px;
+
+            background-color: var(--parchment);
+            background-image: url('/tex/card_gen.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            border: 2px solid var(--border-dark);
+            box-shadow:
+                0 0 0 1px var(--border-mid),
+                3px 3px 0 0 rgba(0, 0, 0, .45),
+                inset 2px 2px 0 0 var(--border-hi),
+                inset -2px -2px 0 0 var(--border-mid);
+        }
+
+        .modal-title {
+            font-size: 14px;
+            line-height: 18px;
+            letter-spacing: 2px;
+            color: var(--gold);
+            text-stroke: 1px var(--border-deep);
+            padding-bottom: 6px;
+        }
+
+        .rline {
+            display: flex;
+            align-items: center;
+            padding: 2px 0;
+            font-size: 12px;
+            line-height: 16px;
+        }
+
+        .rline-k {
+            flex: 0 0 auto;
+            margin-right: 8px;
+            color: var(--ink-2);
+        }
+
+        .rline-v {
+            flex: 1 1 auto;
+            min-width: 0;
+            color: var(--ink);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .modal-btns {
+            display: flex;
+            justify-content: center;
+            padding-top: 8px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="stage">
+    <!-- radius=320：世界道路要看远，比市政厅缩略图的 192 大一档；center 由 WorldRoadScreen 填玩家位置 -->
+    <world-map id="wrMap" center-x="0" center-z="0" radius="320" show-buildings="false"></world-map>
+    <div class="topbar">
+        <span class="topbar-title">世 界 道 路</span>
+        <span class="topbar-status" id="wrStatus">笔画 0 · 线段 0 · 连通 0/0 · 跨越区块 0</span>
+        <span class="topbar-hint">按住右键画线 · C 撤回整笔 · 红色区块未加载画不上 · 红线未连通领地</span>
+    </div>
+    <div class="btnrow">
+        <span class="wbtn" id="wr-exit">退 出</span>
+        <span class="wbtn" id="wr-undo">撤 回</span>
+        <span class="wbtn" id="wr-submit">提 交</span>
+    </div>
+
+    <!-- 提交二次确认（D7）：内容由 WorldRoadScreen 填，确认才发包，取消保留折线继续画 -->
+    <div class="modal" id="wrConfirm">
+        <div class="modal-box">
+            <div class="modal-title">提 交 确 认</div>
+            <div id="wrConfirmBody"></div>
+            <div class="modal-btns">
+                <span class="wbtn" id="wrConfirmYes">确 认</span>
+                <span class="wbtn wbtn--dim" id="wrConfirmNo">取 消</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 传送确认（W15）：左键点中已提交道路区块时弹出 -->
+    <div class="modal" id="wrTeleport">
+        <div class="modal-box">
+            <div class="modal-title">传 送 确 认</div>
+            <div id="wrTeleportBody"></div>
+            <div class="modal-btns">
+                <span class="wbtn" id="wrTeleportYes">传 送</span>
+                <span class="wbtn wbtn--dim" id="wrTeleportNo">取 消</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

@@ -14,6 +14,8 @@ import com.xy2407.kingdom.server.faction.TerritoryVitalsStore;
 import com.xy2407.kingdom.server.farm.FarmPlotManager;
 import com.xy2407.kingdom.server.government.GovernmentAffairService;
 import com.xy2407.kingdom.server.government.GovernmentAffairStore;
+import com.xy2407.kingdom.server.road.RoadPavingQueue;
+import com.xy2407.kingdom.server.road.RoadStore;
 import com.xy2407.kingdom.server.mapoverlay.MapOverlayCollector;
 import com.xy2407.kingdom.server.ranch.RanchPenManager;
 import com.xy2407.kingdom.server.ranch.RanchWorkService;
@@ -47,6 +49,8 @@ public final class ServerLifecycle {
         BuildingStorageStore.INSTANCE.reset();
         GovernmentAffairStore.INSTANCE.reset();
         GovernmentAffairService.reset();
+        RoadStore.INSTANCE.reset();
+        RoadPavingQueue.reset();
         MapOverlayCollector.install(event.getServer());
         SnapshotRepository snapshotRepository = SnapshotRepository.get(event.getServer());
         if (snapshotRepository != null) {
@@ -71,11 +75,14 @@ public final class ServerLifecycle {
         BuildingStorageStore.INSTANCE.tick(event.getServer());
         GovernmentAffairStore.INSTANCE.tick(event.getServer());
         GovernmentAffairService.tick(event.getServer());
+        RoadStore.INSTANCE.tick();
+        RoadPavingQueue.tick(event.getServer());
         FactionService.tick(event.getServer());
     }
 
     @SubscribeEvent
     public static void onServerStopping(ServerStoppingEvent event) {
+        RoadPavingQueue.releaseAll(event.getServer());
         NpcManager.INSTANCE.flushSync();
         BuildingStorageStore.INSTANCE.flushAll(event.getServer());
         KingdomPersistence instance = KingdomPersistence.current();

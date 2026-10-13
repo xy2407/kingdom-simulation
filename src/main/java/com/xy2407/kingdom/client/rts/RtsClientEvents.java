@@ -123,9 +123,16 @@ public final class RtsClientEvents {
             return;
         }
         boolean press = event.getAction() == InputConstants.PRESS;
+        double[] mouse = RtsModeManager.getGuiScaledMouse();
         switch (event.getButton()) {
             case GLFW.GLFW_MOUSE_BUTTON_LEFT -> {
-                double[] mouse = RtsModeManager.getGuiScaledMouse();
+                if (RtsModeManager.isRoadMode()) {
+                    if (press) {
+                        RoadHudLayer.handleClick(mouse[0], mouse[1]);
+                    }
+                    event.setCanceled(true);
+                    return;
+                }
                 if (press) {
                     if (BuildingPlacementManager.beginPendingDrag()) {
                         event.setCanceled(true);
@@ -147,6 +154,11 @@ public final class RtsClientEvents {
                 event.setCanceled(true);
             }
             case GLFW.GLFW_MOUSE_BUTTON_RIGHT -> {
+                if (RtsModeManager.isRoadMode()) {
+                    RtsRoadState.onRightButton(press, mouse[0], mouse[1]);
+                    event.setCanceled(true);
+                    return;
+                }
                 if (press) {
                     if (ClientBuildingController.isMoving()) {
                         ClientBuildingController.cancel();
@@ -205,6 +217,10 @@ public final class RtsClientEvents {
             return;
         }
         if (event.getAction() != GLFW.GLFW_PRESS) {
+            return;
+        }
+        if (RtsModeManager.getSubMode() == RtsSubMode.ROAD_TERRITORY) {
+            RtsRoadState.onKeyPress(key);
             return;
         }
         if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) {

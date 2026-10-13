@@ -13,6 +13,7 @@ import com.xy2407.kingdom.common.network.cityhall.CityHallAffairActionPacket;
 import com.xy2407.kingdom.common.network.cityhall.CityHallDataPacket;
 import com.xy2407.kingdom.common.network.cityhall.CityHallRequestPacket;
 import com.xy2407.kingdom.common.network.faction.TerritoryBuyPacket;
+import com.xy2407.kingdom.common.network.road.RoadTeleportPacket;
 
 import net.minecraft.client.Minecraft;
 import net.neoforged.api.distmarker.Dist;
@@ -43,6 +44,12 @@ public final class CityHallScreen extends ApricityScreen {
     private int refreshCounter;
 
     private Set<Long> buySelection;
+
+    private boolean roadTeleportOpen;
+
+    private int roadTeleportChunkX;
+
+    private int roadTeleportChunkZ;
 
     private static final String[] MAP_VIEW_ATTRIBUTES = {"center-x", "center-z", "zoom"};
 
@@ -111,7 +118,9 @@ public final class CityHallScreen extends ApricityScreen {
     public void onClose() {
         WorldMapElement.clearSelection();
         WorldMapElement.setSelectionListener(null);
+        WorldMapElement.setRoadClickListener(null);
         buySelection = null;
+        roadTeleportOpen = false;
         super.onClose();
     }
 
@@ -195,9 +204,12 @@ public final class CityHallScreen extends ApricityScreen {
         click(document, "chCalBtn", this::showDayModal);
 
         WorldMapElement.setSelectionListener(this::openBuyModal);
+        WorldMapElement.setRoadClickListener(this::openRoadTeleport);
         click(document, "chBuyClose", this::closeBuyModal);
         click(document, "chBuyCancel", this::closeBuyModal);
         click(document, "chBuyConfirm", this::confirmBuy);
+        click(document, "chRoadModalCancel", this::closeRoadTeleport);
+        click(document, "chRoadModalConfirm", this::confirmRoadTeleport);
 
         click(document, "chMapBox", () -> {
             if (WorldMapElement.draggedRecently()) {
@@ -324,6 +336,38 @@ public final class CityHallScreen extends ApricityScreen {
         PacketDistributor.sendToServer(new TerritoryBuyPacket(chunks));
     }
 
+    // W15：市政厅地图左键点中已提交道路区块 → 传送确认；确认后发 RoadTeleportPacket 并关屏
+    private void openRoadTeleport(int chunkX, int chunkZ) {
+        Document document = boundDocument;
+        if (document == null || roadTeleportOpen) {
+            return;
+        }
+        roadTeleportChunkX = chunkX;
+        roadTeleportChunkZ = chunkZ;
+        Element body = document.getElementById("chRoadModalBody");
+        if (body != null) {
+            body.setInnerHTML("<div class=\"rline\"><span class=\"rline-k\">目标区块</span>"
+                    + "<span class=\"rline-v\">" + chunkX + ", " + chunkZ + "</span></div>"
+                    + "<div class=\"rline\"><span class=\"rline-k\">落点</span>"
+                    + "<span class=\"rline-v\">区块中心的地表，保留朝向</span></div>");
+        }
+        roadTeleportOpen = true;
+        toggleClass(document, "chRoadModal", "is-open", true);
+    }
+
+    private void closeRoadTeleport() {
+        roadTeleportOpen = false;
+        if (boundDocument != null) {
+            toggleClass(boundDocument, "chRoadModal", "is-open", false);
+        }
+    }
+
+    private void confirmRoadTeleport() {
+        closeRoadTeleport();
+        PacketDistributor.sendToServer(new RoadTeleportPacket(roadTeleportChunkX, roadTeleportChunkZ));
+        Minecraft.getInstance().setScreen(null);
+    }
+
     private void showDayModal() {
         Document document = boundDocument;
         if (document == null) {
@@ -351,6 +395,10 @@ public final class CityHallScreen extends ApricityScreen {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == GLFW.GLFW_KEY_ESCAPE && boundDocument != null) {
+            if (roadTeleportOpen) {
+                closeRoadTeleport();
+                return true;
+            }
             if (buySelection != null) {
                 closeBuyModal();
                 return true;
