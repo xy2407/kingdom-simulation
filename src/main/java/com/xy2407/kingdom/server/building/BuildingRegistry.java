@@ -21,6 +21,7 @@ import com.xy2407.kingdom.common.building.BuildingType;
 import com.xy2407.kingdom.common.persistence.BuildingSchema;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.server.mapoverlay.MapOverlayCollector;
+import com.xy2407.kingdom.server.path.BuildingRoadAccess;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Vec3i;
@@ -70,6 +71,7 @@ public final class BuildingRegistry {
         KingdomPersistence.submit(BuildingSchema.TABLE_BUILDING, BuildingSchema.COL_UUID,
                 building.id().toString(), toValues(building));
         MapOverlayCollector.pushAll();
+        BuildingRoadAccess.markBuildingDirty(building.id());
     }
 
     private static int farmSlotsOf(String blueprintName) {
@@ -118,6 +120,7 @@ public final class BuildingRegistry {
         KingdomPersistence.submit(BuildingSchema.TABLE_BUILDING, BuildingSchema.COL_UUID,
                 building.id().toString(), toValues(building));
         MapOverlayCollector.pushAll();
+        BuildingRoadAccess.markBuildingDirty(building.id());
     }
 
     public void tick(MinecraftServer server) {

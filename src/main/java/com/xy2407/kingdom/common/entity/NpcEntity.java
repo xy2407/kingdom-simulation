@@ -15,6 +15,7 @@ import com.xy2407.kingdom.common.path.ChunkSnapshot;
 import com.xy2407.kingdom.common.path.NpcPathRetry;
 import com.xy2407.kingdom.common.path.NpcPathfinder;
 import com.xy2407.kingdom.common.path.RtsSharedPath;
+import com.xy2407.kingdom.server.path.RoadRouteService;
 import com.xy2407.kingdom.common.path.SnapshotRepository;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.persistence.NpcSchema;
@@ -431,6 +432,17 @@ public class NpcEntity extends PathfinderMob {
             }
         }
         if (future == null) {
+            // 道路路由（P3）：目的地是建筑且两端接入同一连通分量时，三段式同步毫秒级出路径；
+            // 任何一段不成则返回 null 回退原异步快照寻路
+            List<NpcPathfinder.Waypoint> roadRoute = RoadRouteService.tryPlan(level, from, stand);
+            if (roadRoute != null) {
+                workRepathCooldown = 20;
+                workFailures = 0;
+                pathPaddingStage = 0;
+                workSession = null;
+                applyPath(roadRoute);
+                return false;
+            }
             SnapshotRepository repository = SnapshotRepository.get(level.getServer());
             if (repository == null) {
                 return false;

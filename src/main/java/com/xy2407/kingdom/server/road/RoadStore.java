@@ -112,6 +112,12 @@ public final class RoadStore {
         KingdomPersistence.submit(RoadSchema.TABLE_CHUNK, RoadSchema.COL_CHUNK_KEY, key, values);
     }
 
+    // 路图构建的数据源（P1）：只读视图，调用方不得修改；键 = BlockPos.asLong（道路格，含 y）
+    public Set<Long> roadCells(String dimension) {
+        Set<Long> cells = cellsByDimension.get(dimension);
+        return cells == null ? Set.of() : cells;
+    }
+
     public boolean hasRoadChunk(String dimension, int chunkX, int chunkZ) {
         Map<Long, RoadChunkData> chunks = chunksByDimension.get(dimension);
         return chunks != null && chunks.containsKey(ChunkPos.asLong(chunkX, chunkZ));

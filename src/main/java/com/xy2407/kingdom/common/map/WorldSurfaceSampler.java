@@ -1,5 +1,7 @@
 package com.xy2407.kingdom.common.map;
 
+import com.xy2407.kingdom.common.path.ChunkSnapshot;
+
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
@@ -21,8 +23,6 @@ public final class WorldSurfaceSampler {
     private static final int NO_SURFACE = Integer.MIN_VALUE;
 
     private static final int MAX_STEP_HEIGHT = 1;
-
-    private static final int CLEARANCE_HEIGHT = 3;
 
     private static final int CHUNK_SIDE = 16;
     private static final int CHUNK_CELLS = CHUNK_SIDE * CHUNK_SIDE;
@@ -176,23 +176,19 @@ public final class WorldSurfaceSampler {
         return MapColor.Brightness.NORMAL;
     }
 
-    // 道路面的可行走采样：地面候选必须 ① "有支撑"（本格与下一格都有碰撞形状，排除悬空的屋檐/树叶）；
-    // ② 上方 3 格净空（NPC 能站/能通过，相邻格因以同一条规则入选而同样满足）；
-    // ③ 在相邻参考高度 ±1 内（NPC 步高限制）；从候选中取满足约束的最高者，找不到返回 NO_WALKABLE。
-    // refY 传 NO_WALKABLE 表示无相邻参考（起笔/传送落点），只查支撑与净空。
+    // 道路面的可行走采样（P0 对齐，D1 已定）：判定完全复用寻路快照的谓词语义——
+    // ① 脚下方块 isWalkableFloor（含楼梯/半砖/脚手架，排除栅栏/墙）；
+    // ② 站立位及其上 1 格 isPassable（净空 2，含门/地毯/压力板，排除火与细雪）——
+    //    与 ChunkSnapshot 的 standable 层逐方块等价，保证道路 y 必然是快照可站的层；
+    // ③ 相邻参考高度 ±1（NPC 步高）；列内无满足者返回 NO_WALKABLE（调用方跳过该格且不断线）。
+    // refY 传 NO_WALKABLE 表示无相邻参考（起笔/传送落点）。
     public static int walkableSurfaceY(Level level, int worldX, int worldZ, int refY) {
         int top = Math.min(level.getMaxBuildHeight() - 1,
                 level.getHeight(Heightmap.Types.WORLD_SURFACE, worldX, worldZ));
         int bottom = level.getMinBuildHeight();
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         for (int y = top; y > bottom; y--) {
-            if (!hasCollision(level, cursor, worldX, y, worldZ)) {
-                continue;
-            }
-            if (!hasCollision(level, cursor, worldX, y - 1, worldZ)) {
-                continue;
-            }
-            if (!hasClearance(level, cursor, worldX, y, worldZ)) {
+            if (!isStandableFloor(level, cursor, worldX, y, worldZ)) {
                 continue;
             }
             if (refY != NO_WALKABLE && Math.abs(y - refY) > MAX_STEP_HEIGHT) {
@@ -203,17 +199,21 @@ public final class WorldSurfaceSampler {
         return NO_WALKABLE;
     }
 
-    private static boolean hasClearance(Level level, BlockPos.MutableBlockPos cursor,
-                                        int x, int y, int z) {
-        for (int above = 1; above <= CLEARANCE_HEIGHT; above++) {
-            if (y + above > level.getMaxBuildHeight() - 1) {
-                return true;
-            }
-            if (hasCollision(level, cursor, x, y + above, z)) {
-                return false;
-            }
+    private static boolean isStandableFloor(Level level, BlockPos.MutableBlockPos cursor,
+                                            int x, int y, int z) {
+        if (y < level.getMinBuildHeight() || y + 2 > level.getMaxBuildHeight() - 1) {
+            return false;
         }
-        return true;
+        cursor.set(x, y, z);
+        if (!ChunkSnapshot.isWalkableFloor(level.getBlockState(cursor))) {
+            return false;
+        }
+        cursor.set(x, y + 1, z);
+        if (!ChunkSnapshot.isPassable(level.getBlockState(cursor))) {
+            return false;
+        }
+        cursor.set(x, y + 2, z);
+        return ChunkSnapshot.isPassable(level.getBlockState(cursor));
     }
 
     private static boolean hasCollision(Level level, BlockPos.MutableBlockPos cursor,

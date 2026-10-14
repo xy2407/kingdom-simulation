@@ -7,10 +7,13 @@ import java.util.Set;
 import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.common.faction.Territory;
 import com.xy2407.kingdom.common.map.WorldSurfaceSampler;
+import com.xy2407.kingdom.common.path.ChunkSnapshot;
 import com.xy2407.kingdom.common.network.road.RoadLoadedChunksPacket;
 import com.xy2407.kingdom.common.road.RoadGeometry;
 import com.xy2407.kingdom.common.road.RoadPolyline;
 import com.xy2407.kingdom.server.faction.TerritoryRegistry;
+import com.xy2407.kingdom.server.path.BuildingRoadAccess;
+import com.xy2407.kingdom.server.path.RoadGraphService;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
@@ -73,6 +76,10 @@ public final class RoadService {
         }
         ModMain.LOGGER.info("领地道路：提交 {} 格，实际铺设 {} 格（{}）",
                 cells.length, placed, player.getGameProfile().getName());
+        if (placed > 0) {
+            RoadGraphService.markDirty(dimension);
+            BuildingRoadAccess.markRoadDirty();
+        }
     }
 
     // D1 已加载区块下发：以玩家为中心扫半径 24 区块（768 格见方，共 2401 格 < 4096 上限，无需按距离排序）
@@ -182,34 +189,23 @@ public final class RoadService {
         return fallback == WorldSurfaceSampler.NO_WALKABLE ? null : new BlockPos(x, fallback, z);
     }
 
-    // 与 WorldSurfaceSampler#walkableSurfaceY 的候选判定保持一致：支撑 + 上方 3 格净空，
+    // 与 WorldSurfaceSampler#walkableSurfaceY 的候选判定保持一致（D1：复用快照谓词，净空 2），
     // 否则客户端过了服务端不过会退回 fallback，出现"画布所见非所铺"
     private static boolean isWalkable(ServerLevel level, int x, int y, int z) {
-        if (y <= level.getMinBuildHeight() || y >= level.getMaxBuildHeight() - 1) {
+        if (y < level.getMinBuildHeight() || y + 2 > level.getMaxBuildHeight() - 1) {
             return false;
         }
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         cursor.set(x, y, z);
-        BlockState top = level.getBlockState(cursor);
-        if (top.isAir() || top.getCollisionShape(level, cursor).isEmpty()) {
+        if (!ChunkSnapshot.isWalkableFloor(level.getBlockState(cursor))) {
             return false;
         }
-        cursor.set(x, y - 1, z);
-        BlockState below = level.getBlockState(cursor);
-        if (below.isAir() || below.getCollisionShape(level, cursor).isEmpty()) {
+        cursor.set(x, y + 1, z);
+        if (!ChunkSnapshot.isPassable(level.getBlockState(cursor))) {
             return false;
         }
-        for (int above = 1; above <= 3; above++) {
-            if (y + above > level.getMaxBuildHeight() - 1) {
-                return true;
-            }
-            cursor.set(x, y + above, z);
-            BlockState state = level.getBlockState(cursor);
-            if (!state.isAir() && !state.getCollisionShape(level, cursor).isEmpty()) {
-                return false;
-            }
-        }
-        return true;
+        cursor.set(x, y + 2, z);
+        return ChunkSnapshot.isPassable(level.getBlockState(cursor));
     }
 
     static BlockPos surfacePos(ServerLevel level, int x, int z) {

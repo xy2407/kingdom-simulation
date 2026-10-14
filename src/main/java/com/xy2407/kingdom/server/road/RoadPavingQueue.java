@@ -14,6 +14,8 @@ import java.util.UUID;
 import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.common.map.WorldSurfaceSampler;
 import com.xy2407.kingdom.common.road.RoadPolyline;
+import com.xy2407.kingdom.server.path.BuildingRoadAccess;
+import com.xy2407.kingdom.server.path.RoadGraphService;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
@@ -185,6 +187,8 @@ public final class RoadPavingQueue {
             }
             RoadStore.INSTANCE.recordChunk(task.dimension(), pos.x, pos.z, paved.stream()
                     .mapToLong(Long::longValue).toArray(), task.playerId().toString(), day);
+            RoadGraphService.markDirty(task.dimension());
+            BuildingRoadAccess.markRoadDirty();
         }
         ModMain.LOGGER.info("世界道路批次铺完：{} 个区块、新增 {} 格（玩家 {}）",
                 chunks.size(), placed, task.playerId());

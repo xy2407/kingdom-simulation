@@ -16,6 +16,9 @@ import com.xy2407.kingdom.server.government.GovernmentAffairService;
 import com.xy2407.kingdom.server.government.GovernmentAffairStore;
 import com.xy2407.kingdom.server.road.RoadPavingQueue;
 import com.xy2407.kingdom.server.road.RoadStore;
+import com.xy2407.kingdom.server.path.BuildingRoadAccess;
+import com.xy2407.kingdom.server.path.RoadFieldCache;
+import com.xy2407.kingdom.server.path.RoadGraphService;
 import com.xy2407.kingdom.server.mapoverlay.MapOverlayCollector;
 import com.xy2407.kingdom.server.ranch.RanchPenManager;
 import com.xy2407.kingdom.server.ranch.RanchWorkService;
@@ -51,6 +54,9 @@ public final class ServerLifecycle {
         GovernmentAffairService.reset();
         RoadStore.INSTANCE.reset();
         RoadPavingQueue.reset();
+        RoadGraphService.reset();
+        BuildingRoadAccess.reset();
+        RoadFieldCache.reset();
         MapOverlayCollector.install(event.getServer());
         SnapshotRepository snapshotRepository = SnapshotRepository.get(event.getServer());
         if (snapshotRepository != null) {
