@@ -96,6 +96,7 @@ public class NpcEntity extends PathfinderMob {
     private static final int WORK_STUCK_LIMIT = 3;
     private static final int WORK_SEARCH_FAIL_LIMIT = 8;
     private static final long WORK_PATH_TIMEOUT_NANOS = 10_000_000_000L;
+    private static final int BUILDER_STUCK_TELEPORT_TICKS = 40;
     private static final int WORK_CLIMB_INTERVAL_TICKS = 10;
     private static final double[] SLIDE_OFFSETS = {0.25D, 0.5D};
     private static final double SLIDE_FORWARD = 0.3D;
@@ -155,6 +156,9 @@ public class NpcEntity extends PathfinderMob {
     private int slideTicks;
     private int slideCooldown;
     private int pathPaddingStage;
+    private int builderStuckTicks;
+    private double builderStuckBestDist = Double.MAX_VALUE;
+
 
     public void setRtsTarget(BlockPos target, boolean clearOnArrive) {
         rtsWaypoints.clear();
@@ -316,7 +320,22 @@ public class NpcEntity extends PathfinderMob {
     }
 
     public boolean tickConstructionPath(BlockPos target) {
-        return tickPathTo(target);
+        double adx = getX() - (target.getX() + 0.5D);
+        double adz = getZ() - (target.getZ() + 0.5D);
+        boolean closeEnough = adx * adx + adz * adz <= 4.0D
+                && Math.abs(Math.floor(getY() + 0.5D) - target.getY()) <= 2.0D;
+        boolean arrived = closeEnough || tickPathTo(target);
+        if (arrived) {
+            builderStuckTicks = 0;
+            builderStuckBestDist = Double.MAX_VALUE;
+        } else {
+            checkBuilderStuck(target);
+        }
+        if (closeEnough) {
+            followPath = List.of();
+            followIndex = 0;
+        }
+        return arrived;
     }
 
     private boolean tickPathTo(BlockPos target) {
@@ -466,6 +485,26 @@ public class NpcEntity extends PathfinderMob {
         return false;
     }
 
+    private void checkBuilderStuck(BlockPos target) {
+        double dx = getX() - (target.getX() + 0.5D);
+        double dz = getZ() - (target.getZ() + 0.5D);
+        double dy = Math.abs(Math.floor(getY() + 0.5D) - target.getY());
+        double dist = dx * dx + dz * dz + dy * dy;
+        if (dist < builderStuckBestDist - 0.01D) {
+            builderStuckBestDist = dist;
+            builderStuckTicks = 0;
+            return;
+        }
+        if (++builderStuckTicks < BUILDER_STUCK_TELEPORT_TICKS) {
+            return;
+        }
+        builderStuckTicks = 0;
+        builderStuckBestDist = Double.MAX_VALUE;
+        stopConstructionPath();
+        setDeltaMovement(Vec3.ZERO);
+        teleportTo(target.getX() + 0.5D, target.getY(), target.getZ() + 0.5D);
+    }
+
     public void stopConstructionPath() {
         if (workPathFuture != null) {
             workPathFuture.cancel(false);
@@ -484,6 +523,8 @@ public class NpcEntity extends PathfinderMob {
         workFailures = 0;
         pathPaddingStage = 0;
         workSession = null;
+        builderStuckTicks = 0;
+        builderStuckBestDist = Double.MAX_VALUE;
         slideTarget = null;
         slideTicks = 0;
         slideCooldown = 0;
@@ -780,6 +821,11 @@ public class NpcEntity extends PathfinderMob {
     }
 
     private void applyVertical(NpcPathfinder.Waypoint waypoint, double climbDirection) {
+        int dy = waypoint.pos().getY() - getBlockY();
+        if (onClimbable() && Math.abs(dy) >= 1) {
+            climbMove(dy > 0 ? 1.0D : -1.0D);
+            return;
+        }
         switch (waypoint.move()) {
             case STEP_UP -> {
                 if (onGround() && workClimbCooldown <= 0 && getDeltaMovement().y <= 0.02D) {
@@ -974,6 +1020,20 @@ public class NpcEntity extends PathfinderMob {
         climbState = level().getBlockState(blockPosition()).is(BlockTags.CLIMBABLE)
                 || level().getBlockState(blockPosition().below()).is(BlockTags.CLIMBABLE);
         return climbState;
+    }
+
+    @Override
+    public boolean isDescending() {
+        BlockPos pos = blockPosition();
+        boolean onClimbable = level().getBlockState(pos).is(BlockTags.CLIMBABLE)
+                || level().getBlockState(pos.below()).is(BlockTags.CLIMBABLE);
+        if (!onClimbable) {
+            return false;
+        }
+        if (followIndex < followPath.size()) {
+            return followPath.get(followIndex).pos().getY() < getBlockY();
+        }
+        return false;
     }
 
     @Override

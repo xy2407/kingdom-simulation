@@ -3,12 +3,16 @@ package com.xy2407.kingdom.common.npc;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.xy2407.kingdom.common.building.BuildingMeta;
+import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.date.DateSystem;
 import com.xy2407.kingdom.common.entity.NpcEntity;
 import com.xy2407.kingdom.common.farm.CropCatalog;
 import com.xy2407.kingdom.common.farm.FarmPlot;
 import com.xy2407.kingdom.common.farm.FarmRegion;
 import com.xy2407.kingdom.common.path.SnapshotRepository;
+import com.xy2407.kingdom.server.building.BuildingRegistry;
+import com.xy2407.kingdom.server.building.BuildingStorageStore;
 import com.xy2407.kingdom.server.farm.FarmLandRegistry;
 import com.xy2407.kingdom.server.farm.FarmPlotManager;
 
@@ -29,6 +33,7 @@ import net.minecraft.world.level.block.FarmBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.IntegerProperty;
 import net.minecraft.world.level.block.state.properties.Property;
+import net.neoforged.neoforge.items.IItemHandler;
 
 /**
  * 农活执行：服务端每 1000 tick 巡检一次农田表算出待办，雇员按状态机领活开垦、种植、收割。
@@ -37,7 +42,7 @@ public final class NpcFarmService {
 
     private static final int MAX_RESUME_RETRIES = 3;
     private static final int ACTION_INTERVAL_TICKS = 20;
-    private static final double ARRIVE_SQR = 6.25D;
+    private static final double ARRIVE_SQR = 2.25D;
     private static final int AREA_LIMIT = 4096;
 
     private static final Map<UUID, Work> WORKS = new ConcurrentHashMap<>();
@@ -45,16 +50,19 @@ public final class NpcFarmService {
     private static final Map<UUID, UUID> WORKER_PLOT = new ConcurrentHashMap<>();
     private static final Map<UUID, Deque<Task>> QUEUES = new ConcurrentHashMap<>();
 
-    private enum Action { PLANT, HARVEST }
+    private enum Action { TILL, PLANT, HARVEST }
 
     private record Task(BlockPos pos, Action action) {
     }
 
     private static final class Work {
         private BlockPos target;
-        private Action action = Action.PLANT;
+        private Action action;
         private int retries;
         private int cooldown;
+        private int resumeCooldown;
+        private boolean confirmed;
+        private final Deque<Task> route = new ArrayDeque<>();
     }
 
     private NpcFarmService() {
@@ -78,24 +86,21 @@ public final class NpcFarmService {
                 continue;
             }
             Deque<Task> tasks = collect(level, plot);
-            QUEUES.put(plot.id(), tasks);
-            for (UUID id : plot.workerIds()) {
-                if (tasks.isEmpty()) {
-                    break;
-                }
-                NpcData data = NpcManager.INSTANCE.getNpc(id);
-                if (data == null || data.isDead() || data.getBrain().isStarving()) {
-                    continue;
-                }
-                Work held = WORKS.get(id);
-                if (held != null && held.target != null) {
-                    continue;
-                }
-                UUID entityId = data.getEntityUuid();
-                if (entityId != null && level.getEntity(entityId) instanceof NpcEntity npc) {
-                    take(npc, data, tasks.poll());
+            List<UUID> workers = plot.workerIds();
+            if (!workers.isEmpty() && !tasks.isEmpty()) {
+                int per = Math.max(1, tasks.size() / workers.size());
+                for (UUID id : workers) {
+                    Work work = WORKS.computeIfAbsent(id, key -> new Work());
+                    if (work.target != null || !work.route.isEmpty()) {
+                        continue;
+                    }
+                    work.confirmed = false;
+                    for (int i = 0; i < per && !tasks.isEmpty(); i++) {
+                        work.route.add(tasks.poll());
+                    }
                 }
             }
+            QUEUES.put(plot.id(), tasks);
         }
     }
 
@@ -109,6 +114,7 @@ public final class NpcFarmService {
 
     private static Deque<Task> collect(ServerLevel level, FarmPlot plot) {
         Deque<Task> harvests = new ArrayDeque<>();
+        Deque<Task> tills = new ArrayDeque<>();
         Deque<Task> plants = new ArrayDeque<>();
         Set<Long> held = heldCells(plot);
         int scanned = 0;
@@ -143,16 +149,29 @@ public final class NpcFarmService {
                         occupied++;
                         continue;
                     }
-                    if (isPlantable(level.getBlockState(soil))) {
-                        plants.add(new Task(soil, Action.PLANT));
+                    BlockState soilState = level.getBlockState(soil);
+                    if (isPlantable(soilState)) {
+                        if (soilState.is(BlockTags.DIRT)) {
+                            tills.add(new Task(soil, Action.TILL));
+                        } else {
+                            plants.add(new Task(soil, Action.PLANT));
+                        }
                     }
                 }
             }
         }
-        Deque<Task> tasks = new ArrayDeque<>(harvests);
-        for (int room = Math.max(0, plot.slots() - occupied); room > 0 && !plants.isEmpty(); room--) {
-            tasks.add(plants.poll());
+        Deque<Task> tasks = new ArrayDeque<>();
+        int capacity = Math.max(plot.areaBlocks(), plot.slots());
+        int room = Math.max(0, capacity - occupied);
+        while (room > 0 && !tills.isEmpty()) {
+            tasks.add(tills.poll());
+            room--;
         }
+        while (room > 0 && !plants.isEmpty()) {
+            tasks.add(plants.poll());
+            room--;
+        }
+        tasks.addAll(harvests);
         return tasks;
     }
 
@@ -172,8 +191,43 @@ public final class NpcFarmService {
         work.target = task.pos();
         work.action = task.action();
         work.retries = 0;
-        data.getBrain().setFarmDetail(task.action() == Action.HARVEST ? NpcDetail.HARVESTING : NpcDetail.PLANTING);
+        work.resumeCooldown = 0;
+        work.confirmed = false;
         npc.setFarmTarget(task.pos());
+    }
+
+    public static NpcDetail detailOf(UUID npcId) {
+        Work work = WORKS.get(npcId);
+        if (work == null) {
+            return NpcDetail.FARMING;
+        }
+        if (work.target != null) {
+            return detailOf(work.action);
+        }
+        if (!work.route.isEmpty()) {
+            return detailOf(work.route.peek().action());
+        }
+        if (work.confirmed) {
+            return NpcDetail.FARMING;
+        }
+        UUID plotId = WORKER_PLOT.get(npcId);
+        Deque<Task> queue = plotId == null ? null : QUEUES.get(plotId);
+        Task head = queue == null ? null : queue.peek();
+        if (head != null) {
+            return detailOf(head.action());
+        }
+        if (work.action != null) {
+            return detailOf(work.action);
+        }
+        return NpcDetail.FARMING;
+    }
+
+    private static NpcDetail detailOf(Action action) {
+        return switch (action) {
+            case HARVEST -> NpcDetail.HARVESTING;
+            case TILL -> NpcDetail.FARMING;
+            case PLANT -> NpcDetail.PLANTING;
+        };
     }
 
     public static void assignWorkers() {
@@ -233,10 +287,13 @@ public final class NpcFarmService {
             npc.haltFarm();
             return;
         }
-        NpcBrain brain = data.getBrain();
         Work work = WORKS.computeIfAbsent(data.getId(), id -> new Work());
         if (work.cooldown > 0) {
             work.cooldown--;
+            return;
+        }
+        if (work.target == null && !work.route.isEmpty()) {
+            take(npc, data, work.route.poll());
             return;
         }
         if (work.target != null) {
@@ -252,21 +309,33 @@ public final class NpcFarmService {
         }
         Deque<Task> queue = QUEUES.get(plot.id());
         Task next = queue == null ? null : queue.poll();
-        if (next == null) {
-            brain.setFarmDetail(NpcDetail.FARMING);
-            npc.haltFarm();
+        if (next == null && !work.confirmed) {
+            Deque<Task> rebuilt = collect(level, plot);
+            QUEUES.put(plot.id(), rebuilt);
+            next = rebuilt.poll();
+            if (next == null) {
+                work.confirmed = true;
+            }
+        }
+        if (next != null) {
+            take(npc, data, next);
             return;
         }
-        take(npc, data, next);
+        npc.haltFarm();
     }
 
     private static void resumeOrDrop(NpcEntity npc, Work work) {
+        if (work.resumeCooldown > 0) {
+            work.resumeCooldown--;
+            return;
+        }
         if (work.retries >= MAX_RESUME_RETRIES) {
             work.target = null;
             work.retries = 0;
             return;
         }
         work.retries++;
+        work.resumeCooldown = 20;
         npc.setFarmTarget(work.target);
     }
 
@@ -281,6 +350,10 @@ public final class NpcFarmService {
             harvest(level, plot, npc, soil, cropPos, cropState);
             return;
         }
+        if (work.action == Action.TILL) {
+            till(level, soil);
+            return;
+        }
         plant(level, plot, soil, cropPos, cropState);
     }
 
@@ -289,17 +362,17 @@ public final class NpcFarmService {
         List<ItemStack> drops = Block.getDrops(cropState, level, cropPos, null, npc, ItemStack.EMPTY);
         level.setBlock(cropPos, Blocks.AIR.defaultBlockState(), Block.UPDATE_CLIENTS);
         markSnapshot(level, cropPos);
-        hold(level, cropPos, npc, drops);
+        hold(level, plot, cropPos, npc, drops);
         plant(level, plot, soil, cropPos, level.getBlockState(cropPos));
     }
 
-    private static void hold(ServerLevel level, BlockPos pos, NpcEntity npc, List<ItemStack> drops) {
+    private static void hold(ServerLevel level, FarmPlot plot, BlockPos pos, NpcEntity npc, List<ItemStack> drops) {
         NpcInventory inventory = npc == null ? null : npc.getNpcInventory();
         for (ItemStack drop : drops) {
             if (drop == null || drop.isEmpty()) {
                 continue;
             }
-            ItemStack remaining = drop.copy();
+            ItemStack remaining = deposit(level, plot, drop.copy());
             if (inventory != null) {
                 for (int slot = 0; slot < inventory.getSlots() && !remaining.isEmpty(); slot++) {
                     remaining = inventory.insertItem(slot, remaining, false);
@@ -309,6 +382,29 @@ public final class NpcFarmService {
                 Block.popResource(level, pos, remaining);
             }
         }
+    }
+
+    private static ItemStack deposit(ServerLevel level, FarmPlot plot, ItemStack stack) {
+        if (stack.isEmpty() || plot == null || level.getServer() == null) {
+            return stack;
+        }
+        BuildingRecord building = BuildingRegistry.INSTANCE.byId(plot.buildingId());
+        if (building == null) {
+            return stack;
+        }
+        BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(building);
+        if (meta == null) {
+            return stack;
+        }
+        IItemHandler store = BuildingStorageStore.INSTANCE.handlerOf(level.getServer(), building.id(), meta.storageSlots());
+        if (store == null) {
+            return stack;
+        }
+        ItemStack remaining = stack;
+        for (int slot = 0; slot < store.getSlots() && !remaining.isEmpty(); slot++) {
+            remaining = store.insertItem(slot, remaining, false);
+        }
+        return remaining;
     }
 
     private static void plant(ServerLevel level, FarmPlot plot, BlockPos soil, BlockPos cropPos,
@@ -322,19 +418,23 @@ public final class NpcFarmService {
         }
         BlockState planted = crop.defaultBlockState();
         if (!planted.canSurvive(level, cropPos)) {
-            if (!level.getBlockState(soil).is(BlockTags.DIRT)) {
-                return;
-            }
-            level.setBlock(soil, Blocks.FARMLAND.defaultBlockState()
-                    .setValue(FarmBlock.MOISTURE, FarmBlock.MAX_MOISTURE), Block.UPDATE_ALL);
-            FarmLandRegistry.mark(level, soil, DateSystem.totalDay(level));
-            markSnapshot(level, soil);
-            if (!planted.canSurvive(level, cropPos)) {
-                return;
-            }
+            return;
         }
         level.setBlock(cropPos, planted, Block.UPDATE_ALL);
         markSnapshot(level, cropPos);
+    }
+
+    private static void till(ServerLevel level, BlockPos soil) {
+        if (!level.getBlockState(soil).is(BlockTags.DIRT)) {
+            return;
+        }
+        if (!level.getBlockState(soil.above()).isAir()) {
+            return;
+        }
+        level.setBlock(soil, Blocks.FARMLAND.defaultBlockState()
+                .setValue(FarmBlock.MOISTURE, FarmBlock.MAX_MOISTURE), Block.UPDATE_ALL);
+        FarmLandRegistry.mark(level, soil, DateSystem.totalDay(level));
+        markSnapshot(level, soil);
     }
 
     private static FarmRegion regionOf(FarmPlot plot, int index) {
@@ -441,7 +541,8 @@ public final class NpcFarmService {
     private static boolean near(NpcEntity npc, BlockPos target) {
         double dx = npc.getX() - (target.getX() + 0.5D);
         double dz = npc.getZ() - (target.getZ() + 0.5D);
-        return dx * dx + dz * dz <= ARRIVE_SQR;
+        double dy = Math.abs(Math.floor(npc.getY() + 0.5D) - target.getY());
+        return dx * dx + dz * dz <= ARRIVE_SQR && dy <= 1.0D;
     }
 
     private static void markSnapshot(ServerLevel level, BlockPos pos) {

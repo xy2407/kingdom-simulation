@@ -53,6 +53,7 @@ public final class NpcPathfinder {
     private static final double COST_STEP_UP = 1.1D;
     private static final double COST_STEP_DOWN_STEPPED = 1.2D;
     private static final double COST_STEP_DOWN_DROP = 8.0D;
+    private static final double STEP_THRESHOLD = 0.6D;
 
     private NpcPathfinder() {
     }
@@ -246,15 +247,18 @@ public final class NpcPathfinder {
         return node;
     }
 
-    private static double stepCost(int fromY, int toY) {
-        int dy = toY - fromY;
-        if (dy > 0) {
-            return 1.0D + COST_STEP_UP * dy;
+    private static double stepCost(double dh) {
+        if (dh > STEP_THRESHOLD) {
+            return 1.0D + COST_STEP_UP * dh;
         }
-        if (dy < 0) {
-            return 1.0D + (dy == -1 ? COST_STEP_DOWN_STEPPED : COST_STEP_DOWN_DROP) * Math.abs(dy);
+        if (dh < -STEP_THRESHOLD) {
+            return 1.0D + (-dh <= 1.0D ? COST_STEP_DOWN_STEPPED : COST_STEP_DOWN_DROP) * Math.abs(dh);
         }
         return 1.0D;
+    }
+
+    private static double heightAt(View view, int x, int y, int z) {
+        return y - (view.halfFloor(x, y, z) ? 0.5D : 0.0D);
     }
 
     private static double heuristic(Node from, int x, int y, int z) {
@@ -328,6 +332,16 @@ public final class NpcPathfinder {
             }
             ChunkSnapshot snapshot = chunks[i][j];
             return snapshot != null && snapshot.climbable(x & 15, y, z & 15);
+        }
+
+        boolean halfFloor(int x, int y, int z) {
+            int i = (x >> 4) - minChunkX;
+            int j = (z >> 4) - minChunkZ;
+            if (i < 0 || j < 0 || i >= chunks.length || j >= chunks[i].length) {
+                return false;
+            }
+            ChunkSnapshot snapshot = chunks[i][j];
+            return snapshot != null && snapshot.halfFloor(x & 15, y, z & 15);
         }
 
         int snap(BlockPos pos) {
@@ -447,11 +461,12 @@ public final class NpcPathfinder {
         }
 
         private Waypoint.Move moveOf(Node from, Node to) {
-            int dy = to.y - from.y;
-            if (dy > 0) {
-                return from.x == to.x && from.z == to.z ? Waypoint.Move.CLIMB : Waypoint.Move.STEP_UP;
+            double dh = heightAt(view, to.x, to.y, to.z) - heightAt(view, from.x, from.y, from.z);
+            if (dh > STEP_THRESHOLD) {
+                boolean sameColumn = from.x == to.x && from.z == to.z;
+                return sameColumn ? Waypoint.Move.CLIMB : Waypoint.Move.STEP_UP;
             }
-            if (dy < 0) {
+            if (dh < -STEP_THRESHOLD) {
                 boolean onLadder = view.climbable(from.x, from.y, from.z)
                         || view.climbable(to.x, to.y, to.z);
                 return onLadder ? Waypoint.Move.CLIMB : Waypoint.Move.DROP;
@@ -498,7 +513,8 @@ public final class NpcPathfinder {
             if (node.closed) {
                 return;
             }
-            float g = current.g + (float) stepCost(current.y, y);
+            double dh = heightAt(view, x, y, z) - heightAt(view, current.x, current.y, current.z);
+            float g = current.g + (float) stepCost(dh);
             if (g >= node.g) {
                 return;
             }

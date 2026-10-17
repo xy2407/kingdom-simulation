@@ -121,6 +121,13 @@ public final class NpcBrain {
             subState = NpcSubState.RESTING;
             detail = NpcDetail.WANDERING;
         }
+        if (subState == NpcSubState.WORKING && !atWorkplace()) {
+            subState = NpcSubState.MOVING;
+            detail = NpcDetail.GOING_WORK;
+        } else if (subState == NpcSubState.RESTING && hasHome() && !atHome()) {
+            subState = NpcSubState.MOVING;
+            detail = NpcDetail.GOING_HOME;
+        }
         if (detail == null) {
             NpcDetail current = owner.getDetail();
             boolean restarted = subState == NpcSubState.RESTING
@@ -158,6 +165,32 @@ public final class NpcBrain {
         return owner.getWorkplaceId() != null;
     }
 
+    private boolean atWorkplace() {
+        if (!hasWorkplace()) {
+            return false;
+        }
+        if (owner.getWorkX() == 0 && owner.getWorkY() == 0 && owner.getWorkZ() == 0) {
+            return true;
+        }
+        double dx = owner.getX() - (owner.getWorkX() + 0.5D);
+        double dz = owner.getZ() - (owner.getWorkZ() + 0.5D);
+        double dy = Math.abs(owner.getY() - owner.getWorkY());
+        return dx * dx + dz * dz <= 4.0D && dy <= 2.0D;
+    }
+
+    private boolean atHome() {
+        if (!hasHome()) {
+            return false;
+        }
+        if (owner.getHomeX() == 0 && owner.getHomeY() == 0 && owner.getHomeZ() == 0) {
+            return true;
+        }
+        double dx = owner.getX() - (owner.getHomeX() + 0.5D);
+        double dz = owner.getZ() - (owner.getHomeZ() + 0.5D);
+        double dy = Math.abs(owner.getY() - owner.getHomeY());
+        return dx * dx + dz * dz <= 4.0D && dy <= 2.0D;
+    }
+
     private boolean hasHome() {
         return owner.getHomeId() != null;
     }
@@ -182,17 +215,8 @@ public final class NpcBrain {
         return true;
     }
 
-    public void setFarmDetail(NpcDetail detail) {
-        NpcDetail next = detail == NpcDetail.PLANTING || detail == NpcDetail.HARVESTING
-                ? detail : NpcDetail.FARMING;
-        if (owner.getDetail() != next) {
-            owner.setDetail(next);
-        }
-    }
-
     private NpcDetail farmDetail() {
-        NpcDetail current = owner.getDetail();
-        return current == NpcDetail.PLANTING || current == NpcDetail.HARVESTING ? current : NpcDetail.FARMING;
+        return NpcFarmService.detailOf(owner.getId());
     }
 
     public boolean isStarving() {

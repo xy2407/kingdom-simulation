@@ -72,6 +72,11 @@ public final class StructureRotation {
 
     private static BlockState rotateProperty(BlockState state, DirectionProperty property, int turns) {
         Direction direction = state.getValue(property);
+        if (direction.getAxis() == Direction.Axis.Y) {
+            // 六向 facing 的方块（观察者/发射器/活塞一类）取值可能是 UP/DOWN：
+            // 绕 Y 轴旋转后竖直朝向不变，而 Direction.getClockWise() 对竖直方向会抛异常
+            return state;
+        }
         Direction rotated = direction;
         for (int i = 0; i < turns; i++) {
             rotated = rotated.getClockWise();

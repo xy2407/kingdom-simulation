@@ -18,6 +18,7 @@ import com.xy2407.kingdom.common.npc.NpcData;
 import com.xy2407.kingdom.common.npc.NpcManager;
 import com.xy2407.kingdom.common.npc.NpcSubState;
 import com.xy2407.kingdom.common.network.building.BuildingSitePacket;
+import com.xy2407.kingdom.common.path.NpcPathfinder;
 import com.xy2407.kingdom.common.path.SnapshotRepository;
 import com.xy2407.kingdom.common.structure.StructureModel;
 
@@ -68,6 +69,7 @@ public final class BuildingConstructionService {
                 architect.getId(), architect.getName(),
                 1, rotationDegrees, DateSystem.totalDay(level));
         architect.getBrain().setConstructionControlled(true);
+        warmUpSnapshot(level, origin.immutable(), plan.size(), plan.layerCount(), architect);
         tasks.put(task.id(), task);
         broadcastSite(level, task, false);
         return task;
@@ -167,6 +169,21 @@ public final class BuildingConstructionService {
         int index = walk.indexOf(pillar);
         int prev = index <= 0 ? walk.size() - 1 : index - 1;
         return walk.get(prev);
+    }
+
+    private void warmUpSnapshot(ServerLevel level, BlockPos origin, Vec3i size, int height, NpcData architect) {
+        SnapshotRepository repository = SnapshotRepository.get(level.getServer());
+        if (repository == null) {
+            return;
+        }
+        int margin = 8;
+        repository.buildNow(level,
+                (origin.getX() - margin) >> 4, (origin.getX() + size.getX() + margin) >> 4,
+                (origin.getZ() - margin) >> 4, (origin.getZ() + size.getZ() + margin) >> 4);
+        BlockPos from = new BlockPos((int) Math.floor(architect.getX()), (int) Math.floor(architect.getY()),
+                (int) Math.floor(architect.getZ()));
+        BlockPos to = origin.offset(size.getX() / 2, Math.min(height, 8), size.getZ() / 2);
+        NpcPathfinder.requestChunks(repository, level.dimension(), from, to, NpcPathfinder.DEFAULT_PADDING);
     }
 
     private NpcData pickArchitect(ServerLevel level, BlockPos origin) {
@@ -302,7 +319,7 @@ public final class BuildingConstructionService {
     private void markSnapshotDirty(ServerLevel level, BlockPos pos) {
         SnapshotRepository repository = SnapshotRepository.get(level.getServer());
         if (repository != null) {
-            repository.markDirty(level, pos);
+            repository.refreshNow(level, pos);
         }
     }
 

@@ -199,6 +199,7 @@ public final class WorldSurfaceSampler {
         return NO_WALKABLE;
     }
 
+    // 落脚格判定：站立位上方 2 格净空（上升边与平走一致，不再多加第 3 格）
     private static boolean isStandableFloor(Level level, BlockPos.MutableBlockPos cursor,
                                             int x, int y, int z) {
         if (y < level.getMinBuildHeight() || y + 2 > level.getMaxBuildHeight() - 1) {

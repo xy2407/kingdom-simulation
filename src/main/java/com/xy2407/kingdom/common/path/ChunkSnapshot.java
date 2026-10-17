@@ -20,6 +20,8 @@ import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.TrapDoorBlock;
 import net.minecraft.world.level.block.VineBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.Half;
+import net.minecraft.world.level.block.state.properties.SlabType;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.pathfinder.NodeEvaluator;
@@ -54,6 +56,7 @@ public final class ChunkSnapshot {
 
     private static final byte KIND_WALK = 0;
     private static final byte KIND_CLIMB = 1;
+    private static final byte KIND_WALK_HALF = 2;
 
     private ChunkSnapshot(int minY, short[] starts, short[] levels, byte[] kinds,
                           short[] blockStarts, short[] blocks, int scanCost) {
@@ -112,6 +115,20 @@ public final class ChunkSnapshot {
         return false;
     }
 
+    public boolean halfFloor(int lx, int y, int lz) {
+        int offset = y - minY;
+        if (offset < 0) {
+            return false;
+        }
+        int column = lx * 16 + lz;
+        for (int i = starts[column]; i < starts[column + 1]; i++) {
+            if (levels[i] == offset) {
+                return kinds[i] == KIND_WALK_HALF;
+            }
+        }
+        return false;
+    }
+
     public static ChunkSnapshot build(LevelChunk chunk) {
         LevelChunkSection[] sections = chunk.getSections();
         int minY = chunk.getMinBuildHeight();
@@ -165,7 +182,8 @@ public final class ChunkSnapshot {
                 } else if (isWalkableFloor(current)
                         && (climbableFloor || (isPassable(above) && isPassable(aboveTwo)))) {
                     buffer[count + found] = (short) (si * 16 + ly + 1);
-                    kindBuffer[count + found] = KIND_WALK;
+                    kindBuffer[count + found] = climbableFloor ? KIND_CLIMB
+                            : (isHalfFloor(current) ? KIND_WALK_HALF : KIND_WALK);
                     found++;
                 }
                 if (!isPassable(current) && !ladder && !climbableFloor) {
@@ -197,6 +215,16 @@ public final class ChunkSnapshot {
 
     private static boolean isClimbableFloor(BlockState state) {
         return state.is(Blocks.SCAFFOLDING);
+    }
+
+    private static boolean isHalfFloor(BlockState state) {
+        if (state.getBlock() instanceof SlabBlock) {
+            return state.getValue(SlabBlock.TYPE) != SlabType.DOUBLE;
+        }
+        if (state.getBlock() instanceof StairBlock) {
+            return state.getValue(StairBlock.HALF) == Half.BOTTOM;
+        }
+        return state.getBlock() instanceof BedBlock;
     }
 
     private static boolean isLadderLike(BlockState state) {
