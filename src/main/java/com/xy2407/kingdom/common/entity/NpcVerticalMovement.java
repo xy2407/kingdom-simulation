@@ -61,6 +61,10 @@ final class NpcVerticalMovement {
     }
 
     void climbMove(double climbDirection) {
+        if (!onClimbable()) {
+            // 不在攀爬物上一律不给攀爬速度：离开梯子/脚手架后残余 +0.2 会叠加重力持续上升（飞天 bug）
+            return;
+        }
         Vec3 movement = npc.getDeltaMovement();
         if (climbDirection > 0) {
             npc.setDeltaMovement(movement.x * 0.5D, 0.2D, movement.z * 0.5D);

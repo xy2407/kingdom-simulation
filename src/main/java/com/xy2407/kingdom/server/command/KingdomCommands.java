@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.LongArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
@@ -29,6 +30,7 @@ import com.xy2407.kingdom.common.path.SnapshotRepository;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.ranch.RanchPen;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
+import com.xy2407.kingdom.server.faction.MoneyService;
 import com.xy2407.kingdom.server.path.UnitSnapshotStore;
 import com.xy2407.kingdom.server.road.RoadStore;
 import com.xy2407.kingdom.server.ranch.RanchPenManager;
@@ -102,7 +104,40 @@ public final class KingdomCommands {
                         .then(mapCommand())
                         .then(farmCommand())
                         .then(ranchCommand())
-                        .then(snapshotCommand())));
+                        .then(snapshotCommand())
+                        .then(fundsCommand())));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> fundsCommand() {
+        return Commands.literal("funds")
+                .then(Commands.literal("add")
+                        .then(Commands.argument("amount", LongArgumentType.longArg(0))
+                                .executes(ctx -> fundsChange(ctx, FundsOp.ADD))))
+                .then(Commands.literal("remove")
+                        .then(Commands.argument("amount", LongArgumentType.longArg(1))
+                                .executes(ctx -> fundsChange(ctx, FundsOp.REMOVE))))
+                .then(Commands.literal("set")
+                        .then(Commands.argument("amount", LongArgumentType.longArg(0))
+                                .executes(ctx -> fundsChange(ctx, FundsOp.SET))));
+    }
+
+    private enum FundsOp { ADD, REMOVE, SET }
+
+    private static int fundsChange(CommandContext<CommandSourceStack> ctx, FundsOp op)
+            throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        long amount = LongArgumentType.getLong(ctx, "amount");
+        java.util.UUID uuid = player.getUUID();
+        MoneyService.Result result = switch (op) {
+            case ADD -> MoneyService.credit(uuid, amount);
+            case REMOVE -> MoneyService.debit(uuid, amount);
+            case SET -> MoneyService.set(uuid, amount);
+        };
+        String message = result.success()
+                ? "资金已更新，当前余额 " + result.balance()
+                : "操作失败（余额不足）";
+        ctx.getSource().sendSuccess(() -> Component.literal(message), false);
+        return result.success() ? 1 : 0;
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> snapshotCommand() {

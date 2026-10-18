@@ -122,6 +122,11 @@ public final class RoadRouteService {
         return List.of();
     }
 
+    // 道路数据变动（铺设/清除）后调用：负面缓存立即失效，允许重新扫描接入点
+    public static void clearNoAccess() {
+        NO_ACCESS_UNTIL.clear();
+    }
+
     private static BuildingRecord buildingAt(String dimension, BlockPos stand) {
         for (BuildingRecord record : BuildingRegistry.INSTANCE.all()) {
             if (record.contains(dimension, stand.getX() + 0.5D, stand.getY(), stand.getZ() + 0.5D)) {

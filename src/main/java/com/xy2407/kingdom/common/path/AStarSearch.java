@@ -28,6 +28,7 @@ final class AStarSearch {
     private final int endX;
     private final int endY;
     private final int endZ;
+    private final boolean preferRoad;
     private int minY;
     private int maxY;
     final Long2ObjectOpenHashMap<Node> nodes = new Long2ObjectOpenHashMap<>();
@@ -36,6 +37,11 @@ final class AStarSearch {
     private long goalKey;
 
     AStarSearch(SnapshotView view, int startX, int startY, int startZ, int endX, int endY, int endZ) {
+        this(view, startX, startY, startZ, endX, endY, endZ, true);
+    }
+
+    AStarSearch(SnapshotView view, int startX, int startY, int startZ, int endX, int endY, int endZ,
+                boolean preferRoad) {
         this.view = view;
         this.startX = startX;
         this.startY = startY;
@@ -43,6 +49,7 @@ final class AStarSearch {
         this.endX = endX;
         this.endY = endY;
         this.endZ = endZ;
+        this.preferRoad = preferRoad;
         clampY();
     }
 
@@ -148,7 +155,7 @@ final class AStarSearch {
         double dh = heightAt(view, x, y, z) - heightAt(view, current.x, current.y, current.z);
         float g = current.g + (float) PathCostModel.stepCost(dh)
                 + PathCostModel.hazardCost(view.standHazard(x, y, z), view.cactusAdjacent(x, y, z))
-                + (view.onRoad(x, y, z) ? 0.0F : PathCostModel.ROAD_BIAS);
+                + (preferRoad && !view.onRoad(x, y, z) ? PathCostModel.ROAD_BIAS : 0.0F);
         if (g >= node.g) {
             return;
         }

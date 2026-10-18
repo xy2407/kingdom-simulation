@@ -58,7 +58,8 @@ public final class RtsEntityGlowRenderer {
         if (minecraft.level == null || minecraft.player == null) {
             return;
         }
-        RtsModeManager.setCachedProjectionMatrix(RenderSystem.getProjectionMatrix());
+        RtsModeManager.setCachedProjectionMatrix(new Matrix4f(RenderSystem.getProjectionMatrix()));
+        RtsModeManager.setCachedModelViewMatrix(new Matrix4f(RenderSystem.getModelViewMatrix()));
 
         Camera camera = event.getCamera();
         Vec3 camPos = camera.getPosition();

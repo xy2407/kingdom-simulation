@@ -66,11 +66,26 @@ public final class MapOverlayCollector {
     }
 
     private static void onRequest(ServerPlayer player, MapOverlayRequestPacket packet) {
+        if (packet.radius() <= 0) {
+            PacketDistributor.sendToPlayer(player, collect(player,
+                    packet.centerX(), packet.centerZ(), 16, true));
+            return;
+        }
         PacketDistributor.sendToPlayer(player, collect(
                 player, packet.centerX(), packet.centerZ(), packet.radius()));
     }
 
+    public static void pushTo(ServerPlayer player) {
+        PacketDistributor.sendToPlayer(player, collect(player,
+                (int) Math.round(player.getX()), (int) Math.round(player.getZ()), 16));
+    }
+
     public static MapOverlayDataPacket collect(ServerPlayer player, int centerX, int centerZ, int radius) {
+        return collect(player, centerX, centerZ, radius, false);
+    }
+
+    public static MapOverlayDataPacket collect(ServerPlayer player, int centerX, int centerZ, int radius,
+                                               boolean territoryScope) {
         String dimension = player.level().dimension().location().toString();
         Territory own = TerritoryRegistry.INSTANCE.byOwner(player.getUUID());
 
@@ -123,13 +138,36 @@ public final class MapOverlayCollector {
 
         // W14+：世界道路仅下发给自己（地图私有），放大请求量过滤 owner 后按上限截断
         String viewerId = player.getUUID().toString();
+        int scanMinX = minX >> 4;
+        int scanMaxX = maxX >> 4;
+        int scanMinZ = minZ >> 4;
+        int scanMaxZ = maxZ >> 4;
+        int roadLimit = ROAD_CHUNK_LIMIT;
+        int searchCenterX = centerX >> 4;
+        if (territoryScope && own != null) {
+            int minCx = Integer.MAX_VALUE;
+            int maxCx = Integer.MIN_VALUE;
+            int minCz = Integer.MAX_VALUE;
+            int maxCz = Integer.MIN_VALUE;
+            for (long key : own.chunks()) {
+                minCx = Math.min(minCx, Territory.chunkKeyX(key));
+                maxCx = Math.max(maxCx, Territory.chunkKeyX(key));
+                minCz = Math.min(minCz, Territory.chunkKeyZ(key));
+                maxCz = Math.max(maxCz, Territory.chunkKeyZ(key));
+            }
+            scanMinX = minCx;
+            scanMaxX = maxCx;
+            scanMinZ = minCz;
+            scanMaxZ = maxCz;
+            roadLimit = Integer.MAX_VALUE;
+        }
         List<MapOverlayDataPacket.RoadChunkEntry> roads = new ArrayList<>();
         for (MapOverlayDataPacket.RoadChunkEntry entry : RoadStore.INSTANCE.roadChunksIn(
-                dimension, minX >> 4, maxX >> 4, minZ >> 4, maxZ >> 4,
-                centerX >> 4, centerZ >> 4, ROAD_CHUNK_LIMIT * 2)) {
+                dimension, scanMinX, scanMaxX, scanMinZ, scanMaxZ,
+                searchCenterX, centerZ >> 4, territoryScope ? Integer.MAX_VALUE : ROAD_CHUNK_LIMIT * 2)) {
             if (viewerId.equals(RoadStore.INSTANCE.roadOwner(dimension, entry.chunkX(), entry.chunkZ()))) {
                 roads.add(entry);
-                if (roads.size() >= ROAD_CHUNK_LIMIT) {
+                if (roads.size() >= roadLimit) {
                     break;
                 }
             }

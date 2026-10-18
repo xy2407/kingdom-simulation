@@ -20,6 +20,7 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
+import org.joml.Vector4f;
 import org.joml.Vector3f;
 
 import java.util.HashSet;
@@ -63,14 +64,6 @@ public final class RtsPicker {
         }
         Camera camera = minecraft.gameRenderer.getMainCamera();
         Vec3 camPos = camera.getPosition();
-        int width = minecraft.getWindow().getGuiScaledWidth();
-        int height = minecraft.getWindow().getGuiScaledHeight();
-
-        Vec3 forward = getForward(camera);
-        Vec3 up = getUp(camera);
-        Vec3 right = forward.cross(up).normalize();
-        double tanHalfFov = getTanHalfFov(minecraft);
-        double aspect = (double) width / height;
 
         double minX = Math.min(x1, x2);
         double maxX = Math.max(x1, x2);
@@ -89,7 +82,7 @@ public final class RtsPicker {
                 continue;
             }
             Vec3 center = entity.getBoundingBox().getCenter();
-            double[] screen = worldToScreen(center, camPos, forward, right, up, tanHalfFov, aspect, width, height);
+            double[] screen = projectToScreen(center);
             if (screen == null) {
                 continue;
             }
@@ -229,6 +222,22 @@ public final class RtsPicker {
         double ndcX = 2.0D * mouseX / width - 1.0D;
         double ndcY = 1.0D - 2.0D * mouseY / height;
 
+        // 优先用真实渲染矩阵反解射线：手算几何会被 FOV 修改/广角变形带偏
+        Matrix4f proj = RtsModeManager.getCachedProjectionMatrix();
+        Matrix4f viewM = RtsModeManager.getCachedModelViewMatrix();
+        if (proj != null && viewM != null) {
+            Matrix4f inverse = new Matrix4f(proj).mul(viewM).invert();
+            Vector4f near = new Vector4f((float) ndcX, (float) ndcY, -1.0F, 1.0F);
+            Vector4f far = new Vector4f((float) ndcX, (float) ndcY, 1.0F, 1.0F);
+            inverse.transform(near);
+            inverse.transform(far);
+            if (Math.abs(near.w()) > 1.0E-6F && Math.abs(far.w()) > 1.0E-6F) {
+                Vec3 p1 = camPos.add(near.x() / near.w(), near.y() / near.w(), near.z() / near.w());
+                Vec3 p2 = camPos.add(far.x() / far.w(), far.y() / far.w(), far.z() / far.w());
+                return new Vec3[]{p1, p2};
+            }
+        }
+
         if (RtsModeManager.isOrthoEnabled()) {
             double halfWidth = RtsModeManager.getOrthoHalfWidth();
             if (halfWidth <= 0.0D) {
@@ -269,12 +278,30 @@ public final class RtsPicker {
             return null;
         }
         Camera camera = minecraft.gameRenderer.getMainCamera();
+        int width = minecraft.getWindow().getGuiScaledWidth();
+        int height = minecraft.getWindow().getGuiScaledHeight();
+        // 优先用真实渲染矩阵投影：手算几何会被 FOV 修改/广角变形带偏（框选矩阵偏移的根因）
+        Matrix4f projection = RtsModeManager.getCachedProjectionMatrix();
+        Matrix4f modelView = RtsModeManager.getCachedModelViewMatrix();
+        if (projection != null && modelView != null) {
+            Vector4f clip = new Vector4f(
+                    (float) (worldPos.x - camera.getPosition().x),
+                    (float) (worldPos.y - camera.getPosition().y),
+                    (float) (worldPos.z - camera.getPosition().z), 1.0F);
+            modelView.transform(clip);
+            projection.transform(clip);
+            if (clip.w() > 1.0E-4F) {
+                double ndcX = clip.x() / clip.w();
+                double ndcY = clip.y() / clip.w();
+                return new double[]{(ndcX + 1.0D) * 0.5D * width,
+                        (1.0D - (ndcY + 1.0D) * 0.5D) * height};
+            }
+            return null;
+        }
         Vec3 camPos = camera.getPosition();
         Vec3 forward = getForward(camera);
         Vec3 up = getUp(camera);
         Vec3 right = forward.cross(up).normalize();
-        int width = minecraft.getWindow().getGuiScaledWidth();
-        int height = minecraft.getWindow().getGuiScaledHeight();
         return worldToScreen(worldPos, camPos, forward, right, up,
                 getTanHalfFov(minecraft), (double) width / height, width, height);
     }

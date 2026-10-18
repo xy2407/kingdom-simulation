@@ -8,14 +8,17 @@ import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.common.faction.Territory;
 import com.xy2407.kingdom.common.map.WorldSurfaceSampler;
 import com.xy2407.kingdom.common.path.ChunkSnapshot;
+import com.xy2407.kingdom.common.path.RtsSharedPath;
 import com.xy2407.kingdom.common.network.road.RoadLoadedChunksPacket;
 import com.xy2407.kingdom.common.road.RoadGeometry;
 import com.xy2407.kingdom.common.road.RoadPolyline;
 import com.xy2407.kingdom.server.faction.TerritoryRegistry;
+import com.xy2407.kingdom.server.mapoverlay.MapOverlayCollector;
 import com.xy2407.kingdom.server.path.BuildingRoadAccess;
 import com.xy2407.kingdom.server.path.RoadFieldCache;
 import com.xy2407.kingdom.server.path.RoadGraphService;
 
+import com.xy2407.kingdom.server.path.RoadRouteService;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
@@ -74,6 +77,9 @@ public final class RoadService {
                 RoadGraphService.markDirty(dimension);
                 BuildingRoadAccess.markRoadDirty();
                 RoadFieldCache.reset();
+                RoadRouteService.clearNoAccess();
+                RtsSharedPath.clearAll();
+                MapOverlayCollector.pushTo(player);
             }
             sendLoadedChunks(player);
             return;
@@ -107,6 +113,9 @@ public final class RoadService {
             RoadGraphService.markDirty(dimension);
             BuildingRoadAccess.markRoadDirty();
             RoadFieldCache.reset();
+            RoadRouteService.clearNoAccess();
+            RtsSharedPath.clearAll();
+            MapOverlayCollector.pushTo(player);
         }
         sendLoadedChunks(player);
     }

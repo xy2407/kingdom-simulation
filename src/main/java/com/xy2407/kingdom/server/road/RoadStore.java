@@ -78,7 +78,13 @@ public final class RoadStore {
     }
 
     public void record(String dimension, BlockPos pos, String territoryId, String owner, long day) {
-        cellsByDimension.computeIfAbsent(dimension, key -> new HashSet<>()).add(pos.asLong());
+        Set<Long> cells = cellsByDimension.computeIfAbsent(dimension, key -> new HashSet<>());
+        boolean added = cells.add(pos.asLong());
+        int chunkX = pos.getX() >> 4;
+        int chunkZ = pos.getZ() >> 4;
+        if (added) {
+            updateChunkCells(dimension, chunkX, chunkZ, pos.asLong(), owner, day);
+        }
         String key = RoadSchema.cellKey(dimension, pos.getX(), pos.getY(), pos.getZ());
         Map<String, Object> values = new LinkedHashMap<>();
         values.put(RoadSchema.COL_CELL_KEY, key);
@@ -92,6 +98,22 @@ public final class RoadStore {
         KingdomPersistence.submit(RoadSchema.TABLE_CELL, RoadSchema.COL_CELL_KEY, key, values);
     }
 
+    private void updateChunkCells(String dimension, int chunkX, int chunkZ, long cell, String owner, long day) {
+        Map<Long, RoadChunkData> chunks = chunksByDimension.computeIfAbsent(dimension, key -> new HashMap<>());
+        RoadChunkData data = chunks.get(ChunkPos.asLong(chunkX, chunkZ));
+        if (data != null) {
+            for (long value : data.cells()) {
+                if (value == cell) {
+                    return;
+                }
+            }
+        }
+        long[] previous = data == null ? new long[0] : data.cells();
+        long[] merged = java.util.Arrays.copyOf(previous, previous.length + 1);
+        merged[previous.length] = cell;
+        recordChunk(dimension, chunkX, chunkZ, merged, owner == null ? "" : owner, day);
+    }
+
     // 世界道路按区块聚合落库（W13：同区块后写覆盖先写，主键 upsert 天然成立）；
     // cells 编码 = 每格 3 字节：localX(4bit) | localZ(4bit) | y(12bit)，见 §7.1
     public void recordChunk(String dimension, int chunkX, int chunkZ, long[] cellPositions,
@@ -99,6 +121,8 @@ public final class RoadStore {
         long chunkKey = ChunkPos.asLong(chunkX, chunkZ);
         chunksByDimension.computeIfAbsent(dimension, key -> new HashMap<>())
                 .put(chunkKey, new RoadChunkData(cellPositions.clone(), owner));
+        cellsByDimension.computeIfAbsent(dimension, key -> new HashSet<>())
+                .addAll(java.util.Arrays.stream(cellPositions).boxed().toList());
         byte[] blob = encodeChunkCells(chunkX, chunkZ, cellPositions);
         String key = RoadSchema.chunkKey(dimension, chunkX, chunkZ);
         Map<String, Object> values = new LinkedHashMap<>();
@@ -178,31 +202,36 @@ public final class RoadStore {
                                                                   int minChunkZ, int maxChunkZ,
                                                                   int centerChunkX, int centerChunkZ,
                                                                   int limit) {
-        Map<Long, RoadChunkData> chunks = chunksByDimension.get(dimension);
+        Set<Long> cells = cellsByDimension.get(dimension);
         List<MapOverlayDataPacket.RoadChunkEntry> result = new ArrayList<>();
-        if (chunks == null || chunks.isEmpty()) {
+        if (cells == null || cells.isEmpty()) {
             return result;
         }
-        List<long[]> scored = new ArrayList<>();
-        for (Map.Entry<Long, RoadChunkData> entry : chunks.entrySet()) {
-            int chunkX = ChunkPos.getX(entry.getKey());
-            int chunkZ = ChunkPos.getZ(entry.getKey());
+        Map<Long, List<Long>> grouped = new HashMap<>();
+        for (long cell : cells) {
+            BlockPos pos = BlockPos.of(cell);
+            int chunkX = pos.getX() >> 4;
+            int chunkZ = pos.getZ() >> 4;
             if (chunkX < minChunkX || chunkX > maxChunkX || chunkZ < minChunkZ || chunkZ > maxChunkZ) {
                 continue;
             }
-            int dx = chunkX - centerChunkX;
-            int dz = chunkZ - centerChunkZ;
-            scored.add(new long[] {entry.getKey(), (long) dx * dx + (long) dz * dz});
+            grouped.computeIfAbsent(ChunkPos.asLong(chunkX, chunkZ), key -> new ArrayList<>()).add(cell);
+        }
+        List<long[]> scored = new ArrayList<>();
+        for (long key : grouped.keySet()) {
+            int dx = ChunkPos.getX(key) - centerChunkX;
+            int dz = ChunkPos.getZ(key) - centerChunkZ;
+            scored.add(new long[] {key, (long) dx * dx + (long) dz * dz});
         }
         scored.sort((a, b) -> Long.compare(a[1], b[1]));
         for (int index = 0; index < scored.size() && result.size() < limit; index++) {
             long key = scored.get(index)[0];
-            RoadChunkData data = chunks.get(key);
-            if (data == null || data.cells().length == 0) {
-                continue;
+            List<Long> cellList = grouped.get(key);
+            long[] arr = new long[cellList.size()];
+            for (int i = 0; i < arr.length; i++) {
+                arr[i] = cellList.get(i);
             }
-            result.add(new MapOverlayDataPacket.RoadChunkEntry(
-                    ChunkPos.getX(key), ChunkPos.getZ(key), data.cells()));
+            result.add(new MapOverlayDataPacket.RoadChunkEntry(ChunkPos.getX(key), ChunkPos.getZ(key), arr));
         }
         return result;
     }

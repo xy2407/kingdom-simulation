@@ -147,7 +147,7 @@ final class NpcRtsController {
         }
         advance();
         BlockPos segment = waypoints.isEmpty() ? current : waypoints.peekFirst();
-        if (npc.tickPathTo(segment)) {
+        if (npc.tickPathTo(segment, false)) {
             npc.getNavigation().stop();
         }
     }

@@ -242,6 +242,7 @@ public final class NpcPathfinder {
     public static final class Session {
         private final BlockPos start;
         private final BlockPos end;
+        private boolean preferRoad = true;
 
         public Session(BlockPos start, BlockPos end) {
             this.start = start.immutable();
@@ -250,6 +251,11 @@ public final class NpcPathfinder {
 
         public boolean matches(BlockPos start, BlockPos end) {
             return this.start.equals(start) && this.end.equals(end);
+        }
+
+        public Session preferRoad(boolean value) {
+            this.preferRoad = value;
+            return this;
         }
 
         public PathResult advance(SnapshotRepository repository, ResourceKey<Level> dimension, int padding) {
@@ -265,7 +271,7 @@ public final class NpcPathfinder {
                         Waypoint.Move.WALK)), view.missingChunks());
             }
             AStarSearch next = new AStarSearch(view, start.getX(), snappedStart, start.getZ(),
-                    end.getX(), snappedEnd, end.getZ());
+                    end.getX(), snappedEnd, end.getZ(), preferRoad);
             return new PathResult(next.run(), view.missingChunks());
         }
     }

@@ -206,8 +206,12 @@ public class NpcEntity extends PathfinderMob {
     }
 
     boolean tickPathTo(BlockPos target) {
+        return tickPathTo(target, true);
+    }
+
+    boolean tickPathTo(BlockPos target, boolean preferRoad) {
         stopSitting();
-        BlockPos effective = rts.groupDest() == null ? target : rts.groupDest();
+        BlockPos effective = target;
         BlockPos stand = resolveWorkStand(effective);
         stand = applySegment(stand);
         double dx = getX() - (stand.getX() + 0.5D);
@@ -318,7 +322,8 @@ public class NpcEntity extends PathfinderMob {
                 workSession = null;
             }
         }
-        if (future == null) {
+        // 三段式是同步主线程开销，只服务日常通勤；RTS 指令走共享路径/异步 A*，否则千级 NPC 会卡死主线程
+        if (future == null && preferRoad) {
             // 道路路由（P3）：目的地是建筑且两端接入同一连通分量时，三段式同步毫秒级出路径；
             // 任何一段不成则返回 null 回退原异步快照寻路
             List<NpcPathfinder.Waypoint> roadRoute = RoadRouteService.tryPlan(level, from, stand);
@@ -339,6 +344,7 @@ public class NpcEntity extends PathfinderMob {
                 session = new NpcPathfinder.Session(from, stand);
                 workSession = session;
             }
+            session.preferRoad(preferRoad);
             future = repository.submitSessionSearch(level, session, from, stand,
                     NpcPathfinder.paddingOf(pathPaddingStage));
             workPathJoined = false;
@@ -935,9 +941,6 @@ public class NpcEntity extends PathfinderMob {
 
     @Override
     protected void pushEntities() {
-        if (rts.target() != null) {
-            return;
-        }
         if (tickCount % 10 != 0) {
             return;
         }
@@ -990,7 +993,8 @@ public class NpcEntity extends PathfinderMob {
 
     public static AttributeSupplier.Builder createAttributes() {
         return PathfinderMob.createMobAttributes()
-                .add(Attributes.MOVEMENT_SPEED, WALK_SPEED);
+                .add(Attributes.MOVEMENT_SPEED, WALK_SPEED)
+                .add(Attributes.STEP_HEIGHT, 1.0D);
     }
 
     @Override

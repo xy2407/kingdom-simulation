@@ -45,6 +45,15 @@ public final class RtsSharedPath {
         }
     }
 
+    // 道路数据变动后调用：丢弃全部活跃共享路径与车道，下一次寻路按新路重算
+    public static void clearAll() {
+        synchronized (INSTANCES) {
+            for (RtsSharedPath instance : INSTANCES.values()) {
+                instance.active.clear();
+            }
+        }
+    }
+
     public Join joinOrSubmit(ServerLevel level, BlockPos from, BlockPos stand, int padding, int laneSeed) {
         long key = stand.asLong();
         long now = level.getGameTime();
@@ -80,7 +89,7 @@ public final class RtsSharedPath {
         if (repository == null) {
             return null;
         }
-        NpcPathfinder.Session session = new NpcPathfinder.Session(from, stand);
+        NpcPathfinder.Session session = new NpcPathfinder.Session(from, stand).preferRoad(false);
         Future<NpcPathfinder.PathResult> future =
                 repository.submitSessionSearch(level, session, from, stand, padding);
         if (future == null) {

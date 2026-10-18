@@ -145,6 +145,33 @@ public final class PlayerProfileStore {
         return updated;
     }
 
+    public long money(UUID uuid) {
+        PlayerProfile profile = byId.get(uuid);
+        return profile == null ? 0L : profile.money();
+    }
+
+    public PlayerProfile addMoney(UUID uuid, long delta) {
+        PlayerProfile profile = byId.get(uuid);
+        if (profile == null) {
+            return null;
+        }
+        PlayerProfile updated = profile.withMoneyDelta(delta);
+        byId.put(uuid, updated);
+        persist(updated);
+        return updated;
+    }
+
+    public boolean trySpend(UUID uuid, long amount) {
+        PlayerProfile profile = byId.get(uuid);
+        if (profile == null || amount < 0 || profile.money() < amount) {
+            return false;
+        }
+        PlayerProfile updated = profile.withMoneyDelta(-amount);
+        byId.put(uuid, updated);
+        persist(updated);
+        return true;
+    }
+
     private static PlayerProfile readRow(ResultSet rs) throws SQLException {
         return new PlayerProfile(
                 UUID.fromString(rs.getString(PlayerProfileSchema.COL_UUID)),
@@ -152,7 +179,8 @@ public final class PlayerProfileStore {
                 rs.getString(PlayerProfileSchema.COL_NATION_ID),
                 rs.getString(PlayerProfileSchema.COL_TERRITORY_ID),
                 rs.getInt(PlayerProfileSchema.COL_ONBOARDED) != 0,
-                rs.getInt(PlayerProfileSchema.COL_FIRST_JOIN_DAY));
+                rs.getInt(PlayerProfileSchema.COL_FIRST_JOIN_DAY),
+                rs.getLong(PlayerProfileSchema.COL_MONEY));
     }
 
     private static Map<String, Object> toValues(PlayerProfile profile) {
@@ -162,6 +190,7 @@ public final class PlayerProfileStore {
         values.put(PlayerProfileSchema.COL_TERRITORY_ID, profile.territoryId());
         values.put(PlayerProfileSchema.COL_ONBOARDED, profile.onboarded() ? 1 : 0);
         values.put(PlayerProfileSchema.COL_FIRST_JOIN_DAY, profile.firstJoinDay());
+        values.put(PlayerProfileSchema.COL_MONEY, profile.money());
         values.put(PlayerProfileSchema.COL_UPDATED_AT, System.currentTimeMillis());
         return values;
     }

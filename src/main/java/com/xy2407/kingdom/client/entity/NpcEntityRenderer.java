@@ -38,26 +38,10 @@ public class NpcEntityRenderer extends MobRenderer<NpcEntity, NpcModel> {
     @Override
     public void render(NpcEntity entity, float entityYaw, float partialTick, PoseStack poseStack,
                        MultiBufferSource bufferSource, int packedLight) {
-        setAnimSkip(entity);
         if (entity.isSitting()) {
             poseStack.translate(0.0F, -0.5F, 0.0F);
         }
         super.render(entity, entityYaw, partialTick, poseStack, bufferSource, packedLight);
-    }
-
-    // 姿态更新降频：远处 NPC 隔帧/隔四帧才算姿态动画，位置插值照常
-    private void setAnimSkip(NpcEntity entity) {
-        double distSqr = this.entityRenderDispatcher.camera.getPosition()
-                .distanceToSqr(entity.position());
-        boolean skip;
-        if (distSqr > 80.0D * 80.0D) {
-            skip = entity.tickCount % 4 != 0;
-        } else if (distSqr > 32.0D * 32.0D) {
-            skip = entity.tickCount % 2 != 0;
-        } else {
-            skip = false;
-        }
-        this.model.setSkipAnim(skip);
     }
 
     @Override

@@ -7,6 +7,7 @@ import com.xy2407.kingdom.common.network.rts.RtsFakePlayerSpawnPacket;
 import com.xy2407.kingdom.common.network.rts.RtsMoveCommandPacket;
 import com.xy2407.kingdom.common.network.rts.RtsSelectionSyncPacket;
 
+import com.xy2407.kingdom.common.network.mapoverlay.MapOverlayRequestPacket;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
@@ -104,6 +105,13 @@ public final class RtsModeManager {
         boxSelecting = false;
         ctrlBoxSelecting = false;
         leftMouseDown = false;
+        if (next == RtsSubMode.ROAD_TERRITORY || next == RtsSubMode.ROAD_WORLD) {
+            Minecraft minecraft = Minecraft.getInstance();
+            if (minecraft.player != null) {
+                PacketDistributor.sendToServer(new MapOverlayRequestPacket(
+                        minecraft.player.getBlockX(), minecraft.player.getBlockZ(), 0));
+            }
+        }
     }
 
     public static void exitSubMode() {

@@ -22,11 +22,12 @@ public final class PlayerProfileSchema implements Migration {
     public static final String COL_TERRITORY_ID = "territory_id";
     public static final String COL_ONBOARDED = "onboarded";
     public static final String COL_FIRST_JOIN_DAY = "first_join_day";
+    public static final String COL_MONEY = "money";
     public static final String COL_UPDATED_AT = "updated_at";
 
     @Override
     public int version() {
-        return 16;
+        return 17;
     }
 
     @Override
@@ -90,6 +91,7 @@ public final class PlayerProfileSchema implements Migration {
         defs.put(COL_TERRITORY_ID, "TEXT NOT NULL DEFAULT ''");
         defs.put(COL_ONBOARDED, "INTEGER NOT NULL DEFAULT 0");
         defs.put(COL_FIRST_JOIN_DAY, "INTEGER NOT NULL DEFAULT 0");
+        defs.put(COL_MONEY, "INTEGER NOT NULL DEFAULT 0");
         defs.put(COL_UPDATED_AT, "INTEGER NOT NULL DEFAULT 0");
         return defs;
     }
