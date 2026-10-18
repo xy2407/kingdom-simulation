@@ -35,6 +35,11 @@ public final class RtsHudLayer implements LayeredDraw.Layer {
             RtsRoadState.tick();
             return;
         }
+        if (RtsModeManager.getSubMode() == RtsSubMode.REGION_TASK) {
+            RtsModeManager.onMiddleDrag();
+            RegionSelectionState.tick();
+            return;
+        }
         RtsModeManager.onLeftMouseDrag();
         RtsModeManager.onMiddleDrag();
         RtsWaypointState.pollKey();

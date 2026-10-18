@@ -14,6 +14,7 @@ import com.xy2407.kingdom.client.building.BuildingPanelClient;
 import com.xy2407.kingdom.client.building.BuildingPlacementManager;
 import com.xy2407.kingdom.client.map.WorldRoadScreen;
 import com.xy2407.kingdom.client.rts.ClientBuildingStore;
+import com.xy2407.kingdom.client.rts.RegionSelectionState;
 import com.xy2407.kingdom.client.rts.RtsModeManager;
 import com.xy2407.kingdom.client.rts.RtsSubMode;
 import com.xy2407.kingdom.common.entity.NpcEntity;
@@ -87,9 +88,9 @@ public final class StructureDebugKeybind {
             OTHER_KEY
     };
 
-    private static final String[] SECTION_KEYS = {"POPULATION", "BUILDING", "TROOP", "ROAD"};
+    private static final String[] SECTION_KEYS = {"POPULATION", "BUILDING", "TROOP", "ROAD", "TASK"};
 
-    private static final String[] SECTION_TITLES = {"人口", "建筑", "队伍", "道路"};
+    private static final String[] SECTION_TITLES = {"人口", "建筑", "队伍", "道路", "填充/拆除"};
 
     public static final KeyMapping OPEN_VIEWER = new KeyMapping(
             "key.xy2407_kingdom.structure_viewer",
@@ -373,6 +374,10 @@ public final class StructureDebugKeybind {
             renderRoadEntries(document);
             return;
         }
+        if (isTaskPage()) {
+            renderTaskEntries(document);
+            return;
+        }
         if (isPopulationPage()) {
             PacketDistributor.sendToServer(new NpcRosterRequestPacket());
         }
@@ -381,6 +386,45 @@ public final class StructureDebugKeybind {
 
     private static boolean isRoadPage() {
         return SECTION_KEYS[3].equals(currentSection);
+    }
+
+    private static boolean isTaskPage() {
+        return SECTION_KEYS[4].equals(currentSection);
+    }
+
+    private static void renderTaskEntries(Document document) {
+        Element host = document.getElementById(SIDE_LIST_ID);
+        if (host == null) {
+            return;
+        }
+        host.setInnerHTML("<div class=\"side-item\" id=\"task-fill\">"
+                + "<span class=\"side-name\">填充区域</span>"
+                + "<span class=\"side-sub\">框选填平</span></div>"
+                + "<div class=\"side-item\" id=\"task-clear\">"
+                + "<span class=\"side-name\">拆除区域</span>"
+                + "<span class=\"side-sub\">框选拆掉</span></div>");
+        Element fill = document.getElementById("task-fill");
+        if (fill != null) {
+            fill.addEventListener("click", event -> enterRegionTask(document, RegionSelectionState.Kind.FILL));
+        }
+        Element clear = document.getElementById("task-clear");
+        if (clear != null) {
+            clear.addEventListener("click", event -> enterRegionTask(document, RegionSelectionState.Kind.DEMOLISH));
+        }
+        Element title = document.getElementById(SIDE_TITLE_ID);
+        if (title != null) {
+            title.setInnerHTML("填充/拆除");
+        }
+    }
+
+    private static void enterRegionTask(Document document, RegionSelectionState.Kind kind) {
+        if (!RtsModeManager.isActive()) {
+            StructureDebugChat.chat("先按 F6 进 RTS 模式，才能框选区域任务");
+            return;
+        }
+        closeViewer();
+        RtsModeManager.enterSubMode(RtsSubMode.REGION_TASK);
+        RegionSelectionState.begin(kind);
     }
 
     private static void renderRoadEntries(Document document) {

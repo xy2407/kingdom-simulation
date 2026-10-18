@@ -159,6 +159,10 @@ public final class BuildingTask {
         return !repairs.isEmpty();
     }
 
+    public void clearRepairs() {
+        repairs.clear();
+    }
+
     public Step peekRepair() {
         return repairs.peek();
     }

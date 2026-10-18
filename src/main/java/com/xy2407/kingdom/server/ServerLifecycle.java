@@ -45,6 +45,7 @@ public final class ServerLifecycle {
         RanchPenManager.INSTANCE.reset();
         RanchWorkService.reset();
         RestaurantOrderStore.INSTANCE.reset();
+        com.xy2407.kingdom.server.task.RegionTaskService.INSTANCE.reset();
         NationRegistry.INSTANCE.reset();
         TerritoryRegistry.INSTANCE.reset();
         PlayerProfileStore.INSTANCE.reset();

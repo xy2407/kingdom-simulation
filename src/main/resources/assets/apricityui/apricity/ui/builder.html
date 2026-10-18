@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<!-- 建筑工坊：viewport 与市政厅同配方（fixed 设计稿 + scale=fit + zoom 钉 1），
+     居中由 AuiDocumentCenterMixin + AuiScreenDocCenterMixin 成对处理，页面零负担。
+     纯 DOM 页无真实槽位，必须 intercept，否则按钮与拖拽点不动。 -->
+<meta name="aui-viewport" content="mode=fixed,width=1124,height=854,scale=fit,zoom=1,min-zoom=1,max-zoom=1,user-scalable=false">
+<meta name="aui-mouse-events" content="intercept">
+<title>建筑工坊</title>
+<style>
+@font-face{
+  font-family:'Zpix';
+  src:url('/font/zpix.ttf') format('truetype');
+  font-display:block;
+}
+
+:root{
+  --parchment:#c8ac7c;
+  --parchment-lo:#b89868;
+  --parchment-hi:#d6bc94;
+  --border-mid:#6a4a20;
+  --border-dark:#4a3218;
+  --border-deep:#3a2814;
+  --border-light:#8a6e3c;
+  --border-hi:#d8bc8c;
+  --ink:#1a0e04;
+  --ink-2:#4a3218;
+  --gold:#c9a227;
+  --gold-l:#f5e08a;
+  --danger:#8a2a1a;
+  --ok:#3f6b2a;
+}
+
+*{
+  box-sizing:border-box;
+  margin:0;
+  padding:0;
+  font-smooth:never;
+}
+
+html,body{height:100%;}
+
+body{
+  background-color:transparent;
+  font-family:'Zpix',monospace;
+  font-size:14px;
+  color:var(--ink);
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  padding:22px;
+  image-rendering:pixelated;
+}
+
+.bb-hall{
+  width:1080px;
+  height:810px;
+  background-color:var(--parchment);
+  background-image:url('/tex/card_gen.png');
+  background-size:100% 100%;
+  border:2px solid var(--border-dark);
+  box-shadow:0 0 0 2px var(--border-deep), 8px 8px 0 rgba(20,10,0,0.55);
+  display:flex;
+  flex-direction:column;
+  padding:14px;
+}
+
+.bb-head{
+  display:flex;
+  align-items:center;
+  height:44px;
+  flex:0 0 auto;
+  border-bottom:2px solid var(--border-mid);
+}
+
+.bb-title{
+  font-size:22px;
+  letter-spacing:6px;
+  color:var(--ink);
+}
+
+.bb-subtitle{
+  margin-left:14px;
+  font-size:12px;
+  color:var(--ink-2);
+}
+
+.bb-close{
+  margin-left:auto;
+  width:28px;
+  height:28px;
+  line-height:26px;
+  text-align:center;
+  border:2px solid var(--border-dark);
+  background-color:var(--parchment-lo);
+  color:var(--ink);
+  cursor:pointer;
+}
+
+.bb-close:hover{
+  background-color:var(--gold-l);
+}
+
+.bb-body{
+  display:flex;
+  flex:1 1 auto;
+  margin-top:12px;
+  min-height:0;
+}
+
+.bb-left{
+  width:264px;
+  flex:0 0 auto;
+  display:flex;
+  flex-direction:column;
+  border:2px solid var(--border-mid);
+  background-color:var(--parchment-hi);
+  background-image:url('/tex/pane_v.png');
+  background-size:100% 100%;
+}
+
+.bb-right{
+  margin-left:14px;
+  flex:1 1 auto;
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  border:2px solid var(--border-mid);
+  background-color:var(--parchment-hi);
+  background-image:url('/tex/pane_v.png');
+  background-size:100% 100%;
+}
+
+.bb-col-head{
+  height:34px;
+  line-height:32px;
+  padding-left:10px;
+  font-size:15px;
+  letter-spacing:2px;
+  color:var(--ink);
+  background-color:var(--parchment-lo);
+  border-bottom:2px solid var(--border-mid);
+  flex:0 0 auto;
+}
+
+.bb-hire-row{
+  padding:8px 10px;
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+}
+
+.bb-btn{
+  display:inline-block;
+  padding:5px 12px;
+  border:2px solid var(--border-dark);
+  background-color:var(--parchment-lo);
+  color:var(--ink);
+  cursor:pointer;
+  text-align:center;
+}
+
+.bb-btn:hover{
+  background-color:var(--gold-l);
+}
+
+.bb-btn-primary{
+  background-color:var(--gold);
+  color:var(--ink);
+}
+
+.bb-btn-danger{
+  background-color:var(--danger);
+  color:#f5e0c0;
+}
+
+.bb-btn-mini{
+  padding:2px 8px;
+  font-size:12px;
+}
+
+.bb-emp-list{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+  padding:8px;
+}
+
+.bb-emp-row{
+  display:flex;
+  align-items:center;
+  padding:6px;
+  margin-bottom:8px;
+  border:2px solid var(--border-mid);
+  background-color:var(--parchment);
+}
+
+.bb-face-frame{
+  width:52px;
+  height:52px;
+  flex:0 0 auto;
+  border:2px solid var(--border-dark);
+  box-shadow:0 0 0 1px var(--border-light), inset 0 0 0 1px var(--border-hi);
+  background-color:var(--parchment-hi);
+  background-image:url('/tex/parchment_avatar.png');
+  background-size:100% 100%;
+  cursor:grab;
+}
+
+.bb-face{
+  display:block;
+  width:48px;
+  height:48px;
+}
+
+.bb-emp-info{
+  margin-left:10px;
+  min-width:0;
+  flex:1 1 auto;
+}
+
+.bb-emp-name{
+  font-size:14px;
+  color:var(--ink);
+  overflow:hidden;
+}
+
+.bb-emp-status{
+  margin-top:4px;
+  font-size:12px;
+  color:var(--ink-2);
+}
+
+.bb-task-list{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+  padding:10px;
+}
+
+.bb-task-card{
+  border:2px solid var(--border-mid);
+  background-color:var(--parchment);
+  background-image:url('/tex/card_small.png');
+  background-size:100% 100%;
+  margin-bottom:10px;
+  padding:8px 10px;
+}
+
+.bb-task-head{
+  display:flex;
+  align-items:center;
+  cursor:pointer;
+}
+
+.bb-kind{
+  flex:0 0 auto;
+  padding:2px 8px;
+  font-size:12px;
+  border:2px solid var(--border-dark);
+  background-color:var(--gold);
+  color:var(--ink);
+}
+
+.bb-kind-demolish{
+  background-color:var(--danger);
+  color:#f5e0c0;
+}
+
+.bb-kind-fill{
+  background-color:var(--ok);
+  color:#f0f5d0;
+}
+
+.bb-task-title{
+  margin-left:10px;
+  font-size:15px;
+  color:var(--ink);
+  overflow:hidden;
+}
+
+.bb-task-status{
+  margin-left:auto;
+  font-size:12px;
+  color:var(--ink-2);
+  flex:0 0 auto;
+}
+
+.bb-task-pos{
+  margin-top:6px;
+  font-size:12px;
+  color:var(--ink-2);
+}
+
+.bb-bar-row{
+  display:flex;
+  align-items:center;
+  margin-top:8px;
+}
+
+.bb-bar{
+  width:420px;
+  height:14px;
+  border:2px solid var(--border-dark);
+  background-color:var(--parchment-lo);
+  position:relative;
+  flex:0 0 auto;
+}
+
+.bb-bar-fill{
+  position:absolute;
+  left:0;
+  top:0;
+  height:10px;
+  background-color:var(--gold);
+}
+
+.bb-bar-num{
+  margin-left:10px;
+  font-size:12px;
+  color:var(--ink-2);
+}
+
+.bb-detail{
+  display:none;
+  margin-top:8px;
+  border-top:1px solid var(--border-light);
+  padding-top:8px;
+}
+
+.bb-detail-open{
+  display:block;
+}
+
+.bb-mat-row{
+  display:flex;
+  align-items:center;
+  margin-bottom:6px;
+}
+
+.bb-mat-box{
+  position:relative;
+  width:36px;
+  height:36px;
+  flex:0 0 auto;
+  border:2px solid var(--border-dark);
+  background-color:var(--parchment-lo);
+}
+
+.bb-mat-icon{
+  position:absolute;
+  left:0;
+  top:0;
+  width:32px;
+  height:32px;
+}
+
+.bb-mat-text{
+  margin-left:10px;
+  font-size:12px;
+  color:var(--ink-2);
+}
+
+.bb-crew{
+  display:flex;
+  align-items:flex-start;
+  margin-top:4px;
+}
+
+.bb-crew-chip{
+  width:56px;
+  margin-right:10px;
+  text-align:center;
+}
+
+.bb-crew-chip .bb-face-frame{
+  width:48px;
+  height:48px;
+  margin:0 auto;
+}
+
+.bb-crew-chip .bb-face{
+  width:44px;
+  height:44px;
+}
+
+.bb-crew-name{
+  display:block;
+  margin-top:3px;
+  font-size:11px;
+  color:var(--ink-2);
+  overflow:hidden;
+}
+
+.bb-crew-empty{
+  font-size:12px;
+  color:var(--ink-2);
+  line-height:48px;
+}
+
+.bb-task-actions{
+  display:flex;
+  margin-top:8px;
+  border-top:1px solid var(--border-light);
+  padding-top:8px;
+}
+
+.bb-act{
+  margin-right:10px;
+}
+
+.bb-dragging{
+  opacity:0.45;
+}
+
+.bb-ghost{
+  display:none;
+  position:absolute;
+  width:52px;
+  height:52px;
+  border:2px solid var(--gold);
+  background-color:var(--parchment);
+  box-shadow:4px 4px 0 rgba(20,10,0,0.5);
+  pointer-events:none;
+}
+
+.bb-ghost .bb-face{
+  width:48px;
+  height:48px;
+}
+
+.bb-hint{
+  margin-top:10px;
+  font-size:12px;
+  color:var(--ink-2);
+  flex:0 0 auto;
+}
+
+.bb-empty{
+  padding:16px;
+  text-align:center;
+  font-size:13px;
+  color:var(--ink-2);
+}
+</style>
+</head>
+<body>
+  <div class="bb-hall" id="bb-root">
+    <div class="bb-head">
+      <div class="bb-title">建 筑 工 坊</div>
+      <div class="bb-subtitle">拖动头像到任务卡片即可指派</div>
+      <div class="bb-close" id="bb-close">✕</div>
+    </div>
+    <div class="bb-body">
+      <div class="bb-left">
+        <div class="bb-col-head" id="bb-emp-head">员工</div>
+        <div class="bb-hire-row">
+          <div class="bb-btn bb-btn-primary" id="bb-hire">雇佣市民</div>
+          <div class="bb-emp-status" id="bb-emp-count"></div>
+        </div>
+        <div class="bb-emp-list" id="bb-emp-list"></div>
+      </div>
+      <div class="bb-right">
+        <div class="bb-col-head" id="bb-task-head">任务看板</div>
+        <div class="bb-task-list" id="bb-task-list"></div>
+      </div>
+    </div>
+    <div class="bb-hint">开始需要先把建筑工拖进卡片；暂停后可再点开始继续；终止会清掉任务</div>
+  </div>
+  <div class="bb-ghost" id="bb-ghost"></div>
+</body>
+</html>

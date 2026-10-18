@@ -6,7 +6,8 @@
   "mixins": [
     "FarmBlockMoistureMixin",
     "BedBlockMixin",
-    "LevelChunkMixin"
+    "LevelChunkMixin",
+    "LevelMixin"
   ],
   "client": [
     "MaskStencilSuppressMixin",
@@ -19,6 +20,7 @@
     "AuiSlotMenuOffsetMixin",
     "AuiFloatingItemScaleMixin",
     "FarmPauseGuardMixin",
+    "RegionPauseGuardMixin",
     "RtsCameraMixin",
     "RtsProjectionMixin",
     "RtsKeyboardInputMixin",

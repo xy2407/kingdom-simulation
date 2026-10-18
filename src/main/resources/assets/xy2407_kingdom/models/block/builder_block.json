@@ -1,0 +1,1 @@
+{ "parent": "minecraft:block/cube_all", "textures": { "all": "xy2407_kingdom:block/builder_block" } }

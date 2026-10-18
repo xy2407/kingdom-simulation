@@ -1,7 +1,7 @@
 package com.xy2407.kingdom.client.rts;
 
 /**
- * RTS 子模式：默认是框选与建造，另有两种道路绘制模式，鼠标与按键按此分派。
+ * RTS 子模式：默认框选建造，另有道路绘制与区域任务两种模式，鼠标按键按此分派
  */
 public enum RtsSubMode {
 
@@ -9,5 +9,7 @@ public enum RtsSubMode {
 
     ROAD_TERRITORY,
 
-    ROAD_WORLD
+    ROAD_WORLD,
+
+    REGION_TASK
 }

@@ -6,6 +6,7 @@ import com.xy2407.kingdom.common.npc.NpcRestaurantService;
 import com.xy2407.kingdom.server.farm.FarmPlotManager;
 import com.xy2407.kingdom.server.ranch.RanchPenManager;
 import com.xy2407.kingdom.server.restaurant.RestaurantOrderStore;
+import com.xy2407.kingdom.server.task.RegionTaskService;
 
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -30,6 +31,7 @@ public final class BuildingServerTick {
     public static void onServerTick(ServerTickEvent.Post event) {
         BuildingConstructionService.INSTANCE.tick(event.getServer());
         BuildingRegistry.INSTANCE.tick(event.getServer());
+        RegionTaskService.INSTANCE.tick(event.getServer());
         FarmPlotManager.INSTANCE.tick(event.getServer());
         RanchPenManager.INSTANCE.tick(event.getServer());
         RestaurantOrderStore.INSTANCE.tick(event.getServer());

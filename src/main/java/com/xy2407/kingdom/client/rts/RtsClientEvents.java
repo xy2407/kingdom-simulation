@@ -133,6 +133,19 @@ public final class RtsClientEvents {
                     event.setCanceled(true);
                     return;
                 }
+                if (RtsModeManager.getSubMode() == RtsSubMode.REGION_TASK) {
+                    if (RegionHudLayer.handleClick(mouse[0], mouse[1])) {
+                        event.setCanceled(true);
+                        return;
+                    }
+                    if (press) {
+                        RegionSelectionState.onLeftDown();
+                    } else {
+                        RegionSelectionState.onLeftUp();
+                    }
+                    event.setCanceled(true);
+                    return;
+                }
                 if (press) {
                     if (BuildingPlacementManager.beginPendingDrag()) {
                         event.setCanceled(true);
@@ -156,6 +169,11 @@ public final class RtsClientEvents {
             case GLFW.GLFW_MOUSE_BUTTON_RIGHT -> {
                 if (RtsModeManager.isRoadMode()) {
                     RtsRoadState.onRightButton(press, mouse[0], mouse[1]);
+                    event.setCanceled(true);
+                    return;
+                }
+                if (RtsModeManager.getSubMode() == RtsSubMode.REGION_TASK) {
+                    RegionSelectionState.onRightButton(press);
                     event.setCanceled(true);
                     return;
                 }
@@ -221,6 +239,10 @@ public final class RtsClientEvents {
         }
         if (RtsModeManager.getSubMode() == RtsSubMode.ROAD_TERRITORY) {
             RtsRoadState.onKeyPress(key);
+            return;
+        }
+        if (RtsModeManager.getSubMode() == RtsSubMode.REGION_TASK) {
+            RegionSelectionState.onKeyPress(key);
             return;
         }
         if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) {

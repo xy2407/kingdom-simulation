@@ -3,6 +3,7 @@ package com.xy2407.kingdom.client.building;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.client.cityhall.CityHallScreen;
+import com.xy2407.kingdom.client.builder.BuilderBoardScreen;
 import com.xy2407.kingdom.client.farm.FarmPanelScreen;
 import com.xy2407.kingdom.client.path.NpcPathDebugRenderer;
 import com.xy2407.kingdom.client.ranch.RanchPanelScreen;
@@ -19,6 +20,7 @@ import com.xy2407.kingdom.common.network.building.BuildingPanelHooks;
 import com.xy2407.kingdom.common.network.building.BuildingSiteHooks;
 import com.xy2407.kingdom.common.network.building.ResidentHooks;
 import com.xy2407.kingdom.common.network.building.RestaurantHooks;
+import com.xy2407.kingdom.common.network.builder.BuilderHooks;
 import com.xy2407.kingdom.common.network.cityhall.CityHallHooks;
 import com.xy2407.kingdom.common.network.mapoverlay.MapOverlayHooks;
 import com.xy2407.kingdom.common.network.farm.FarmPanelHooks;
@@ -59,6 +61,8 @@ public final class BuildingClientSetup {
     public static void onClientSetup(FMLClientSetupEvent event) {
         BuildingSiteHooks.siteSink = BuildingSiteManager::accept;
         BuildingPanelHooks.stateSink = BuildingPanelClient::accept;
+        BuilderHooks.openSink = BuilderBoardScreen::acceptOpen;
+        BuilderHooks.dataSink = BuilderBoardScreen::accept;
         ResidentHooks.listSink = BuildingPanelClient::acceptResidents;
         RestaurantHooks.menuSink = BuildingPanelClient::acceptRestaurantMenu;
         BuildingMoveHooks.syncSink = ClientBuildingStore::accept;

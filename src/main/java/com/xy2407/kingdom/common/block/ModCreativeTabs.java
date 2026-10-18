@@ -21,6 +21,7 @@ public final class ModCreativeTabs {
                     .icon(() -> new ItemStack(ModBlocks.CITY_HALL_ITEM.get()))
                     .displayItems((parameters, output) -> {
                         output.accept(ModBlocks.CITY_HALL_ITEM.get());
+                        output.accept(ModBlocks.BUILDER_BLOCK_ITEM.get());
                     })
                     .build());
 

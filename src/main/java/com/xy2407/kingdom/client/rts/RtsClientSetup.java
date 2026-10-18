@@ -40,6 +40,10 @@ public final class RtsClientSetup {
                 ResourceLocation.fromNamespaceAndPath(ModMain.MOD_ID, RoadHudLayer.ID),
                 RoadHudLayer.INSTANCE);
 
+        event.registerAboveAll(
+                ResourceLocation.fromNamespaceAndPath(ModMain.MOD_ID, RegionHudLayer.ID),
+                RegionHudLayer.INSTANCE);
+
         event.wrapLayer(VanillaGuiLayers.CHAT, layer -> (guiGraphics, deltaTracker) -> {
             guiGraphics.flush();
             boolean depthTestWasOn = GL11.glGetBoolean(GL11.GL_DEPTH_TEST);

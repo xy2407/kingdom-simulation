@@ -3,6 +3,7 @@ package com.xy2407.kingdom.server.building;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -50,6 +51,8 @@ public final class BuildingConstructionService {
             Blocks.SCAFFOLDING.defaultBlockState().trySetValue(BlockStateProperties.BOTTOM, true);
 
     private final Map<UUID, BuildingTask> tasks = new ConcurrentHashMap<>();
+
+    private final Set<UUID> pausedTasks = ConcurrentHashMap.newKeySet();
 
     private BuildingConstructionService() {
     }
@@ -214,11 +217,58 @@ public final class BuildingConstructionService {
         return tasks.size();
     }
 
+    public record TaskSnapshot(UUID id, String blueprintName, String dimension, BlockPos origin,
+                               Vec3i size, int cursor, int total, UUID architectId,
+                               String architectName, boolean paused) {
+    }
+
+    public List<TaskSnapshot> snapshots() {
+        List<TaskSnapshot> list = new ArrayList<>();
+        for (BuildingTask task : tasks.values()) {
+            list.add(new TaskSnapshot(task.id(), task.blueprintName(),
+                    task.dimension().location().toString(), task.origin(), task.plan().size(),
+                    task.cursor(), task.sequence().size(), task.architectId(),
+                    task.architectName(), pausedTasks.contains(task.id())));
+        }
+        return list;
+    }
+
+    public void setPaused(UUID taskId, boolean value) {
+        if (value) {
+            pausedTasks.add(taskId);
+        } else {
+            pausedTasks.remove(taskId);
+        }
+    }
+
+    public boolean cancel(MinecraftServer server, UUID taskId) {
+        BuildingTask task = tasks.get(taskId);
+        if (task == null) {
+            return false;
+        }
+        ServerLevel level = server.getLevel(task.dimension());
+        if (level != null) {
+            task.clearRepairs();
+            clearHeldItem(level, task);
+            removeScaffold(level, task);
+        }
+        releaseArchitect(task);
+        tasks.remove(taskId);
+        pausedTasks.remove(taskId);
+        if (level != null) {
+            broadcastSite(level, task, true);
+        }
+        return true;
+    }
+
     public void tick(MinecraftServer server) {
         if (tasks.isEmpty()) {
             return;
         }
         for (BuildingTask task : tasks.values()) {
+            if (pausedTasks.contains(task.id())) {
+                continue;
+            }
             ServerLevel level = server.getLevel(task.dimension());
             if (level != null) {
                 tickTask(level, task);

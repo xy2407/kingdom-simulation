@@ -31,9 +31,20 @@ public final class ModBlocks {
                             .sound(SoundType.WOOD)
                             .noOcclusion());
 
+    public static final DeferredBlock<BuilderBlock> BUILDER_BLOCK =
+            BLOCKS.registerBlock("builder_block", BuilderBlock::new,
+                    BlockBehaviour.Properties.of()
+                            .mapColor(MapColor.METAL)
+                            .strength(2.0F, 6.0F)
+                            .sound(SoundType.WOOD));
+
     public static final DeferredItem<BlockItem> CITY_HALL_ITEM =
             ITEMS.register("city_hall",
                     () -> new BlockItem(CITY_HALL.get(), new Item.Properties()));
+
+    public static final DeferredItem<BlockItem> BUILDER_BLOCK_ITEM =
+            ITEMS.register("builder_block",
+                    () -> new BlockItem(BUILDER_BLOCK.get(), new Item.Properties()));
 
     private ModBlocks() {
     }

@@ -10,6 +10,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
@@ -20,10 +21,7 @@ import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import org.joml.Matrix4f;
 
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 
 /**
  * 为选中单位绘制线框轮廓，并在右键移动目标处绘制旗帜标记与连线
@@ -72,8 +70,9 @@ public final class RtsEntityGlowRenderer {
         VertexConsumer consumer = minecraft.renderBuffers().bufferSource().getBuffer(RenderType.lines());
         Set<UUID> selected = RtsModeManager.getSelectedEntities();
         if (!selected.isEmpty()) {
-            drawSelectedBoxes(poseStack, consumer, minecraft, camPos, partialTick, selected);
-            drawMoveTargets(poseStack, consumer, minecraft, partialTick);
+            Frustum frustum = event.getFrustum();
+            drawSelectedBoxes(poseStack, consumer, minecraft, camPos, partialTick, selected, frustum);
+            drawMoveTargets(poseStack, consumer, minecraft, partialTick, frustum);
         }
         minecraft.renderBuffers().bufferSource().endBatch(RenderType.lines());
         minecraft.renderBuffers().bufferSource().endLastBatch();
@@ -81,7 +80,7 @@ public final class RtsEntityGlowRenderer {
     }
 
     private static void drawSelectedBoxes(PoseStack poseStack, VertexConsumer consumer, Minecraft minecraft,
-                                          Vec3 camPos, float partialTick, Set<UUID> selected) {
+                                          Vec3 camPos, float partialTick, Set<UUID> selected, Frustum frustum) {
         AABB searchBox = new AABB(
                 camPos.x - SEARCH_RADIUS, camPos.y - SEARCH_RADIUS, camPos.z - SEARCH_RADIUS,
                 camPos.x + SEARCH_RADIUS, camPos.y + SEARCH_RADIUS, camPos.z + SEARCH_RADIUS);
@@ -89,42 +88,53 @@ public final class RtsEntityGlowRenderer {
             if (!selected.contains(entity.getUUID()) || !entity.isAlive()) {
                 continue;
             }
-            renderBox(poseStack, consumer, entity, partialTick);
+            renderBox(poseStack, consumer, entity, partialTick, frustum);
         }
         if (selected.contains(minecraft.player.getUUID()) && minecraft.player.isAlive()) {
-            renderBox(poseStack, consumer, minecraft.player, partialTick);
+            renderBox(poseStack, consumer, minecraft.player, partialTick, frustum);
         }
     }
 
     private static void drawMoveTargets(PoseStack poseStack, VertexConsumer consumer,
-                                        Minecraft minecraft, float partialTick) {
+                                        Minecraft minecraft, float partialTick, Frustum frustum) {
         Map<UUID, Vec3> moveTargets = RtsModeManager.getMoveTargets();
         if (moveTargets.isEmpty()) {
             return;
+        }
+        Map<UUID, Entity> index = new HashMap<>();
+        for (Entity entity : minecraft.level.entitiesForRendering()) {
+            index.put(entity.getUUID(), entity);
         }
         Set<Vec3> drawnMarkers = new HashSet<>();
         for (Vec3 target : moveTargets.values()) {
             if (!drawnMarkers.add(target)) {
                 continue;
             }
-            renderMoveTarget(poseStack, consumer, target, target.y + 0.05D);
+            renderMoveTarget(poseStack, consumer, target, target.y + 0.05D, frustum);
         }
         for (Map.Entry<UUID, Vec3> entry : moveTargets.entrySet()) {
-            Entity entity = findEntity(minecraft.level, entry.getKey());
+            Entity entity = index.get(entry.getKey());
             if (entity == null || !entity.isAlive()) {
                 continue;
             }
             Vec3 target = entry.getValue();
             Vec3 markTop = new Vec3(target.x, target.y + 0.05D + MARK_PILLAR, target.z);
-            renderLine(poseStack, consumer, interpolatedPos(entity, partialTick), markTop);
+            Vec3 from = interpolatedPos(entity, partialTick);
+            if (frustum.isVisible(new AABB(from, markTop).inflate(1.0D))) {
+                renderLine(poseStack, consumer, from, markTop);
+            }
         }
     }
 
-    private static void renderBox(PoseStack poseStack, VertexConsumer consumer, Entity entity, float partialTick) {
+    private static void renderBox(PoseStack poseStack, VertexConsumer consumer, Entity entity,
+                                  float partialTick, Frustum frustum) {
         Vec3 pos = interpolatedPos(entity, partialTick);
         AABB box = entity.getBoundingBox()
                 .move(pos.x - entity.getX(), pos.y - entity.getY(), pos.z - entity.getZ())
                 .inflate(0.05D);
+        if (!frustum.isVisible(box)) {
+            return;
+        }
         if (entity instanceof Player || entity instanceof RtsFakePlayerEntity) {
             LevelRenderer.renderLineBox(poseStack, consumer, box,
                     SELECTED_PLAYER_R, SELECTED_PLAYER_G, SELECTED_PLAYER_B, 1.0F);
@@ -134,7 +144,14 @@ public final class RtsEntityGlowRenderer {
         }
     }
 
-    private static void renderMoveTarget(PoseStack poseStack, VertexConsumer consumer, Vec3 target, double markY) {
+    private static void renderMoveTarget(PoseStack poseStack, VertexConsumer consumer, Vec3 target,
+                                         double markY, Frustum frustum) {
+        AABB markBox = new AABB(
+                target.x - MARK_HALF, markY - 0.05D, target.z - MARK_HALF,
+                target.x + MARK_HALF, markY + MARK_PILLAR, target.z + MARK_HALF);
+        if (!frustum.isVisible(markBox)) {
+            return;
+        }
         AABB baseBox = new AABB(
                 target.x - MARK_HALF, markY - 0.05D, target.z - MARK_HALF,
                 target.x + MARK_HALF, markY + 0.05D, target.z + MARK_HALF);
@@ -164,18 +181,6 @@ public final class RtsEntityGlowRenderer {
         consumer.addVertex(matrix, (float) to.x, (float) to.y, (float) to.z)
                 .setColor(LINE_R, LINE_G, LINE_B, 1.0F)
                 .setNormal(nx, ny, nz);
-    }
-
-    private static Entity findEntity(ClientLevel level, UUID id) {
-        if (level == null || id == null) {
-            return null;
-        }
-        for (Entity entity : level.entitiesForRendering()) {
-            if (entity.getUUID().equals(id)) {
-                return entity;
-            }
-        }
-        return null;
     }
 
     private static Vec3 interpolatedPos(Entity entity, float partialTick) {

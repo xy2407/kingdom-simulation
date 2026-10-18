@@ -14,6 +14,7 @@ import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.persistence.NationSchema;
 import com.xy2407.kingdom.common.persistence.NpcSchema;
 import com.xy2407.kingdom.common.persistence.PlayerProfileSchema;
+import com.xy2407.kingdom.common.persistence.RegionTaskSchema;
 import com.xy2407.kingdom.common.persistence.RestaurantOrderSchema;
 import com.xy2407.kingdom.common.persistence.TerritoryVitalsSchema;
 import com.xy2407.kingdom.common.persistence.RanchSchema;
@@ -56,6 +57,7 @@ public final class ModMain {
         KingdomPersistence.registerMigration(new RestaurantOrderSchema());
         KingdomPersistence.registerMigration(new GovernmentAffairSchema());
         KingdomPersistence.registerMigration(new RoadSchema());
+        KingdomPersistence.registerMigration(new RegionTaskSchema());
         NeoForge.EVENT_BUS.register(ServerLifecycle.class);
         NeoForge.EVENT_BUS.register(DateServerTick.class);
         NeoForge.EVENT_BUS.register(NpcJoinWorldHandler.class);

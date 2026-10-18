@@ -72,7 +72,9 @@ public final class KingdomCommands {
                         .then(Commands.literal("npc")
                                 .then(Commands.literal("spawn")
                                         .then(Commands.argument("count", IntegerArgumentType.integer(1, MAX_SPAWN))
-                                                .executes(KingdomCommands::spawn)))
+                                                .executes(ctx -> spawn(ctx, false))
+                                                .then(Commands.literal("around").executes(ctx -> spawn(ctx, false)))
+                                                .then(Commands.literal("together").executes(ctx -> spawn(ctx, true)))))
                                 .then(Commands.literal("why")
                                         .executes(KingdomCommands::npcWhy)))
                         .then(Commands.literal("test")
@@ -296,16 +298,24 @@ public final class KingdomCommands {
         return explored;
     }
 
-    private static int spawn(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+    private static int spawn(CommandContext<CommandSourceStack> ctx, boolean together)
+            throws CommandSyntaxException {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
         int count = IntegerArgumentType.getInteger(ctx, "count");
         ServerLevel level = player.serverLevel();
         var type = ModEntities.NPC.get();
         for (int i = 0; i < count; i++) {
-            double a = level.random.nextDouble() * Math.PI * 2.0D;
-            double r = 1.0D + Math.sqrt((i + 1.0D) / (double) count) * 32.0D;
-            double x = player.getX() + Math.cos(a) * r;
-            double z = player.getZ() + Math.sin(a) * r;
+            double x;
+            double z;
+            if (together) {
+                x = player.getX();
+                z = player.getZ();
+            } else {
+                double a = level.random.nextDouble() * Math.PI * 2.0D;
+                double r = 1.0D + Math.sqrt((i + 1.0D) / (double) count) * 32.0D;
+                x = player.getX() + Math.cos(a) * r;
+                z = player.getZ() + Math.sin(a) * r;
+            }
             var entity = type.create(level);
             if (entity == null) continue;
             NpcData data = new NpcData(UUID.randomUUID());

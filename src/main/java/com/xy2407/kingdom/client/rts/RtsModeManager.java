@@ -120,6 +120,7 @@ public final class RtsModeManager {
         }
         subMode = RtsSubMode.NONE;
         RtsRoadState.reset();
+        RegionSelectionState.reset();
     }
 
     public static boolean isActive() {
@@ -185,6 +186,7 @@ public final class RtsModeManager {
         RtsWaypointState.clear();
         BuildingPlacementManager.cancel();
         FarmAreaSelector.cancel();
+        RegionSelectionState.reset();
         if (minecraft.getConnection() != null) {
             PacketDistributor.sendToServer(RtsFakePlayerClearPacket.INSTANCE);
         }
