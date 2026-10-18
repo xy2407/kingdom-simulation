@@ -22,6 +22,7 @@ public final class TerritorySchema implements Migration {
     public static final String COL_OWNER_UUID = "owner_uuid";
     public static final String COL_DIMENSION = "dimension";
     public static final String COL_CENTER_X = "center_x";
+    public static final String COL_CENTER_Y = "center_y";
     public static final String COL_CENTER_Z = "center_z";
     public static final String COL_MIN_CHUNK_X = "min_chunk_x";
     public static final String COL_MIN_CHUNK_Z = "min_chunk_z";
@@ -33,7 +34,7 @@ public final class TerritorySchema implements Migration {
 
     @Override
     public int version() {
-        return 13;
+        return 14;
     }
 
     @Override
@@ -97,6 +98,7 @@ public final class TerritorySchema implements Migration {
         defs.put(COL_OWNER_UUID, "TEXT NOT NULL DEFAULT ''");
         defs.put(COL_DIMENSION, "TEXT NOT NULL DEFAULT ''");
         defs.put(COL_CENTER_X, "INTEGER NOT NULL DEFAULT 0");
+        defs.put(COL_CENTER_Y, "INTEGER NOT NULL DEFAULT 64");
         defs.put(COL_CENTER_Z, "INTEGER NOT NULL DEFAULT 0");
         defs.put(COL_MIN_CHUNK_X, "INTEGER NOT NULL DEFAULT 0");
         defs.put(COL_MIN_CHUNK_Z, "INTEGER NOT NULL DEFAULT 0");
@@ -111,7 +113,7 @@ public final class TerritorySchema implements Migration {
     public static String columns() {
         return String.join(", ", new String[] {
                 COL_ID, COL_NAME, COL_NATION_ID, COL_OWNER_UUID, COL_DIMENSION,
-                COL_CENTER_X, COL_CENTER_Z, COL_MIN_CHUNK_X, COL_MIN_CHUNK_Z,
+                COL_CENTER_X, COL_CENTER_Y, COL_CENTER_Z, COL_MIN_CHUNK_X, COL_MIN_CHUNK_Z,
                 COL_MAX_CHUNK_X, COL_MAX_CHUNK_Z, COL_CHUNKS, COL_CREATED_DAY, COL_UPDATED_AT
         });
     }

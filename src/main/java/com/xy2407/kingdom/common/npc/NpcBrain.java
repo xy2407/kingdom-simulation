@@ -116,6 +116,12 @@ public final class NpcBrain {
             if ((goingWork && !hasWorkplace()) || (!goingWork && !hasHome())) {
                 subState = NpcSubState.RESTING;
                 detail = NpcDetail.WANDERING;
+            } else if (goingWork && atWorkplace()) {
+                subState = NpcSubState.WORKING;
+                detail = null;
+            } else if (!goingWork && atHome()) {
+                subState = NpcSubState.RESTING;
+                detail = null;
             }
         } else if (subState == NpcSubState.WORKING && !hasWorkplace()) {
             subState = NpcSubState.RESTING;
@@ -127,6 +133,14 @@ public final class NpcBrain {
         } else if (subState == NpcSubState.RESTING && hasHome() && !atHome()) {
             subState = NpcSubState.MOVING;
             detail = NpcDetail.GOING_HOME;
+        }
+        // 兜底：只要已在目的地，任何时段组合都不允许停留在通勤状态
+        if (detail == NpcDetail.GOING_HOME && atHome()) {
+            subState = NpcSubState.RESTING;
+            detail = null;
+        } else if (detail == NpcDetail.GOING_WORK && atWorkplace()) {
+            subState = NpcSubState.WORKING;
+            detail = null;
         }
         if (detail == null) {
             NpcDetail current = owner.getDetail();

@@ -112,6 +112,46 @@ public final class RoadStore {
         KingdomPersistence.submit(RoadSchema.TABLE_CHUNK, RoadSchema.COL_CHUNK_KEY, key, values);
     }
 
+    // 清除模式：删除单格道路数据（内存索引 + 区块聚合 + 落库），世界方块不动
+    public void removeCell(String dimension, BlockPos pos) {
+        Set<Long> cells = cellsByDimension.get(dimension);
+        if (cells == null || !cells.remove(pos.asLong())) {
+            return;
+        }
+        Map<Long, RoadChunkData> chunks = chunksByDimension.get(dimension);
+        if (chunks != null) {
+            long chunkKey = ChunkPos.asLong(pos.getX() >> 4, pos.getZ() >> 4);
+            RoadChunkData data = chunks.get(chunkKey);
+            if (data != null) {
+                long[] filtered = java.util.Arrays.stream(data.cells())
+                        .filter(cell -> cell != pos.asLong()).toArray();
+                chunks.put(chunkKey, new RoadChunkData(filtered, data.owner()));
+            }
+        }
+        KingdomPersistence.delete(RoadSchema.TABLE_CELL, RoadSchema.COL_CELL_KEY,
+                RoadSchema.cellKey(dimension, pos.getX(), pos.getY(), pos.getZ()));
+    }
+
+    // 领地扩张覆盖：整个区块的世界道路标记清除（内存 + 落库 + 逐格 road_cell）
+    public void removeChunk(String dimension, int chunkX, int chunkZ) {
+        long chunkKey = ChunkPos.asLong(chunkX, chunkZ);
+        Map<Long, RoadChunkData> chunks = chunksByDimension.get(dimension);
+        RoadChunkData data = chunks == null ? null : chunks.remove(chunkKey);
+        Set<Long> cells = cellsByDimension.get(dimension);
+        if (data != null && cells != null) {
+            for (long cell : data.cells()) {
+                if (!cells.remove(cell)) {
+                    continue;
+                }
+                BlockPos pos = BlockPos.of(cell);
+                KingdomPersistence.delete(RoadSchema.TABLE_CELL, RoadSchema.COL_CELL_KEY,
+                        RoadSchema.cellKey(dimension, pos.getX(), pos.getY(), pos.getZ()));
+            }
+        }
+        KingdomPersistence.delete(RoadSchema.TABLE_CHUNK, RoadSchema.COL_CHUNK_KEY,
+                RoadSchema.chunkKey(dimension, chunkX, chunkZ));
+    }
+
     // 路图构建的数据源（P1）：只读视图，调用方不得修改；键 = BlockPos.asLong（道路格，含 y）
     public Set<Long> roadCells(String dimension) {
         Set<Long> cells = cellsByDimension.get(dimension);

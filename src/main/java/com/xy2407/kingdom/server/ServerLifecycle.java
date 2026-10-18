@@ -19,6 +19,7 @@ import com.xy2407.kingdom.server.road.RoadStore;
 import com.xy2407.kingdom.server.path.BuildingRoadAccess;
 import com.xy2407.kingdom.server.path.RoadFieldCache;
 import com.xy2407.kingdom.server.path.RoadGraphService;
+import com.xy2407.kingdom.server.path.UnitSnapshotStore;
 import com.xy2407.kingdom.server.mapoverlay.MapOverlayCollector;
 import com.xy2407.kingdom.server.ranch.RanchPenManager;
 import com.xy2407.kingdom.server.ranch.RanchWorkService;
@@ -58,6 +59,9 @@ public final class ServerLifecycle {
         BuildingRoadAccess.reset();
         RoadFieldCache.reset();
         MapOverlayCollector.install(event.getServer());
+        UnitSnapshotStore.INSTANCE.reset();
+        com.xy2407.kingdom.ModMain.LOGGER.info("[快照] 单元落盘压缩={}",
+                com.xy2407.kingdom.common.path.SnapshotCodec.zstdAvailable() ? "zstd" : "gzip");
         SnapshotRepository snapshotRepository = SnapshotRepository.get(event.getServer());
         if (snapshotRepository != null) {
             snapshotRepository.onServerStarting();

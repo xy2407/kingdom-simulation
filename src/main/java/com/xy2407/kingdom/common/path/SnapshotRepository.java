@@ -12,6 +12,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.xy2407.kingdom.server.path.UnitSnapshotStore;
+
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
@@ -124,6 +126,23 @@ public final class SnapshotRepository {
         return searchesThisTick > 0 || !store(level.dimension()).pending.isEmpty();
     }
 
+    public void requestUnits(ResourceKey<Level> dimension, BlockPos start, BlockPos end, int padding) {
+        String dim = dimension.location().toString();
+        int minX = Math.min(start.getX(), end.getX()) - padding;
+        int maxX = Math.max(start.getX(), end.getX()) + padding;
+        int minZ = Math.min(start.getZ(), end.getZ()) - padding;
+        int maxZ = Math.max(start.getZ(), end.getZ()) + padding;
+        int minY = Math.min(start.getY(), end.getY()) - padding;
+        int maxY = Math.max(start.getY(), end.getY()) + padding;
+        for (int cx = minX >> 4; cx <= maxX >> 4; cx++) {
+            for (int cz = minZ >> 4; cz <= maxZ >> 4; cz++) {
+                for (int layer = minY >> 4; layer <= maxY >> 4; layer++) {
+                    UnitSnapshotStore.INSTANCE.request(dim, cx, layer, cz);
+                }
+            }
+        }
+    }
+
     public Future<NpcPathfinder.PathResult> submitSessionSearch(ServerLevel level, NpcPathfinder.Session session,
                                                                 BlockPos start, BlockPos end, int padding) {
         ExecutorService current = executor;
@@ -138,6 +157,7 @@ public final class SnapshotRepository {
             return null;
         }
         NpcPathfinder.requestChunks(this, dimension, start, end, padding);
+        requestUnits(dimension, start, end, padding);
         try {
             return current.submit(() -> session.advance(this, dimension, padding));
         } catch (RejectedExecutionException rejected) {

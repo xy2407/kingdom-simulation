@@ -20,6 +20,7 @@ import com.xy2407.kingdom.common.npc.NpcSubState;
 import com.xy2407.kingdom.common.network.building.BuildingSitePacket;
 import com.xy2407.kingdom.common.path.NpcPathfinder;
 import com.xy2407.kingdom.common.path.SnapshotRepository;
+import com.xy2407.kingdom.server.path.UnitSnapshotStore;
 import com.xy2407.kingdom.common.structure.StructureModel;
 
 import net.minecraft.core.BlockPos;
@@ -70,6 +71,8 @@ public final class BuildingConstructionService {
                 1, rotationDegrees, DateSystem.totalDay(level));
         architect.getBrain().setConstructionControlled(true);
         warmUpSnapshot(level, origin.immutable(), plan.size(), plan.layerCount(), architect);
+        UnitSnapshotStore.INSTANCE.extendYWindow(level.dimension().location().toString(),
+                origin.getY(), plan.layerCount());
         tasks.put(task.id(), task);
         broadcastSite(level, task, false);
         return task;

@@ -1,6 +1,7 @@
 package com.xy2407.kingdom.mixin;
 
 import com.xy2407.kingdom.common.path.SnapshotRepository;
+import com.xy2407.kingdom.server.path.UnitSnapshotStore;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
@@ -33,5 +34,7 @@ public abstract class LevelChunkMixin {
         if (repository != null) {
             repository.markDirty(serverLevel, pos);
         }
+        UnitSnapshotStore.INSTANCE.markDirty(serverLevel.dimension().location().toString(),
+                pos.getX() >> 4, pos.getY() >> 4, pos.getZ() >> 4, serverLevel.getGameTime());
     }
 }

@@ -63,8 +63,11 @@ public final class NpcForageService {
             if (arrived(npc, heading)) {
                 npc.clearForageTarget();
                 placeOrder(npc, data, heading);
-            } else if (!npc.getNavigation().isInProgress()) {
-                npc.clearForageTarget();
+            } else {
+                npc.tickTravelPath(heading);
+                if (!npc.isTravelling()) {
+                    npc.clearForageTarget();
+                }
             }
             return;
         }

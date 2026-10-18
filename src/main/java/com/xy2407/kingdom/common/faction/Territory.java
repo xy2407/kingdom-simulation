@@ -8,7 +8,7 @@ import java.util.UUID;
  * 一块领地：隶属某个国家，范围是任意形状的区块集合，可逐块扩张
  */
 public record Territory(String id, String name, String nationId, UUID owner,
-                        String dimension, int centerX, int centerZ,
+                        String dimension, int centerX, int centerY, int centerZ,
                         int createdDay, Set<Long> chunks) {
 
     public static final int CHUNK_RADIUS = 2;

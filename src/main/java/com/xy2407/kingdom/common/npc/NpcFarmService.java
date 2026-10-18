@@ -50,7 +50,7 @@ public final class NpcFarmService {
     private static final Map<UUID, UUID> WORKER_PLOT = new ConcurrentHashMap<>();
     private static final Map<UUID, Deque<Task>> QUEUES = new ConcurrentHashMap<>();
 
-    private enum Action { TILL, PLANT, HARVEST }
+    enum Action { TILL, PLANT, HARVEST }
 
     private record Task(BlockPos pos, Action action) {
     }
@@ -140,7 +140,7 @@ public final class NpcFarmService {
                         continue;
                     }
                     BlockState above = level.getBlockState(soil.above());
-                    if (isMature(above)) {
+                    if (FarmActionExecutor.isMature(above)) {
                         harvests.add(new Task(soil, Action.HARVEST));
                         occupied++;
                         continue;
@@ -298,11 +298,15 @@ public final class NpcFarmService {
         }
         if (work.target != null) {
             if (near(npc, work.target)) {
-                apply(level, plot, work, npc);
+                FarmActionExecutor.apply(level, plot, work.action, work.target, npc);
                 work.target = null;
                 work.retries = 0;
+                work.resumeCooldown = 0;
                 work.cooldown = ACTION_INTERVAL_TICKS;
-            } else if (!npc.getNavigation().isInProgress()) {
+                npc.clearFarmTarget();
+            } else if (npc.isTravelling()) {
+                npc.tickTravelPath(work.target);
+            } else {
                 resumeOrDrop(npc, work);
             }
             return;
@@ -339,104 +343,6 @@ public final class NpcFarmService {
         npc.setFarmTarget(work.target);
     }
 
-    private static void apply(ServerLevel level, FarmPlot plot, Work work, NpcEntity npc) {
-        BlockPos soil = work.target;
-        BlockPos cropPos = soil.above();
-        BlockState cropState = level.getBlockState(cropPos);
-        if (work.action == Action.HARVEST) {
-            if (!isMature(cropState)) {
-                return;
-            }
-            harvest(level, plot, npc, soil, cropPos, cropState);
-            return;
-        }
-        if (work.action == Action.TILL) {
-            till(level, soil);
-            return;
-        }
-        plant(level, plot, soil, cropPos, cropState);
-    }
-
-    private static void harvest(ServerLevel level, FarmPlot plot, NpcEntity npc,
-                                BlockPos soil, BlockPos cropPos, BlockState cropState) {
-        List<ItemStack> drops = Block.getDrops(cropState, level, cropPos, null, npc, ItemStack.EMPTY);
-        level.setBlock(cropPos, Blocks.AIR.defaultBlockState(), Block.UPDATE_CLIENTS);
-        markSnapshot(level, cropPos);
-        hold(level, plot, cropPos, npc, drops);
-        plant(level, plot, soil, cropPos, level.getBlockState(cropPos));
-    }
-
-    private static void hold(ServerLevel level, FarmPlot plot, BlockPos pos, NpcEntity npc, List<ItemStack> drops) {
-        NpcInventory inventory = npc == null ? null : npc.getNpcInventory();
-        for (ItemStack drop : drops) {
-            if (drop == null || drop.isEmpty()) {
-                continue;
-            }
-            ItemStack remaining = deposit(level, plot, drop.copy());
-            if (inventory != null) {
-                for (int slot = 0; slot < inventory.getSlots() && !remaining.isEmpty(); slot++) {
-                    remaining = inventory.insertItem(slot, remaining, false);
-                }
-            }
-            if (!remaining.isEmpty()) {
-                Block.popResource(level, pos, remaining);
-            }
-        }
-    }
-
-    private static ItemStack deposit(ServerLevel level, FarmPlot plot, ItemStack stack) {
-        if (stack.isEmpty() || plot == null || level.getServer() == null) {
-            return stack;
-        }
-        BuildingRecord building = BuildingRegistry.INSTANCE.byId(plot.buildingId());
-        if (building == null) {
-            return stack;
-        }
-        BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(building);
-        if (meta == null) {
-            return stack;
-        }
-        IItemHandler store = BuildingStorageStore.INSTANCE.handlerOf(level.getServer(), building.id(), meta.storageSlots());
-        if (store == null) {
-            return stack;
-        }
-        ItemStack remaining = stack;
-        for (int slot = 0; slot < store.getSlots() && !remaining.isEmpty(); slot++) {
-            remaining = store.insertItem(slot, remaining, false);
-        }
-        return remaining;
-    }
-
-    private static void plant(ServerLevel level, FarmPlot plot, BlockPos soil, BlockPos cropPos,
-                              BlockState cropState) {
-        if (!cropState.isAir()) {
-            return;
-        }
-        Block crop = cropBlock(plot.cropId());
-        if (crop == null) {
-            return;
-        }
-        BlockState planted = crop.defaultBlockState();
-        if (!planted.canSurvive(level, cropPos)) {
-            return;
-        }
-        level.setBlock(cropPos, planted, Block.UPDATE_ALL);
-        markSnapshot(level, cropPos);
-    }
-
-    private static void till(ServerLevel level, BlockPos soil) {
-        if (!level.getBlockState(soil).is(BlockTags.DIRT)) {
-            return;
-        }
-        if (!level.getBlockState(soil.above()).isAir()) {
-            return;
-        }
-        level.setBlock(soil, Blocks.FARMLAND.defaultBlockState()
-                .setValue(FarmBlock.MOISTURE, FarmBlock.MAX_MOISTURE), Block.UPDATE_ALL);
-        FarmLandRegistry.mark(level, soil, DateSystem.totalDay(level));
-        markSnapshot(level, soil);
-    }
-
     private static FarmRegion regionOf(FarmPlot plot, int index) {
         if (index < 0) {
             return plot.hasCore()
@@ -444,15 +350,6 @@ public final class NpcFarmService {
                     : null;
         }
         return plot.extra().get(index);
-    }
-
-    private static boolean isMature(BlockState state) {
-        for (Property<?> property : state.getProperties()) {
-            if (property instanceof IntegerProperty age && "age".equals(property.getName())) {
-                return state.getValue(age) >= Collections.max(age.getPossibleValues());
-            }
-        }
-        return false;
     }
 
     private static boolean isFarmland(BlockState state) {
@@ -477,62 +374,6 @@ public final class NpcFarmService {
         return recorded;
     }
 
-    private static Block cropBlock(String cropId) {
-        if (cropId == null || cropId.isBlank()) {
-            return null;
-        }
-        Block fromCatalog = resolvePlantBlock(CropCatalog.plantBlockId(cropId));
-        if (fromCatalog != null) {
-            return fromCatalog;
-        }
-        ResourceLocation key = ResourceLocation.tryParse(cropId);
-        if (key != null) {
-            if (BuiltInRegistries.BLOCK.containsKey(key)) {
-                Block block = BuiltInRegistries.BLOCK.get(key);
-                if (block != null && block != Blocks.AIR && CropCatalog.isCropPlant(block)) {
-                    return block;
-                }
-            }
-            if (BuiltInRegistries.ITEM.containsKey(key)) {
-                Item item = BuiltInRegistries.ITEM.get(key);
-                if (item instanceof BlockItem blockItem && CropCatalog.isCropPlant(blockItem.getBlock())) {
-                    return blockItem.getBlock();
-                }
-            }
-        }
-        return legacyCropBlock(cropId);
-    }
-
-    private static Block resolvePlantBlock(String plantBlockId) {
-        if (plantBlockId == null || plantBlockId.isBlank()) {
-            return null;
-        }
-        ResourceLocation key = ResourceLocation.tryParse(plantBlockId);
-        if (key == null || !BuiltInRegistries.BLOCK.containsKey(key)) {
-            return null;
-        }
-        Block block = BuiltInRegistries.BLOCK.get(key);
-        return block == null || block == Blocks.AIR ? null : block;
-    }
-
-    private static Block legacyCropBlock(String cropId) {
-        return switch (cropId) {
-            case "minecraft:wheat", "minecraft:wheat_seeds" -> Blocks.WHEAT;
-            case "minecraft:carrot" -> Blocks.CARROTS;
-            case "minecraft:potato" -> Blocks.POTATOES;
-            case "minecraft:beetroot", "minecraft:beetroot_seeds" -> Blocks.BEETROOTS;
-            case "minecraft:pumpkin", "minecraft:pumpkin_seeds" -> Blocks.PUMPKIN_STEM;
-            case "minecraft:melon", "minecraft:melon_seeds" -> Blocks.MELON_STEM;
-            case "minecraft:torchflower_seeds" -> Blocks.TORCHFLOWER_CROP;
-            case "minecraft:pitcher_pod" -> Blocks.PITCHER_CROP;
-            case "minecraft:sugar_cane" -> Blocks.SUGAR_CANE;
-            case "minecraft:sweet_berries" -> Blocks.SWEET_BERRY_BUSH;
-            case "minecraft:bamboo" -> Blocks.BAMBOO;
-            case "minecraft:nether_wart" -> Blocks.NETHER_WART;
-            default -> null;
-        };
-    }
-
     private static FarmPlot plotOf(UUID npcId) {
         UUID plotId = npcId == null ? null : WORKER_PLOT.get(npcId);
         return plotId == null ? null : FarmPlotManager.INSTANCE.byId(plotId);
@@ -543,13 +384,6 @@ public final class NpcFarmService {
         double dz = npc.getZ() - (target.getZ() + 0.5D);
         double dy = Math.abs(Math.floor(npc.getY() + 0.5D) - target.getY());
         return dx * dx + dz * dz <= ARRIVE_SQR && dy <= 1.0D;
-    }
-
-    private static void markSnapshot(ServerLevel level, BlockPos pos) {
-        SnapshotRepository repository = SnapshotRepository.get(level.getServer());
-        if (repository != null) {
-            repository.markDirty(level, pos);
-        }
     }
 
     public static List<String> debugReport(ServerLevel level) {

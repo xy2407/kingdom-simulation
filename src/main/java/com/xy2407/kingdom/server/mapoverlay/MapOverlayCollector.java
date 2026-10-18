@@ -121,10 +121,19 @@ public final class MapOverlayCollector {
                     territoryId));
         }
 
-        // W14：世界道路随叠层下发，任意地图可见；超出上限按到视野中心距离取最近的
-        List<MapOverlayDataPacket.RoadChunkEntry> roads = RoadStore.INSTANCE.roadChunksIn(
+        // W14+：世界道路仅下发给自己（地图私有），放大请求量过滤 owner 后按上限截断
+        String viewerId = player.getUUID().toString();
+        List<MapOverlayDataPacket.RoadChunkEntry> roads = new ArrayList<>();
+        for (MapOverlayDataPacket.RoadChunkEntry entry : RoadStore.INSTANCE.roadChunksIn(
                 dimension, minX >> 4, maxX >> 4, minZ >> 4, maxZ >> 4,
-                centerX >> 4, centerZ >> 4, ROAD_CHUNK_LIMIT);
+                centerX >> 4, centerZ >> 4, ROAD_CHUNK_LIMIT * 2)) {
+            if (viewerId.equals(RoadStore.INSTANCE.roadOwner(dimension, entry.chunkX(), entry.chunkZ()))) {
+                roads.add(entry);
+                if (roads.size() >= ROAD_CHUNK_LIMIT) {
+                    break;
+                }
+            }
+        }
 
         return new MapOverlayDataPacket(System.nanoTime(), territories, buildings, roads);
     }

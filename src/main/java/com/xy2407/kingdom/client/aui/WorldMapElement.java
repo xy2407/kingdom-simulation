@@ -547,10 +547,35 @@ public class WorldMapElement extends Canvas {
     private void drawOverlay(Graphics2D graphics, int surfaceWidth, int surfaceHeight,
                              int clipX0, int clipY0, int clipX1, int clipY1) {
         drawTerritoryLayer(graphics, surfaceWidth, surfaceHeight, clipX0, clipY0, clipX1, clipY1);
+        drawRoadChunkLayer(graphics, clipX0, clipY0, clipX1, clipY1);
         drawCommittedRoadLayer(graphics, clipX0, clipY0, clipX1, clipY1);
         drawRoadLayer(graphics);
         drawBuildingLayer(graphics, surfaceWidth, surfaceHeight, clipX0, clipY0, clipX1, clipY1);
         drawIconLayer(graphics, surfaceWidth, surfaceHeight, clipX0, clipY0, clipX1, clipY1);
+    }
+
+    // 世界道路区块整块黄色高亮（叠在领地绿之上）；数据已由服务端按 owner 过滤，仅自己可见
+    private void drawRoadChunkLayer(Graphics2D graphics, int clipX0, int clipY0, int clipX1, int clipY1) {
+        List<MapOverlayStore.RoadView> roads = MapOverlayStore.roads();
+        if (roads.isEmpty() || paintedPixelsPerBlock <= 0.0) {
+            return;
+        }
+        int chunkPixels = (int) Math.round(paintedPixelsPerBlock * CHUNK_SIZE);
+        for (int index = 0; index < roads.size(); index++) {
+            MapOverlayStore.RoadView road = roads.get(index);
+            if (!ClientMapStore.explored(road.chunkX(), road.chunkZ())) {
+                continue;
+            }
+            int px0 = pixelX(road.chunkX() * CHUNK_SIZE);
+            int py0 = pixelZ(road.chunkZ() * CHUNK_SIZE);
+            if (px0 > clipX1 || py0 > clipY1 || px0 + chunkPixels < clipX0 || py0 + chunkPixels < clipY0) {
+                continue;
+            }
+            graphics.setColor(new Color(0x66FFD24A, true));
+            graphics.fillRect(px0, py0, chunkPixels, chunkPixels);
+            graphics.setColor(new Color(0xFFFFD24A, true));
+            graphics.drawRect(px0, py0, chunkPixels, chunkPixels);
+        }
     }
 
     // W14：已提交的道路在任意地图上常显（随 MapOverlayDataPacket 下发）；按区块内行合并成水平段再画

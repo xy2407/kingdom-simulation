@@ -11,9 +11,9 @@ import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 /**
- * 客户端 → 服务端：一次提交的领地道路列坐标，高度由服务端自己取地表。
+ * 客户端 → 服务端：一次提交的领地道路列坐标（高度服务端取地表），clear=true 时仅清除道路数据。
  */
-public record RoadTerritorySubmitPacket(long[] cells) implements CustomPacketPayload {
+public record RoadTerritorySubmitPacket(long[] cells, boolean clear) implements CustomPacketPayload {
 
     private static final int MAX_CELLS = 8192;
 
@@ -30,6 +30,7 @@ public record RoadTerritorySubmitPacket(long[] cells) implements CustomPacketPay
     }
 
     private static void encode(RegistryFriendlyByteBuf buf, RoadTerritorySubmitPacket packet) {
+        buf.writeBoolean(packet.clear());
         int count = Math.min(packet.cells().length, MAX_CELLS);
         buf.writeVarInt(count);
         for (int index = 0; index < count; index++) {
@@ -38,18 +39,19 @@ public record RoadTerritorySubmitPacket(long[] cells) implements CustomPacketPay
     }
 
     private static RoadTerritorySubmitPacket decode(RegistryFriendlyByteBuf buf) {
+        boolean clear = buf.readBoolean();
         int count = Math.min(Math.max(buf.readVarInt(), 0), MAX_CELLS);
         long[] cells = new long[count];
         for (int index = 0; index < count; index++) {
             cells[index] = buf.readLong();
         }
-        return new RoadTerritorySubmitPacket(cells);
+        return new RoadTerritorySubmitPacket(cells, clear);
     }
 
     public static void handle(RoadTerritorySubmitPacket packet, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (context.player() instanceof ServerPlayer player) {
-                RoadService.submitTerritory(player, packet.cells());
+                RoadService.submitTerritory(player, packet.cells(), packet.clear());
             }
         });
     }

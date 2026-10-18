@@ -14,7 +14,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
- * RTS 群组共享路径缓存：同目的地共用一次 A*，完成后生成多车道副本供成员直接取用。
+ * RTS 群组共享路径缓存：同目的地共用一次 A*，完成后生成多车道副本并按占用数分配成员。
  */
 public final class RtsSharedPath {
 
@@ -23,12 +23,12 @@ public final class RtsSharedPath {
     }
 
     private record Entry(Future<NpcPathfinder.PathResult> future, BlockPos origin, long createdAt,
-                         List<List<NpcPathfinder.Waypoint>> lanes) {
+                         List<List<NpcPathfinder.Waypoint>> lanes, int[] laneUse) {
     }
 
     private static final double JOIN_RADIUS_SQR = 24.0D * 24.0D;
     private static final long ENTRY_TTL_TICKS = 600L;
-    private static final double[] LANE_OFFSETS = {0.0D, 1.0D, -1.0D, 2.0D, -2.0D, 3.0D, -3.0D};
+    private static final double[] LANE_OFFSETS = {0.0D, 0.7D, -0.7D, 1.4D, -1.4D, 2.1D, -2.1D, 2.8D, -2.8D};
     private static final int LANE_TAPER_WAYPOINTS = 4;
 
     private static final Map<MinecraftServer, RtsSharedPath> INSTANCES =
@@ -62,15 +62,16 @@ public final class RtsSharedPath {
                 active.remove(key);
                 entry = null;
             } else if (entry.lanes() == null) {
+                List<List<NpcPathfinder.Waypoint>> lanes = buildLanes(level, result.waypoints());
                 entry = new Entry(entry.future(), entry.origin(), entry.createdAt(),
-                        buildLanes(level, result.waypoints()));
+                        lanes, new int[lanes.size()]);
                 active.put(key, entry);
             }
         }
         if (entry != null && entry.lanes() != null) {
-            List<NpcPathfinder.Waypoint> lane =
-                    entry.lanes().get(Math.floorMod(laneSeed, entry.lanes().size()));
-            return new Join(null, lane, true);
+            int index = pickLane(entry, laneSeed);
+            entry.laneUse()[index]++;
+            return new Join(null, entry.lanes().get(index), true);
         }
         if (entry != null) {
             return new Join(entry.future(), null, true);
@@ -85,8 +86,29 @@ public final class RtsSharedPath {
         if (future == null) {
             return null;
         }
-        active.put(key, new Entry(future, from, now, null));
+        active.put(key, new Entry(future, from, now, null, null));
         return new Join(future, null, false);
+    }
+
+    // 占用数最少的车道优先，同数取更靠中心的，保证人群自动摊开
+    private static int pickLane(Entry entry, int laneSeed) {
+        int[] use = entry.laneUse();
+        int best = 0;
+        for (int i = 1; i < use.length; i++) {
+            if (use[i] < use[best]
+                    || (use[i] == use[best] && tieBreak(i, best, laneSeed))) {
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    private static boolean tieBreak(int a, int b, int laneSeed) {
+        int cmp = Double.compare(Math.abs(LANE_OFFSETS[a]), Math.abs(LANE_OFFSETS[b]));
+        if (cmp != 0) {
+            return cmp < 0;
+        }
+        return Math.floorMod(laneSeed + a, 2) < Math.floorMod(laneSeed + b, 2);
     }
 
     private static List<List<NpcPathfinder.Waypoint>> buildLanes(ServerLevel level,
@@ -104,18 +126,16 @@ public final class RtsSharedPath {
                         && waypoint.move() != NpcPathfinder.Waypoint.Move.DROP) {
                     BlockPos prev = base.get(Math.max(0, i - 1)).pos();
                     BlockPos next = base.get(Math.min(size - 1, i + 1)).pos();
-                    double dx = next.getX() - prev.getX();
-                    double dz = next.getZ() - prev.getZ();
-                    double length = Math.sqrt(dx * dx + dz * dz);
-                    if (length > 1.0E-3D) {
-                        double taper = Math.min(1.0D, (size - 1 - i) / (double) LANE_TAPER_WAYPOINTS);
-                        double ox = -dz / length * offset * taper;
-                        double oz = dx / length * offset * taper;
-                        BlockPos candidate = BlockPos.containing(
-                                pos.getX() + 0.5D + ox, pos.getY(), pos.getZ() + 0.5D + oz);
-                        if (candidate.equals(pos) || walkableAt(level, candidate)) {
-                            shifted = candidate;
+                    double taper = Math.min(1.0D, (size - 1 - i) / (double) LANE_TAPER_WAYPOINTS);
+                    BlockPos candidate = shift(pos, prev, next, offset * taper);
+                    if (!candidate.equals(pos) && !walkableAt(level, candidate)) {
+                        BlockPos mirrored = shift(pos, prev, next, -offset * taper);
+                        if (!mirrored.equals(pos) && walkableAt(level, mirrored)) {
+                            candidate = mirrored;
                         }
+                    }
+                    if (candidate.equals(pos) || walkableAt(level, candidate)) {
+                        shifted = candidate;
                     }
                 }
                 lane.add(new NpcPathfinder.Waypoint(shifted, waypoint.move()));
@@ -123,6 +143,19 @@ public final class RtsSharedPath {
             lanes.add(lane);
         }
         return lanes;
+    }
+
+    private static BlockPos shift(BlockPos pos, BlockPos prev, BlockPos next, double offset) {
+        double dx = next.getX() - prev.getX();
+        double dz = next.getZ() - prev.getZ();
+        double length = Math.sqrt(dx * dx + dz * dz);
+        if (length <= 1.0E-3D) {
+            return pos;
+        }
+        return BlockPos.containing(
+                pos.getX() + 0.5D - dz / length * offset,
+                pos.getY(),
+                pos.getZ() + 0.5D + dx / length * offset);
     }
 
     private static boolean walkableAt(ServerLevel level, BlockPos pos) {

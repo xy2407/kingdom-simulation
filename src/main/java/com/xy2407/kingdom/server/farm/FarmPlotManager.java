@@ -30,7 +30,7 @@ public final class FarmPlotManager {
 
     private static final int LOAD_RETRY_DELAY_TICKS = 200;
     private static final int ASSIGN_INTERVAL_TICKS = 100;
-    private static final int SURVEY_INTERVAL_TICKS = 1000;
+    private static final int SURVEY_INTERVAL_TICKS = 1200;
 
     private final Map<UUID, FarmPlot> plots = new LinkedHashMap<>();
     private boolean loaded;

@@ -17,6 +17,7 @@ import com.xy2407.kingdom.common.faction.Territory;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.persistence.TerritorySchema;
 
+import com.xy2407.kingdom.server.road.RoadStore;
 import net.minecraft.core.BlockPos;
 
 /**
@@ -144,7 +145,7 @@ public final class TerritoryRegistry {
 
         Territory territory = new Territory(
                 nextId(), name, nationId == null ? "" : nationId, owner, dimension,
-                center.getX(), center.getZ(), day,
+                center.getX(), center.getY(), center.getZ(), day,
                 Territory.rectChunks(centerChunkX - radius, centerChunkZ - radius,
                         centerChunkX + radius, centerChunkZ + radius));
         byId.put(territory.id(), territory);
@@ -162,14 +163,21 @@ public final class TerritoryRegistry {
             return null;
         }
         Territory updated = new Territory(
-                territory.id(), territory.name(), territory.nationId(), territory.owner(),
-                territory.dimension(), territory.centerX(), territory.centerZ(),
-                territory.createdDay(), merged);
+        territory.id(), territory.name(), territory.nationId(), territory.owner(),
+        territory.dimension(), territory.centerX(), territory.centerY(), territory.centerZ(),
+        territory.createdDay(), merged);
         byId.put(updated.id(), updated);
         KingdomPersistence.submit(TerritorySchema.TABLE_TERRITORY, TerritorySchema.COL_ID,
-                updated.id(), toValues(updated));
+        updated.id(), toValues(updated));
+        for (Long key : keys) {
+            int chunkX = Territory.chunkKeyX(key);
+            int chunkZ = Territory.chunkKeyZ(key);
+            if (RoadStore.INSTANCE.hasRoadChunk(territory.dimension(), chunkX, chunkZ)) {
+                RoadStore.INSTANCE.removeChunk(territory.dimension(), chunkX, chunkZ);
+            }
+        }
         return updated;
-    }
+        }
 
     private String nextId() {
         int max = 0;
@@ -207,6 +215,7 @@ public final class TerritoryRegistry {
                 ownerId,
                 rs.getString(TerritorySchema.COL_DIMENSION),
                 rs.getInt(TerritorySchema.COL_CENTER_X),
+                rs.getInt(TerritorySchema.COL_CENTER_Y),
                 rs.getInt(TerritorySchema.COL_CENTER_Z),
                 rs.getInt(TerritorySchema.COL_CREATED_DAY),
                 chunks);
@@ -251,6 +260,7 @@ public final class TerritoryRegistry {
                 territory.owner() == null ? "" : territory.owner().toString());
         values.put(TerritorySchema.COL_DIMENSION, territory.dimension());
         values.put(TerritorySchema.COL_CENTER_X, territory.centerX());
+        values.put(TerritorySchema.COL_CENTER_Y, territory.centerY());
         values.put(TerritorySchema.COL_CENTER_Z, territory.centerZ());
         values.put(TerritorySchema.COL_CHUNKS, encodeChunks(territory.chunks()));
         values.put(TerritorySchema.COL_CREATED_DAY, territory.createdDay());

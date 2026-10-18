@@ -53,6 +53,7 @@ public final class RoadHudLayer implements LayeredDraw.Layer {
             guiGraphics.drawCenteredString(minecraft.font, LABELS[index],
                     x + BTN_W / 2, top + (BTN_H - 8) / 2, on ? TEXT_ON : TEXT_IDLE);
         }
+        drawModeButton(guiGraphics, minecraft, modeButtonX(), top, mouse);
         if (confirming) {
             renderConfirm(guiGraphics, minecraft);
         }
@@ -83,15 +84,34 @@ public final class RoadHudLayer implements LayeredDraw.Layer {
         int y = panel[1];
         int w = panel[2];
         int h = panel[3];
+        boolean clear = RtsRoadState.mode() == RtsRoadState.Mode.CLEAR;
         guiGraphics.fill(x - 2, y - 2, x + w + 2, y + h + 2, COLOR_BOTTOM);
         guiGraphics.fill(x, y, x + w, y + h, 0xFFC8AC7C);
         guiGraphics.fill(x, y, x + w, y + 2, COLOR_TOP);
-        guiGraphics.drawCenteredString(minecraft.font, "确认铺设道路？", x + w / 2, y + 12, 0xFF1A0E04);
-        guiGraphics.drawCenteredString(minecraft.font, "本次将铺设 " + confirmCount + " 格",
+        guiGraphics.drawCenteredString(minecraft.font, clear ? "确认清除道路？" : "确认铺设道路？",
+                x + w / 2, y + 12, 0xFF1A0E04);
+        guiGraphics.drawCenteredString(minecraft.font,
+                (clear ? "本次将清除 " : "本次将铺设 ") + confirmCount + " 格",
                 x + w / 2, y + 28, 0xFF4A3218);
         double[] mouse = RtsModeManager.getGuiScaledMouse();
         drawConfirmButton(guiGraphics, minecraft, cancelRect(panel), "取消", mouse);
         drawConfirmButton(guiGraphics, minecraft, submitRect(panel), "确认", mouse);
+    }
+
+    private static int modeButtonX() {
+        return leftX() + LABELS.length * (BTN_W + BTN_GAP) + BTN_GAP;
+    }
+
+    private static void drawModeButton(GuiGraphics guiGraphics, Minecraft minecraft,
+                                       int x, int top, double[] mouse) {
+        boolean clear = RtsRoadState.mode() == RtsRoadState.Mode.CLEAR;
+        boolean hover = inside(x, top, mouse[0], mouse[1]);
+        int background = clear ? COLOR_ON : (hover ? COLOR_HOVER : COLOR_IDLE);
+        guiGraphics.fill(x, top, x + BTN_W, top + BTN_H, background);
+        guiGraphics.fill(x, top, x + BTN_W, top + 1, COLOR_TOP);
+        guiGraphics.fill(x, top + BTN_H - 1, x + BTN_W, top + BTN_H, COLOR_BOTTOM);
+        guiGraphics.drawCenteredString(minecraft.font, clear ? "清除" : "铺设",
+                x + BTN_W / 2, top + (BTN_H - 8) / 2, clear ? 0xFFFF6A5A : TEXT_ON);
     }
 
     private static void drawConfirmButton(GuiGraphics guiGraphics, Minecraft minecraft,
@@ -137,6 +157,13 @@ public final class RoadHudLayer implements LayeredDraw.Layer {
                 RtsRoadState.submitPending();
                 return true;
             }
+            return true;
+        }
+        int modeX = modeButtonX();
+        int top = topY();
+        if (mouseX >= modeX && mouseX <= modeX + BTN_W && mouseY >= top && mouseY <= top + BTN_H) {
+            RtsRoadState.setMode(RtsRoadState.mode() == RtsRoadState.Mode.CLEAR
+                    ? RtsRoadState.Mode.PAVE : RtsRoadState.Mode.CLEAR);
             return true;
         }
         int index = hitIndex(mouseX, mouseY);

@@ -5,6 +5,7 @@ import com.xy2407.kingdom.common.block.ModCreativeTabs;
 import com.xy2407.kingdom.common.entity.ModEntities;
 import com.xy2407.kingdom.common.persistence.BuildingSchema;
 import com.xy2407.kingdom.common.persistence.BuildingStorageSchema;
+import com.xy2407.kingdom.common.persistence.SnapshotUnitSchema;
 import com.xy2407.kingdom.common.persistence.FarmLandSchema;
 import com.xy2407.kingdom.common.persistence.FarmPlotSchema;
 import com.xy2407.kingdom.common.persistence.GovernmentAffairSchema;
@@ -51,6 +52,7 @@ public final class ModMain {
         KingdomPersistence.registerMigration(new PlayerProfileSchema());
         KingdomPersistence.registerMigration(new TerritoryVitalsSchema());
         KingdomPersistence.registerMigration(new BuildingStorageSchema());
+        KingdomPersistence.registerMigration(new SnapshotUnitSchema());
         KingdomPersistence.registerMigration(new RestaurantOrderSchema());
         KingdomPersistence.registerMigration(new GovernmentAffairSchema());
         KingdomPersistence.registerMigration(new RoadSchema());

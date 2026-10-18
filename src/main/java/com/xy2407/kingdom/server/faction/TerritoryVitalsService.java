@@ -235,6 +235,7 @@ public final class TerritoryVitalsService {
     }
 
     public static BlockPos centerOf(Territory territory) {
-        return territory == null ? null : new BlockPos(territory.centerX(), 0, territory.centerZ());
+        return territory == null ? null
+                : new BlockPos(territory.centerX(), territory.centerY(), territory.centerZ());
     }
 }

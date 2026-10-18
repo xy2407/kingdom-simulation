@@ -26,6 +26,8 @@ public final class RtsRoadState {
 
     public static final int[] BRUSH_DIAMETERS = {1, 3, 5, 7};
 
+    public enum Mode { PAVE, CLEAR }
+
     private static final Map<Long, Integer> PENDING = new LinkedHashMap<>();
     private static final Deque<Set<Long>> UNDO = new ArrayDeque<>();
 
@@ -34,8 +36,18 @@ public final class RtsRoadState {
     private static BlockPos lastCell;
     private static Set<Long> stroke;
     private static BlockPos hoverCell;
+    private static Mode mode = Mode.PAVE;
 
     private RtsRoadState() {
+    }
+
+    public static Mode mode() {
+        return mode;
+    }
+
+    public static void setMode(Mode value) {
+        clearPending();
+        mode = value == null ? Mode.PAVE : value;
     }
 
     public static void tick() {
@@ -96,7 +108,7 @@ public final class RtsRoadState {
             BlockPos pos = BlockPos.of(key);
             cells[index++] = BlockPos.asLong(pos.getX(), pos.getY(), pos.getZ());
         }
-        PacketDistributor.sendToServer(new RoadTerritorySubmitPacket(cells));
+        PacketDistributor.sendToServer(new RoadTerritorySubmitPacket(cells, mode == Mode.CLEAR));
         clearPending();
     }
 

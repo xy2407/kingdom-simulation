@@ -1,11 +1,15 @@
 package com.xy2407.kingdom.common.path;
 
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.function.IntConsumer;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -16,11 +20,6 @@ import net.minecraft.core.Direction;
  * 不可变整体替换引用，A* 线程可安全读；构建只在服务端线程（RoadGraphService）。
  */
 public final class RoadGraph {
-
-    // 与 NpcPathfinder 的 stepCost 系数一致（平 1.0 / 上 1+1.1·dy / 下 1+1.2·|dy|）
-    public static final double COST_STEP_UP = 1.1D;
-
-    public static final double COST_STEP_DOWN = 1.2D;
 
     private static final Direction[] HORIZONTALS = {
             Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST
@@ -42,9 +41,12 @@ public final class RoadGraph {
 
     private final float[] neighborCosts;
 
+    private final Long2ObjectOpenHashMap<int[]> columns;
+
     private RoadGraph(String dimension, long[] positions, Long2IntOpenHashMap nodeIds,
                       int[] components, int componentCount,
-                      int[] neighborStarts, int[] neighborTargets, float[] neighborCosts) {
+                      int[] neighborStarts, int[] neighborTargets, float[] neighborCosts,
+                      Long2ObjectOpenHashMap<int[]> columns) {
         this.dimension = dimension;
         this.positions = positions;
         this.nodeIds = nodeIds;
@@ -53,6 +55,7 @@ public final class RoadGraph {
         this.neighborStarts = neighborStarts;
         this.neighborTargets = neighborTargets;
         this.neighborCosts = neighborCosts;
+        this.columns = columns;
     }
 
     public String dimension() {
@@ -75,9 +78,49 @@ public final class RoadGraph {
         return components[node];
     }
 
-    // 精确坐标匹配（含 y）；P3 的"附近路格"查询会在此之上加按 xz 桶的空间索引
+    // 精确坐标匹配（含 y）
     public int nodeAt(long pos) {
         return nodeIds.getOrDefault(pos, -1);
+    }
+
+    public int nearest(int x, int y, int z, int radius) {
+        int best = -1;
+        double bestDist = Double.MAX_VALUE;
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                int[] bucket = columns.get(columnKey(x + dx, z + dz));
+                if (bucket == null) {
+                    continue;
+                }
+                for (int node : bucket) {
+                    BlockPos pos = BlockPos.of(positions[node]);
+                    double dy = pos.getY() - y;
+                    double dist = (double) dx * dx + (double) dz * dz + dy * dy * 4.0D;
+                    if (dist < bestDist) {
+                        bestDist = dist;
+                        best = node;
+                    }
+                }
+            }
+        }
+        return best;
+    }
+
+    public void collectInBox(int minX, int minY, int minZ, int maxX, int maxY, int maxZ, IntConsumer sink) {
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                int[] bucket = columns.get(columnKey(x, z));
+                if (bucket == null) {
+                    continue;
+                }
+                for (int node : bucket) {
+                    int py = BlockPos.of(positions[node]).getY();
+                    if (py >= minY && py <= maxY) {
+                        sink.accept(node);
+                    }
+                }
+            }
+        }
     }
 
     public int neighborCount(int node) {
@@ -120,22 +163,25 @@ public final class RoadGraph {
             for (Direction direction : HORIZONTALS) {
                 int nx = pos.getX() + direction.getStepX();
                 int nz = pos.getZ() + direction.getStepZ();
-                // 相邻列的 y-1 / y / y+1 三层各连一条边（与主 A* 的 step-up/drop 语义一致）
-                for (int dy = -1; dy <= 1; dy++) {
+                for (int dy = -PathCostModel.MAX_DROP; dy <= PathCostModel.MAX_STEP_UP; dy++) {
                     int neighbor = nodeIds.getOrDefault(BlockPos.asLong(nx, pos.getY() + dy, nz), -1);
                     if (neighbor < 0) {
                         continue;
                     }
-                    double cost = 1.0D;
-                    if (dy > 0) {
-                        cost = 1.0D + COST_STEP_UP * dy;
-                    } else if (dy < 0) {
-                        cost = 1.0D + COST_STEP_DOWN * (-dy);
-                    }
                     neighborTargets[cursor[node]] = neighbor;
-                    neighborCosts[cursor[node]] = (float) cost;
+                    neighborCosts[cursor[node]] = (float) PathCostModel.crossCost(dy);
                     cursor[node]++;
                 }
+            }
+            for (int dy = -1; dy <= 1; dy += 2) {
+                int neighbor = nodeIds.getOrDefault(
+                        BlockPos.asLong(pos.getX(), pos.getY() + dy, pos.getZ()), -1);
+                if (neighbor < 0) {
+                    continue;
+                }
+                neighborTargets[cursor[node]] = neighbor;
+                neighborCosts[cursor[node]] = 1.0F;
+                cursor[node]++;
             }
         }
 
@@ -166,7 +212,29 @@ public final class RoadGraph {
         }
 
         return new RoadGraph(dimension, positions, nodeIds, components, componentCount,
-                neighborStarts, neighborTargets, neighborCosts);
+                neighborStarts, neighborTargets, neighborCosts, buildColumns(positions, count));
+    }
+
+    private static Long2ObjectOpenHashMap<int[]> buildColumns(long[] positions, int count) {
+        Map<Long, List<Integer>> buckets = new HashMap<>();
+        for (int node = 0; node < count; node++) {
+            BlockPos pos = BlockPos.of(positions[node]);
+            buckets.computeIfAbsent(columnKey(pos.getX(), pos.getZ()), key -> new ArrayList<>()).add(node);
+        }
+        Long2ObjectOpenHashMap<int[]> columns = new Long2ObjectOpenHashMap<>(buckets.size());
+        for (Map.Entry<Long, List<Integer>> entry : buckets.entrySet()) {
+            List<Integer> ids = entry.getValue();
+            int[] arr = new int[ids.size()];
+            for (int i = 0; i < arr.length; i++) {
+                arr[i] = ids.get(i);
+            }
+            columns.put(entry.getKey().longValue(), arr);
+        }
+        return columns;
+    }
+
+    private static long columnKey(int x, int z) {
+        return ((long) x << 32) ^ (z & 0xFFFFFFFFL);
     }
 
     private static int countNeighbors(Long2IntOpenHashMap nodeIds, long pos) {
@@ -175,10 +243,15 @@ public final class RoadGraph {
         for (Direction direction : HORIZONTALS) {
             int nx = blockPos.getX() + direction.getStepX();
             int nz = blockPos.getZ() + direction.getStepZ();
-            for (int dy = -1; dy <= 1; dy++) {
+            for (int dy = -PathCostModel.MAX_DROP; dy <= PathCostModel.MAX_STEP_UP; dy++) {
                 if (nodeIds.containsKey(BlockPos.asLong(nx, blockPos.getY() + dy, nz))) {
                     total++;
                 }
+            }
+        }
+        for (int dy = -1; dy <= 1; dy += 2) {
+            if (nodeIds.containsKey(BlockPos.asLong(blockPos.getX(), blockPos.getY() + dy, blockPos.getZ()))) {
+                total++;
             }
         }
         return total;

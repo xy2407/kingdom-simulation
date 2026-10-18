@@ -10,13 +10,22 @@ import net.minecraft.client.model.geom.ModelPart;
  */
 public class NpcModel extends PlayerModel<NpcEntity> {
 
+    private boolean skipAnim;
+
     public NpcModel(ModelPart root, boolean slim) {
         super(root, slim);
+    }
+
+    public void setSkipAnim(boolean skip) {
+        this.skipAnim = skip;
     }
 
     @Override
     public void setupAnim(NpcEntity entity, float limbSwing, float limbSwingAmount, float ageInTicks,
                           float netHeadYaw, float headPitch) {
+        if (skipAnim) {
+            return;
+        }
         super.setupAnim(entity, limbSwing, limbSwingAmount, ageInTicks, netHeadYaw, headPitch);
         if (!entity.isSitting()) {
             return;

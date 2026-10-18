@@ -29,6 +29,8 @@ import com.xy2407.kingdom.common.path.SnapshotRepository;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.ranch.RanchPen;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
+import com.xy2407.kingdom.server.path.UnitSnapshotStore;
+import com.xy2407.kingdom.server.road.RoadStore;
 import com.xy2407.kingdom.server.ranch.RanchPenManager;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -99,7 +101,34 @@ public final class KingdomCommands {
                                                 .executes(KingdomCommands::placeStructure))))
                         .then(mapCommand())
                         .then(farmCommand())
-                        .then(ranchCommand())));
+                        .then(ranchCommand())
+                        .then(snapshotCommand())));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> snapshotCommand() {
+        return Commands.literal("snapshot").executes(KingdomCommands::snapshotReport);
+    }
+
+    private static int snapshotReport(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        CommandSourceStack source = ctx.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        source.sendSuccess(() -> Component.literal("—— 单元快照存储 ——"), false);
+        for (String line : UnitSnapshotStore.INSTANCE.report()) {
+            source.sendSuccess(() -> Component.literal(line), false);
+        }
+        source.sendSuccess(() -> Component.literal("道路格总数=" + RoadStore.INSTANCE.size()), false);
+        try {
+            Integer rows = KingdomPersistence.querySync(connection -> {
+                try (var st = connection.createStatement();
+                     var rs = st.executeQuery("SELECT COUNT(*) FROM snapshot")) {
+                    return rs.next() ? rs.getInt(1) : 0;
+                }
+            });
+            source.sendSuccess(() -> Component.literal("snapshot 表行数=" + rows), false);
+        } catch (Exception ignored) {
+            source.sendSuccess(() -> Component.literal("snapshot 表不可用（持久层未就绪）"), false);
+        }
+        return 1;
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> mapCommand() {

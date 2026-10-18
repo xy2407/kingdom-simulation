@@ -3,6 +3,7 @@ package com.xy2407.kingdom.server.npc;
 import com.xy2407.kingdom.common.date.DailyProcessor;
 import com.xy2407.kingdom.common.npc.NpcManager;
 import com.xy2407.kingdom.common.path.SnapshotRepository;
+import com.xy2407.kingdom.server.path.UnitSnapshotStore;
 import com.xy2407.kingdom.server.faction.TerritoryVitalsService;
 import com.xy2407.kingdom.server.government.GovernmentAffairService;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -51,6 +52,7 @@ public final class NpcServerTick {
                 }
             }
         }
+        UnitSnapshotStore.INSTANCE.tick(event.getServer());
         NpcManager.INSTANCE.tick(overworld);
         CommuteScheduler.tick(event.getServer());
     }

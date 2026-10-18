@@ -119,6 +119,10 @@ dependencies {
     implementation "org.xerial:sqlite-jdbc:3.49.1.0"
     jarJar "org.xerial:sqlite-jdbc:3.49.1.0"
 
+    // 快照落盘压缩（snapshot-design §11 方案 C）：zstd-jni 走 jar-in-jar 随包分发
+    implementation "com.github.luben:zstd-jni:1.5.7-4"
+    jarJar "com.github.luben:zstd-jni:1.5.7-4"
+
     // 晴雪UI（AUI）作为前置：jar 放在 libs/ 下，用 fileTree 规避文件名里的
     // 中文与方括号。implementation 同时进编译与运行 classpath，dev 运行时
     // FML 能从 classpath 上发现并加载它。

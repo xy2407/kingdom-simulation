@@ -13,9 +13,11 @@ import com.xy2407.kingdom.common.road.RoadGeometry;
 import com.xy2407.kingdom.common.road.RoadPolyline;
 import com.xy2407.kingdom.server.faction.TerritoryRegistry;
 import com.xy2407.kingdom.server.path.BuildingRoadAccess;
+import com.xy2407.kingdom.server.path.RoadFieldCache;
 import com.xy2407.kingdom.server.path.RoadGraphService;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -39,7 +41,7 @@ public final class RoadService {
     private RoadService() {
     }
 
-    public static void submitTerritory(ServerPlayer player, long[] cells) {
+    public static void submitTerritory(ServerPlayer player, long[] cells, boolean clear) {
         if (player == null || cells == null || cells.length == 0) {
             return;
         }
@@ -50,6 +52,30 @@ public final class RoadService {
         ServerLevel level = player.serverLevel();
         String dimension = level.dimension().location().toString();
         if (!dimension.equals(territory.dimension())) {
+            return;
+        }
+        if (clear) {
+            int removed = 0;
+            for (long raw : cells) {
+                BlockPos column = BlockPos.of(raw);
+                if (!level.isLoaded(column)) {
+                    continue;
+                }
+                BlockPos surface = trustedSurface(level, column);
+                if (surface == null || !RoadStore.INSTANCE.contains(dimension, surface)) {
+                    continue;
+                }
+                RoadStore.INSTANCE.removeCell(dimension, surface);
+                removed++;
+            }
+            ModMain.LOGGER.info("领地道路清除：提交 {} 格，实际删除 {} 格（{}）",
+                    cells.length, removed, player.getGameProfile().getName());
+            if (removed > 0) {
+                RoadGraphService.markDirty(dimension);
+                BuildingRoadAccess.markRoadDirty();
+                RoadFieldCache.reset();
+            }
+            sendLoadedChunks(player);
             return;
         }
         int placed = 0;
@@ -63,22 +89,59 @@ public final class RoadService {
                 continue;
             }
             BlockState current = level.getBlockState(surface);
-            if (current.is(Blocks.GRAVEL)) {
-                continue;
-            }
-            if (level.getBlockEntity(surface) != null) {
-                level.removeBlockEntity(surface);
-            }
-            level.setBlock(surface, Blocks.GRAVEL.defaultBlockState(), PLACE_FLAGS);
             RoadStore.INSTANCE.record(dimension, surface, territory.id(),
                     player.getUUID().toString(), level.getDayTime() / TICKS_PER_DAY);
-            placed++;
+            BlockState material = roadMaterial(level, dimension, surface);
+            if (!current.is(material.getBlock())) {
+                if (level.getBlockEntity(surface) != null) {
+                    level.removeBlockEntity(surface);
+                }
+                level.setBlock(surface, material, PLACE_FLAGS);
+                placed++;
+            }
+            repaveNeighbors(level, dimension, surface);
         }
         ModMain.LOGGER.info("领地道路：提交 {} 格，实际铺设 {} 格（{}）",
                 cells.length, placed, player.getGameProfile().getName());
         if (placed > 0) {
             RoadGraphService.markDirty(dimension);
             BuildingRoadAccess.markRoadDirty();
+            RoadFieldCache.reset();
+        }
+        sendLoadedChunks(player);
+    }
+
+    // 材质杂化：四正向缺邻 = 边缘 → 石砖；四向齐全 = 内部 → 圆石/石头/沙砾按格稳定哈希取（成斑块）
+    private static BlockState roadMaterial(ServerLevel level, String dimension, BlockPos surface) {
+        boolean edge = false;
+        for (Direction direction : Direction.Plane.HORIZONTAL) {
+            if (!RoadStore.INSTANCE.contains(dimension, surface.relative(direction))) {
+                edge = true;
+                break;
+            }
+        }
+        if (edge) {
+            return Blocks.STONE_BRICKS.defaultBlockState();
+        }
+        int hash = (surface.getX() * 341 + surface.getZ() * 137 + surface.getY() * 7) & 0x7FFFFFFF;
+        return switch (hash % 3) {
+            case 0 -> Blocks.COBBLESTONE.defaultBlockState();
+            case 1 -> Blocks.STONE.defaultBlockState();
+            default -> Blocks.GRAVEL.defaultBlockState();
+        };
+    }
+
+    // 邻居重算：新格接入后原边缘格转为内部，接缝向一条完整路收敛；材质不落库
+    private static void repaveNeighbors(ServerLevel level, String dimension, BlockPos surface) {
+        for (Direction direction : Direction.Plane.HORIZONTAL) {
+            BlockPos neighbor = surface.relative(direction);
+            if (!RoadStore.INSTANCE.contains(dimension, neighbor)) {
+                continue;
+            }
+            BlockState material = roadMaterial(level, dimension, neighbor);
+            if (!level.getBlockState(neighbor).is(material.getBlock())) {
+                level.setBlock(neighbor, material, PLACE_FLAGS);
+            }
         }
     }
 

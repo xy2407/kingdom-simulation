@@ -21,7 +21,7 @@ public class RtsFakePlayerRenderer extends LivingEntityRenderer<RtsFakePlayerEnt
             ResourceLocation.withDefaultNamespace("textures/entity/player/wide/steve.png");
 
     public RtsFakePlayerRenderer(EntityRendererProvider.Context context) {
-        super(context, new PlayerModel<>(context.bakeLayer(ModelLayers.PLAYER), false), 0.5F);
+        super(context, new PlayerModel<>(context.bakeLayer(ModelLayers.PLAYER), false), 0.0F);
     }
 
     @Override
