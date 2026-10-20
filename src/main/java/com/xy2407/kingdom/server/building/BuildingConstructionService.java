@@ -182,23 +182,27 @@ public final class BuildingConstructionService {
         if (repository == null) {
             return;
         }
-        int margin = 8;
-        repository.buildNow(level,
-                (origin.getX() - margin) >> 4, (origin.getX() + size.getX() + margin) >> 4,
-                (origin.getZ() - margin) >> 4, (origin.getZ() + size.getZ() + margin) >> 4);
         BlockPos from = new BlockPos((int) Math.floor(architect.getX()), (int) Math.floor(architect.getY()),
                 (int) Math.floor(architect.getZ()));
         BlockPos to = origin.offset(size.getX() / 2, Math.min(height, 8), size.getZ() / 2);
-        NpcPathfinder.requestChunks(repository, level.dimension(), from, to, NpcPathfinder.DEFAULT_PADDING);
+        repository.requestUnits(level.dimension(), from, to, NpcPathfinder.DEFAULT_PADDING);
     }
 
     private NpcData pickArchitect(ServerLevel level, BlockPos origin) {
+        NpcData employee = pickWorker(level, origin, true);
+        return employee != null ? employee : pickWorker(level, origin, false);
+    }
+
+    private NpcData pickWorker(ServerLevel level, BlockPos origin, boolean employeesOnly) {
         NpcData best = null;
         double bestDist = Double.MAX_VALUE;
         String dimension = level.dimension().location().toString();
         for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
             if (npc.isDead() || !dimension.equals(npc.getDimension())
                     || npc.getBrain().isConstructionControlled() || npc.getBrain().isStarving()) {
+                continue;
+            }
+            if (employeesOnly && !com.xy2407.kingdom.server.task.RegionTaskService.INSTANCE.isEmployed(npc.getId())) {
                 continue;
             }
             double dx = npc.getX() - origin.getX();
@@ -349,7 +353,6 @@ public final class BuildingConstructionService {
     private void place(ServerLevel level, BlockPos pos, BlockState state) {
         int flags = state.getBlock() instanceof LiquidBlock ? LIQUID_FLAGS : PLACE_FLAGS;
         level.setBlock(pos, state, flags);
-        markSnapshotDirty(level, pos);
     }
 
     private void removeScaffold(ServerLevel level, BuildingTask task) {
@@ -362,17 +365,9 @@ public final class BuildingConstructionService {
             }
             level.setBlock(pos, air, Block.UPDATE_CLIENTS);
             removed.add(pos);
-            markSnapshotDirty(level, pos);
         }
         for (BlockPos pos : removed) {
             level.blockUpdated(pos, Blocks.AIR);
-        }
-    }
-
-    private void markSnapshotDirty(ServerLevel level, BlockPos pos) {
-        SnapshotRepository repository = SnapshotRepository.get(level.getServer());
-        if (repository != null) {
-            repository.refreshNow(level, pos);
         }
     }
 

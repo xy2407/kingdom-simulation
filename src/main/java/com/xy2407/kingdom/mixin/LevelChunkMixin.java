@@ -1,6 +1,5 @@
 package com.xy2407.kingdom.mixin;
 
-import com.xy2407.kingdom.common.path.SnapshotRepository;
 import com.xy2407.kingdom.server.path.UnitSnapshotStore;
 
 import net.minecraft.core.BlockPos;
@@ -14,7 +13,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * 方块变化时给寻路快照区块打脏标记，注入 setBlockState 覆盖全部改块路径
+ * 方块变化时给单元寻路快照打脏标记，注入 setBlockState 覆盖全部改块路径
  */
 @Mixin(LevelChunk.class)
 public abstract class LevelChunkMixin {
@@ -29,10 +28,6 @@ public abstract class LevelChunkMixin {
         Level level = ((LevelChunk) (Object) this).getLevel();
         if (!(level instanceof ServerLevel serverLevel)) {
             return;
-        }
-        SnapshotRepository repository = SnapshotRepository.get(serverLevel.getServer());
-        if (repository != null) {
-            repository.markDirty(serverLevel, pos);
         }
         UnitSnapshotStore.INSTANCE.markDirty(serverLevel.dimension().location().toString(),
                 pos.getX() >> 4, pos.getY() >> 4, pos.getZ() >> 4, serverLevel.getGameTime());

@@ -8,7 +8,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.pathfinder.Node;
 
@@ -103,7 +102,7 @@ public final class NpcPathfinder {
                     0, 0, bounds[0], bounds[1], bounds[2], bounds[3], 0, 0, List.of(), List.of());
         }
         ResourceKey<Level> dimension = level.dimension();
-        repository.buildNow(level, bounds[0] >> 4, bounds[1] >> 4, bounds[2] >> 4, bounds[3] >> 4);
+        repository.requestUnits(dimension, start, end, padding);
         SnapshotView view = SnapshotView.create(repository, dimension, bounds[0], bounds[1], bounds[2], bounds[3]);
         int snappedStart = view.snap(start);
         int snappedEnd = view.snap(end);
@@ -184,59 +183,6 @@ public final class NpcPathfinder {
         List<Waypoint> waypoints = new AStarSearch(view, start.getX(), startY, start.getZ(),
                 end.getX(), endY, end.getZ()).run();
         return new PathResult(waypoints, view.missingChunks());
-    }
-
-    public static boolean isViable(SnapshotRepository repository, ResourceKey<Level> dimension, BlockPos start, BlockPos end) {
-        if (repository == null) {
-            return false;
-        }
-        return hasStandableLayer(repository, dimension, start) && hasStandableLayer(repository, dimension, end);
-    }
-
-    private static boolean hasStandableLayer(SnapshotRepository repository, ResourceKey<Level> dimension, BlockPos pos) {
-        ChunkSnapshot snapshot = repository.getSnapshot(dimension, pos.getX() >> 4, pos.getZ() >> 4);
-        if (snapshot == null) {
-            return true;
-        }
-        int lx = pos.getX() & 15;
-        int lz = pos.getZ() & 15;
-        for (int dy = 0; dy <= SNAP_RANGE; dy++) {
-            if (snapshot.standable(lx, pos.getY() - dy, lz)) {
-                return true;
-            }
-            if (dy > 0 && snapshot.standable(lx, pos.getY() + dy, lz)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    public static void requestChunks(SnapshotRepository repository, ResourceKey<Level> dimension, BlockPos start, BlockPos end) {
-        requestChunks(repository, dimension, start, end, PADDING);
-    }
-
-    public static void requestChunks(SnapshotRepository repository, ResourceKey<Level> dimension,
-                                     BlockPos start, BlockPos end, int padding) {
-        if (repository == null) {
-            return;
-        }
-        int[] bounds = bounds(start, end, padding);
-        int centerX = start.getX() >> 4;
-        int centerZ = start.getZ() >> 4;
-        List<ChunkPos> positions = new ArrayList<>();
-        for (int cx = bounds[0] >> 4; cx <= bounds[1] >> 4; cx++) {
-            for (int cz = bounds[2] >> 4; cz <= bounds[3] >> 4; cz++) {
-                positions.add(new ChunkPos(cx, cz));
-            }
-        }
-        positions.sort(Comparator.comparingLong(pos -> {
-            long dx = (long) pos.x - centerX;
-            long dz = (long) pos.z - centerZ;
-            return dx * dx + dz * dz;
-        }));
-        for (ChunkPos pos : positions) {
-            repository.enqueue(dimension, pos);
-        }
     }
 
     public static final class Session {

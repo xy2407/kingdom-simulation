@@ -3,7 +3,6 @@ package com.xy2407.kingdom.client.map;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.HashSet;
-import java.util.Locale;
 import java.util.Set;
 
 import com.xy2407.kingdom.ModMain;
@@ -38,7 +37,6 @@ public final class ClientMapScanner {
     private static final int RESCAN_INTERVAL_TICKS = 20;
     private static final int VISIBLE_LIMIT = 1024;
     private static final long VISIBLE_GAP_NANOS = 250_000_000L;
-    private static final long STAT_INTERVAL_NANOS = 10_000_000_000L;
 
     private static final Deque<Long> URGENT = new ArrayDeque<>();
     private static final Deque<Long> NORMAL = new ArrayDeque<>();
@@ -48,10 +46,6 @@ public final class ClientMapScanner {
     private static int ticks;
     private static long lastVisibleNanos;
     private static boolean focusedState;
-    private static long lastStatNanos;
-    private static long samplerNanos;
-    private static int samplerTicks;
-    private static int samplerChunks;
 
     private ClientMapScanner() {
     }
@@ -81,31 +75,8 @@ public final class ClientMapScanner {
         if (++ticks % RESCAN_INTERVAL_TICKS == 0) {
             enqueueAround(level, minecraft.player);
         }
-        long start = System.nanoTime();
-        samplerChunks += drain(level);
-        samplerNanos += System.nanoTime() - start;
-        samplerTicks++;
+        drain(level);
         ClientMapStore.flushIfDue();
-        reportSampler();
-    }
-
-    private static void reportSampler() {
-        long now = System.nanoTime();
-        if (now - lastStatNanos < STAT_INTERVAL_NANOS) {
-            return;
-        }
-        lastStatNanos = now;
-        if (samplerTicks == 0) {
-            return;
-        }
-        ModMain.LOGGER.info("[地图] 采样统计：{} tick 耗时 {} ms（均 {} ms），采 {} 块，队列 急/常 = {}/{}，仓库 {} 块",
-                samplerTicks,
-                String.format(Locale.ROOT, "%.1f", samplerNanos / 1_000_000.0),
-                String.format(Locale.ROOT, "%.2f", samplerNanos / 1_000_000.0 / samplerTicks),
-                samplerChunks, URGENT.size(), NORMAL.size(), ClientMapStore.chunkCount());
-        samplerNanos = 0L;
-        samplerTicks = 0;
-        samplerChunks = 0;
     }
 
     public static void requestVisible(int minX, int minZ, int maxX, int maxZ) {

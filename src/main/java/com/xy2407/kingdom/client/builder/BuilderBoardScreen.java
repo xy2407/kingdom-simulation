@@ -12,6 +12,7 @@ import com.sighs.apricityui.init.Document;
 import com.sighs.apricityui.init.Element;
 import com.sighs.apricityui.layout.Position;
 import com.sighs.apricityui.screen.ApricityScreen;
+import com.xy2407.kingdom.client.aui.AuiLazyList;
 import com.xy2407.kingdom.common.network.builder.BuilderAssignPacket;
 import com.xy2407.kingdom.common.network.builder.BuilderBoardDataPacket;
 import com.xy2407.kingdom.common.network.builder.BuilderBoardRequestPacket;
@@ -49,6 +50,8 @@ public final class BuilderBoardScreen extends ApricityScreen {
     private final List<BuilderBoardDataPacket.TaskEntry> cards = new ArrayList<>();
     private final List<UUID> cardIds = new ArrayList<>();
     private Drag drag;
+    private double grabDX;
+    private double grabDY;
     private double dragX;
     private double dragY;
     private int refreshCounter;
@@ -128,20 +131,20 @@ public final class BuilderBoardScreen extends ApricityScreen {
     }
 
     private void onDocumentMouseMove(Event event) {
-        if (drag == null || !(event instanceof MouseEvent mouse)) {
+        if (drag == null) {
             return;
         }
         Document document = boundDocument;
-        if (document == null) {
+        Position position = documentPosition();
+        if (document == null || position == null) {
             return;
         }
-        Position position = document.screenToDocumentPosition(new Position(mouse.clientX, mouse.clientY));
         dragX = position.x;
         dragY = position.y;
         Element ghost = document.getElementById("bb-ghost");
         if (ghost != null) {
             ghost.setAttribute("style", "display:block;position:absolute;left:"
-                    + (int) position.x + "px;top:" + (int) position.y + "px");
+                    + (int) (position.x - grabDX) + "px;top:" + (int) (position.y - grabDY) + "px");
         }
     }
 
@@ -175,6 +178,21 @@ public final class BuilderBoardScreen extends ApricityScreen {
             PacketDistributor.sendToServer(new BuilderAssignPacket(source.fromTask(), source.npcId(), false));
         }
         refreshCounter = REFRESH_INTERVAL_TICKS;
+    }
+
+    private Position documentPosition() {
+        Document document = boundDocument;
+        if (document == null) {
+            return null;
+        }
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.getWindow() == null) {
+            return null;
+        }
+        double scale = Math.max(1.0D, minecraft.getWindow().getGuiScale());
+        double guiX = minecraft.mouseHandler.xpos() / scale;
+        double guiY = minecraft.mouseHandler.ypos() / scale;
+        return document.screenToDocumentPosition(new Position(guiX, guiY));
     }
 
     private UUID taskAt(Document document, double docX, double docY) {
@@ -215,38 +233,38 @@ public final class BuilderBoardScreen extends ApricityScreen {
             return;
         }
         if (employees == null || employees.isEmpty()) {
+            AuiLazyList.clear(host);
             host.setInnerHTML("<div class=\"bb-empty\">还没有建筑工，点上面「雇佣市民」收一个人</div>");
             return;
         }
-        StringBuilder html = new StringBuilder();
-        for (int index = 0; index < employees.size(); index++) {
-            BuilderBoardDataPacket.EmployeeEntry employee = employees.get(index);
-            html.append("<div class=\"bb-emp-row\">")
-                    .append("<div class=\"bb-face-frame\" id=\"bb-emp-").append(index).append("\">")
-                    .append("<kingdom-entity-avatar class=\"bb-face\" skin=\"")
-                    .append(escape(employee.skin())).append("\"></kingdom-entity-avatar></div>")
-                    .append("<div class=\"bb-emp-info\">")
-                    .append("<div class=\"bb-emp-name\">").append(escape(employee.name())).append("</div>")
-                    .append("<div class=\"bb-emp-status\">").append(escape(employee.status())).append("</div>")
-                    .append("</div>")
-                    .append("<div class=\"bb-btn bb-btn-danger bb-btn-mini\" id=\"bb-fire-").append(index)
-                    .append("\">解雇</div>")
-                    .append("</div>");
-        }
-        host.setInnerHTML(html.toString());
-        for (int index = 0; index < employees.size(); index++) {
-            BuilderBoardDataPacket.EmployeeEntry employee = employees.get(index);
-            Element frame = document.getElementById("bb-emp-" + index);
-            if (frame != null) {
-                frame.addEventListener("mousedown", event ->
-                        startDrag(event, employee.npcId(), employee.skin(), null, frame));
-            }
-            Element fire = document.getElementById("bb-fire-" + index);
-            if (fire != null) {
-                fire.addEventListener("click", event -> PacketDistributor.sendToServer(
-                        new BuilderEmployeePacket(employee.npcId(), false)));
-            }
-        }
+        AuiLazyList.render(host, employees.size(),
+                index -> {
+                    BuilderBoardDataPacket.EmployeeEntry employee = employees.get(index);
+                    return "<div class=\"bb-emp-row\">"
+                            + "<div class=\"bb-face-frame\" id=\"bb-emp-" + index + "\">"
+                            + "<kingdom-entity-avatar class=\"bb-face\" skin=\""
+                            + escape(employee.skin()) + "\"></kingdom-entity-avatar></div>"
+                            + "<div class=\"bb-emp-info\">"
+                            + "<div class=\"bb-emp-name\">" + escape(employee.name()) + "</div>"
+                            + "<div class=\"bb-emp-status\">" + escape(employee.status()) + "</div>"
+                            + "</div>"
+                            + "<div class=\"bb-btn bb-btn-danger bb-btn-mini\" id=\"bb-fire-" + index
+                            + "\">解雇</div>"
+                            + "</div>";
+                },
+                index -> {
+                    BuilderBoardDataPacket.EmployeeEntry employee = employees.get(index);
+                    Element frame = document.getElementById("bb-emp-" + index);
+                    if (frame != null) {
+                        frame.addEventListener("mousedown", event ->
+                                startDrag(event, employee.npcId(), employee.skin(), null, frame));
+                    }
+                    Element fire = document.getElementById("bb-fire-" + index);
+                    if (fire != null) {
+                        fire.addEventListener("click", event -> PacketDistributor.sendToServer(
+                                new BuilderEmployeePacket(employee.npcId(), false)));
+                    }
+                });
     }
 
     private void applyTasks(Document document, List<BuilderBoardDataPacket.TaskEntry> tasks) {
@@ -405,18 +423,22 @@ public final class BuilderBoardScreen extends ApricityScreen {
     }
 
     private void startDrag(Event event, UUID npcId, String skin, UUID fromTask, Element source) {
-        if (!(event instanceof MouseEvent mouse)) {
+        if (!(event instanceof MouseEvent)) {
             return;
         }
         Document document = boundDocument;
-        if (document == null) {
+        if (document == null || source == null) {
+            return;
+        }
+        Position position = documentPosition();
+        if (position == null) {
             return;
         }
         drag = new Drag(npcId, skin, fromTask, source);
-        if (source != null) {
-            source.getClassList().toggle("bb-dragging", true);
-        }
-        Position position = document.screenToDocumentPosition(new Position(mouse.clientX, mouse.clientY));
+        source.getClassList().toggle("bb-dragging", true);
+        Element.DOMRect rect = source.getBoundingClientRect();
+        grabDX = position.x - rect.left;
+        grabDY = position.y - rect.top;
         dragX = position.x;
         dragY = position.y;
         Element ghost = document.getElementById("bb-ghost");
@@ -424,7 +446,7 @@ public final class BuilderBoardScreen extends ApricityScreen {
             ghost.setInnerHTML("<kingdom-entity-avatar class=\"bb-face\" skin=\""
                     + escape(skin) + "\"></kingdom-entity-avatar>");
             ghost.setAttribute("style", "display:block;position:absolute;left:"
-                    + (int) position.x + "px;top:" + (int) position.y + "px");
+                    + (int) (position.x - grabDX) + "px;top:" + (int) (position.y - grabDY) + "px");
         }
     }
 

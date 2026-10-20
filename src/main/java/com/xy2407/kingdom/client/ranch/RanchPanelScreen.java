@@ -9,6 +9,7 @@ import com.sighs.apricityui.element.Item;
 import com.sighs.apricityui.init.Document;
 import com.sighs.apricityui.init.Element;
 import com.sighs.apricityui.screen.ApricityScreen;
+import com.xy2407.kingdom.client.aui.AuiLazyList;
 import com.xy2407.kingdom.common.network.building.BuildingStorageRequestPacket;
 import com.xy2407.kingdom.common.network.ranch.RanchPanelActionPacket;
 import com.xy2407.kingdom.common.network.ranch.RanchPanelRequestPacket;
@@ -278,44 +279,43 @@ public final class RanchPanelScreen extends ApricityScreen {
             }
         }
         if (visible.isEmpty()) {
+            AuiLazyList.clear(workersHost);
             workersHost.setInnerHTML("");
             setShown(workersEmpty, true);
             setText(workersEmpty, latest.workers().isEmpty() ? "城里还没有可雇的市民" : "没有匹配的市民");
             return;
         }
         setShown(workersEmpty, false);
-        StringBuilder html = new StringBuilder();
-        for (int index = 0; index < visible.size(); index++) {
-            Worker worker = visible.get(index);
-            boolean hired = keepers.contains(worker.id());
-            boolean onDay = hired && SHIFT_DAY.equals(worker.shift());
-            boolean onNight = hired && SHIFT_NIGHT.equals(worker.shift());
-            String state = worker.note().isBlank() ? (hired ? "饲养中" : "空闲") : worker.note();
-            html.append("<div class=\"").append(ROW).append(hired ? " " + ON : "")
-                    .append("\" id=\"rc-worker-").append(index).append("\">")
-                    .append("<kingdom-entity-avatar class=\"bp-worker-face\" skin=\"")
-                    .append(escape(worker.skin())).append("\"></kingdom-entity-avatar>")
-                    .append("<span class=\"bp-name\">").append(escape(worker.name())).append("</span>")
-                    .append("<span class=\"bp-sub\">").append(escape(state)).append("</span>")
-                    .append("<span class=\"bp-shift").append(onDay ? " " + ON : "")
-                    .append("\" id=\"rc-worker-").append(index).append("-day\">白天</span>")
-                    .append("<span class=\"bp-shift").append(onNight ? " " + ON : "")
-                    .append("\" id=\"rc-worker-").append(index).append("-night\">夜晚</span>")
-                    .append("</div>");
-        }
-        workersHost.setInnerHTML(html.toString());
-
-        for (int index = 0; index < visible.size(); index++) {
-            Worker worker = visible.get(index);
-            Element day = boundDocument.getElementById("rc-worker-" + index + "-day");
-            if (day != null) {
-                day.addEventListener("click", event -> setKeeper(worker.id(), NpcShift.DAY_SHIFT));
-            }
-            Element night = boundDocument.getElementById("rc-worker-" + index + "-night");
-            if (night != null) {
-                night.addEventListener("click", event -> setKeeper(worker.id(), NpcShift.NIGHT_SHIFT));
-            }
-        }
+        AuiLazyList.render(workersHost, visible.size(),
+                index -> {
+                    Worker worker = visible.get(index);
+                    boolean hired = keepers.contains(worker.id());
+                    boolean onDay = hired && SHIFT_DAY.equals(worker.shift());
+                    boolean onNight = hired && SHIFT_NIGHT.equals(worker.shift());
+                    String state = worker.note().isBlank() ? (hired ? "饲养中" : "空闲") : worker.note();
+                    return "<div class=\"" + ROW + (hired ? " " + ON : "")
+                            + "\" id=\"rc-worker-" + index + "\">"
+                            + "<kingdom-entity-avatar class=\"bp-worker-face\" skin=\""
+                            + escape(worker.skin()) + "\"></kingdom-entity-avatar>"
+                            + "<span class=\"bp-name\">" + escape(worker.name()) + "</span>"
+                            + "<span class=\"bp-sub\">" + escape(state) + "</span>"
+                            + "<span class=\"bp-shift" + (onDay ? " " + ON : "")
+                            + "\" id=\"rc-worker-" + index + "-day\">白天</span>"
+                            + "<span class=\"bp-shift" + (onNight ? " " + ON : "")
+                            + "\" id=\"rc-worker-" + index + "-night\">夜晚</span>"
+                            + "</div>";
+                },
+                index -> {
+                    Worker worker = visible.get(index);
+                    Element day = boundDocument.getElementById("rc-worker-" + index + "-day");
+                    if (day != null) {
+                        day.addEventListener("click", event -> setKeeper(worker.id(), NpcShift.DAY_SHIFT));
+                    }
+                    Element night = boundDocument.getElementById("rc-worker-" + index + "-night");
+                    if (night != null) {
+                        night.addEventListener("click", event -> setKeeper(worker.id(), NpcShift.NIGHT_SHIFT));
+                    }
+                });
     }
 
     private void openDetail(UUID penId) {

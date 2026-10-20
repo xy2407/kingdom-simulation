@@ -12,7 +12,6 @@ import com.xy2407.kingdom.common.home.HomeBeds;
 import com.xy2407.kingdom.common.npc.NpcData;
 import com.xy2407.kingdom.common.npc.NpcFarmService;
 import com.xy2407.kingdom.common.npc.NpcManager;
-import com.xy2407.kingdom.common.path.SnapshotRepository;
 import com.xy2407.kingdom.common.ranch.RanchBounds;
 import com.xy2407.kingdom.common.ranch.RanchPen;
 import com.xy2407.kingdom.server.farm.FarmPlotManager;
@@ -157,7 +156,6 @@ public final class BuildingMoveService {
                 level.removeBlockEntity(pos);
             }
             level.setBlock(pos, air, CLEAR_FLAGS);
-            markSnapshotDirty(level, pos);
         }
     }
 
@@ -165,7 +163,6 @@ public final class BuildingMoveService {
         for (MovedBlock block : snapshot) {
             BlockPos pos = newMin.offset(block.relative());
             level.setBlock(pos, block.state(), PLACE_FLAGS);
-            markSnapshotDirty(level, pos);
             if (block.nbt() == null) {
                 continue;
             }
@@ -256,13 +253,6 @@ public final class BuildingMoveService {
             if (entityId != null && level.getEntity(entityId) instanceof NpcEntity npcEntity) {
                 npcEntity.clearMoveTargets();
             }
-        }
-    }
-
-    private static void markSnapshotDirty(ServerLevel level, BlockPos pos) {
-        SnapshotRepository repository = SnapshotRepository.get(level.getServer());
-        if (repository != null) {
-            repository.markDirty(level, pos);
         }
     }
 

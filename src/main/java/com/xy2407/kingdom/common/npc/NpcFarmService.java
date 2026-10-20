@@ -10,7 +10,6 @@ import com.xy2407.kingdom.common.entity.NpcEntity;
 import com.xy2407.kingdom.common.farm.CropCatalog;
 import com.xy2407.kingdom.common.farm.FarmPlot;
 import com.xy2407.kingdom.common.farm.FarmRegion;
-import com.xy2407.kingdom.common.path.SnapshotRepository;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
 import com.xy2407.kingdom.server.building.BuildingStorageStore;
 import com.xy2407.kingdom.server.farm.FarmLandRegistry;

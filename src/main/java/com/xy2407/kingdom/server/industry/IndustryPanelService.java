@@ -16,6 +16,7 @@ import com.xy2407.kingdom.common.npc.NpcManager;
 import com.xy2407.kingdom.common.npc.NpcSchedule;
 import com.xy2407.kingdom.common.npc.NpcSubState;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
+import com.xy2407.kingdom.server.npc.NpcOccupation;
 
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
@@ -63,7 +64,15 @@ public final class IndustryPanelService {
                 UUID workerId = packet.workerIdOrNull();
                 NpcData npc = workerId == null ? null : NpcManager.INSTANCE.getNpc(workerId);
                 if (npc != null && !npc.isDead()) {
-                    toggleWorker(building, recipeKey, npc);
+                    boolean sameSlot = building.id().toString().equals(npc.getWorkplaceId())
+                            && recipeKey.equals(npc.getWorkRecipeId());
+                    String conflict = sameSlot ? null : NpcOccupation.conflict(npc, building.id());
+                    if (conflict == null) {
+                        toggleWorker(building, recipeKey, npc);
+                    } else {
+                        player.displayClientMessage(
+                                Component.literal(npc.getName() + " " + conflict + "，无法派工"), true);
+                    }
                 }
             }
             case IndustryPanelActionPacket.ACTION_CLEAR_WORKERS -> clearWorkers(building, recipeKey);
@@ -111,7 +120,7 @@ public final class IndustryPanelService {
                     crew.isEmpty() ? "待派工" : "已派 " + crew.size() + " 人", crew));
         }
         return new IndustryPanelStatePacket(true, building.name(), building.level(),
-                positionText(building), recipes, roster());
+                positionText(building), recipes, roster(building.id()));
     }
 
     private static List<UUID> crewOf(BuildingRecord building, String recipeKey) {
@@ -128,19 +137,23 @@ public final class IndustryPanelService {
         return crew;
     }
 
-    private static List<IndustryPanelStatePacket.Worker> roster() {
+    private static List<IndustryPanelStatePacket.Worker> roster(UUID buildingId) {
         List<IndustryPanelStatePacket.Worker> options = new ArrayList<>();
         for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
             if (npc.isDead()) {
                 continue;
             }
             options.add(new IndustryPanelStatePacket.Worker(npc.getId(), npc.getName(), npc.getSkin(),
-                    workerNote(npc)));
+                    workerNote(npc, buildingId)));
         }
         return options;
     }
 
-    private static String workerNote(NpcData npc) {
+    private static String workerNote(NpcData npc, UUID buildingId) {
+        String conflict = NpcOccupation.note(npc, buildingId);
+        if (!conflict.isEmpty()) {
+            return conflict;
+        }
         if (npc.getBrain().isStarving()) {
             return "饥饿";
         }

@@ -9,6 +9,7 @@ import com.sighs.apricityui.element.Item;
 import com.sighs.apricityui.init.Document;
 import com.sighs.apricityui.init.Element;
 import com.sighs.apricityui.screen.ApricityScreen;
+import com.xy2407.kingdom.client.aui.AuiLazyList;
 import com.xy2407.kingdom.common.network.building.BuildingStorageRequestPacket;
 import com.xy2407.kingdom.common.network.industry.IndustryPanelActionPacket;
 import com.xy2407.kingdom.common.network.industry.IndustryPanelRequestPacket;
@@ -264,34 +265,33 @@ public final class IndustryPanelScreen extends ApricityScreen {
             }
         }
         if (visible.isEmpty()) {
+            AuiLazyList.clear(workersHost);
             workersHost.setInnerHTML("");
             setShown(workersEmpty, true);
             setText(workersEmpty, latest.workers().isEmpty() ? "城里还没有可雇的市民" : "没有匹配的市民");
             return;
         }
         setShown(workersEmpty, false);
-        StringBuilder html = new StringBuilder();
-        for (int index = 0; index < visible.size(); index++) {
-            Worker worker = visible.get(index);
-            boolean hired = crew.contains(worker.id());
-            String state = worker.note().isBlank() ? (hired ? "在岗" : "空闲") : worker.note();
-            html.append("<div class=\"").append(ROW).append(hired ? " " + ON : "")
-                    .append("\" id=\"ic-worker-").append(index).append("\">")
-                    .append("<kingdom-entity-avatar class=\"bp-worker-face\" skin=\"")
-                    .append(escape(worker.skin())).append("\"></kingdom-entity-avatar>")
-                    .append("<span class=\"bp-name\">").append(escape(worker.name())).append("</span>")
-                    .append("<span class=\"bp-sub\">").append(escape(state)).append("</span>")
-                    .append("</div>");
-        }
-        workersHost.setInnerHTML(html.toString());
-
-        for (int index = 0; index < visible.size(); index++) {
-            UUID workerId = visible.get(index).id();
-            Element row = boundDocument.getElementById("ic-worker-" + index);
-            if (row != null) {
-                row.addEventListener("click", event -> toggleWorker(workerId));
-            }
-        }
+        AuiLazyList.render(workersHost, visible.size(),
+                index -> {
+                    Worker worker = visible.get(index);
+                    boolean hired = crew.contains(worker.id());
+                    String state = worker.note().isBlank() ? (hired ? "在岗" : "空闲") : worker.note();
+                    return "<div class=\"" + ROW + (hired ? " " + ON : "")
+                            + "\" id=\"ic-worker-" + index + "\">"
+                            + "<kingdom-entity-avatar class=\"bp-worker-face\" skin=\""
+                            + escape(worker.skin()) + "\"></kingdom-entity-avatar>"
+                            + "<span class=\"bp-name\">" + escape(worker.name()) + "</span>"
+                            + "<span class=\"bp-sub\">" + escape(state) + "</span>"
+                            + "</div>";
+                },
+                index -> {
+                    UUID workerId = visible.get(index).id();
+                    Element row = boundDocument.getElementById("ic-worker-" + index);
+                    if (row != null) {
+                        row.addEventListener("click", event -> toggleWorker(workerId));
+                    }
+                });
     }
 
     private static String workerSummary(IndustryPanelStatePacket packet) {

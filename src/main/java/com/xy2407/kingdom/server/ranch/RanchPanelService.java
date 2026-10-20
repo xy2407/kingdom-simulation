@@ -15,6 +15,7 @@ import com.xy2407.kingdom.common.npc.NpcShift;
 import com.xy2407.kingdom.common.npc.NpcSubState;
 import com.xy2407.kingdom.common.ranch.RanchPen;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
+import com.xy2407.kingdom.server.npc.NpcOccupation;
 
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
@@ -60,7 +61,14 @@ public final class RanchPanelService {
                 if (pen != null && workerId != null && shift != null) {
                     NpcData npc = NpcManager.INSTANCE.getNpc(workerId);
                     if (npc != null) {
-                        applyKeeper(pen, npc, shift);
+                        boolean hired = pen.keeperIds().contains(workerId);
+                        String conflict = hired ? null : NpcOccupation.conflict(npc, pen.buildingId());
+                        if (conflict == null) {
+                            applyKeeper(pen, npc, shift);
+                        } else {
+                            player.displayClientMessage(
+                                    Component.literal(npc.getName() + " " + conflict + "，无法安排看护"), true);
+                        }
                     }
                 }
             }
@@ -141,22 +149,26 @@ public final class RanchPanelService {
                     pen == null ? List.of() : pen.keeperIds()));
         }
         return new RanchPanelStatePacket(true, building.name(), building.level(), positionText(building),
-                animals, workerOptions());
+                animals, workerOptions(building.id()));
     }
 
-    private static List<RanchPanelStatePacket.Worker> workerOptions() {
+    private static List<RanchPanelStatePacket.Worker> workerOptions(UUID buildingId) {
         List<RanchPanelStatePacket.Worker> options = new ArrayList<>();
         for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
             if (npc.isDead()) {
                 continue;
             }
             options.add(new RanchPanelStatePacket.Worker(npc.getId(), npc.getName(), npc.getSkin(),
-                    workerNote(npc), npc.getShift().name()));
+                    workerNote(npc, buildingId), npc.getShift().name()));
         }
         return options;
     }
 
-    private static String workerNote(NpcData npc) {
+    private static String workerNote(NpcData npc, UUID buildingId) {
+        String conflict = NpcOccupation.note(npc, buildingId);
+        if (!conflict.isEmpty()) {
+            return conflict;
+        }
         if (npc.getBrain().isStarving()) {
             return "饥饿";
         }

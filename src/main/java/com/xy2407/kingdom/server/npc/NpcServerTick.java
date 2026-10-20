@@ -2,9 +2,7 @@ package com.xy2407.kingdom.server.npc;
 
 import com.xy2407.kingdom.common.date.DailyProcessor;
 import com.xy2407.kingdom.common.npc.NpcManager;
-import com.xy2407.kingdom.common.path.SnapshotRepository;
 import com.xy2407.kingdom.server.path.UnitSnapshotStore;
-import com.xy2407.kingdom.server.collision.NpcCollisionGrid;
 import com.xy2407.kingdom.server.faction.TerritoryVitalsService;
 import com.xy2407.kingdom.server.government.GovernmentAffairService;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -41,21 +39,7 @@ public final class NpcServerTick {
 
     @SubscribeEvent
     public static void onServerTick(ServerTickEvent.Post event) {
-        for (ServerLevel level : event.getServer().getAllLevels()) {
-            NpcCollisionGrid.rebuild(level);
-        }
         ServerLevel overworld = event.getServer().overworld();
-        SnapshotRepository repository = SnapshotRepository.get(event.getServer());
-        if (repository != null) {
-            for (ServerLevel level : event.getServer().getAllLevels()) {
-                if (level.players().isEmpty()) {
-                    continue;
-                }
-                if (repository.hasDemand(level)) {
-                    repository.tick(level);
-                }
-            }
-        }
         UnitSnapshotStore.INSTANCE.tick(event.getServer());
         NpcManager.INSTANCE.tick(overworld);
         CommuteScheduler.tick(event.getServer());

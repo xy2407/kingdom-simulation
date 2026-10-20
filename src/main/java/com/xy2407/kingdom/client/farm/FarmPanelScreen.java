@@ -9,6 +9,7 @@ import com.sighs.apricityui.element.Item;
 import com.sighs.apricityui.init.Document;
 import com.sighs.apricityui.init.Element;
 import com.sighs.apricityui.screen.ApricityScreen;
+import com.xy2407.kingdom.client.aui.AuiLazyList;
 import com.xy2407.kingdom.common.farm.FarmRegion;
 import com.xy2407.kingdom.common.network.farm.FarmPanelActionPacket;
 import com.xy2407.kingdom.common.network.farm.FarmPanelRequestPacket;
@@ -423,38 +424,39 @@ public final class FarmPanelScreen extends ApricityScreen {
             return;
         }
         List<UUID> hired = assigned == null ? List.of() : assigned;
-        List<UUID> ids = new ArrayList<>();
-        StringBuilder html = new StringBuilder();
+        List<WorkerOption> visible = new ArrayList<>();
         for (WorkerOption worker : packet.workers()) {
-            if (!workerFilter.isBlank() && !worker.name().contains(workerFilter)) {
-                continue;
+            if (workerFilter.isBlank() || worker.name().contains(workerFilter)) {
+                visible.add(worker);
             }
-            boolean isHired = hired.contains(worker.id());
-            int index = ids.size();
-            ids.add(worker.id());
-            String state = worker.note().isBlank() ? (isHired ? "打理中" : "空闲") : worker.note();
-            html.append("<div class=\"").append(ROW).append(isHired ? " " + ON : "")
-                    .append("\" id=\"fd-worker-").append(index).append("\">")
-                    .append("<kingdom-entity-avatar class=\"bp-worker-face\" skin=\"")
-                    .append(escape(worker.skin())).append("\"></kingdom-entity-avatar>")
-                    .append("<span class=\"bp-name\">").append(escape(worker.name())).append("</span>")
-                    .append("<span class=\"bp-sub\">").append(escape(state)).append("</span>")
-                    .append("</div>");
         }
-        if (ids.isEmpty()) {
-            html.append("<div class=\"bp-empty\">").append(packet.workers().isEmpty()
+        if (visible.isEmpty()) {
+            AuiLazyList.clear(workersHost);
+            workersHost.setInnerHTML("<div class=\"bp-empty\">" + (packet.workers().isEmpty()
                     ? "这份名册里还没有市民"
-                    : "没有匹配「" + escape(workerFilter) + "」的市民").append("</div>");
+                    : "没有匹配「" + escape(workerFilter) + "」的市民") + "</div>");
+            return;
         }
-        workersHost.setInnerHTML(html.toString());
-
-        for (int index = 0; index < ids.size(); index++) {
-            UUID workerId = ids.get(index);
-            Element row = boundDocument.getElementById("fd-worker-" + index);
-            if (row != null) {
-                row.addEventListener("click", event -> toggleWorker(workerId));
-            }
-        }
+        AuiLazyList.render(workersHost, visible.size(),
+                index -> {
+                    WorkerOption worker = visible.get(index);
+                    boolean isHired = hired.contains(worker.id());
+                    String state = worker.note().isBlank() ? (isHired ? "打理中" : "空闲") : worker.note();
+                    return "<div class=\"" + ROW + (isHired ? " " + ON : "")
+                            + "\" id=\"fd-worker-" + index + "\">"
+                            + "<kingdom-entity-avatar class=\"bp-worker-face\" skin=\""
+                            + escape(worker.skin()) + "\"></kingdom-entity-avatar>"
+                            + "<span class=\"bp-name\">" + escape(worker.name()) + "</span>"
+                            + "<span class=\"bp-sub\">" + escape(state) + "</span>"
+                            + "</div>";
+                },
+                index -> {
+                    UUID workerId = visible.get(index).id();
+                    Element row = boundDocument.getElementById("fd-worker-" + index);
+                    if (row != null) {
+                        row.addEventListener("click", event -> toggleWorker(workerId));
+                    }
+                });
     }
 
     private void applyIcon(Element element, String itemId) {

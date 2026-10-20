@@ -16,6 +16,8 @@ import com.xy2407.kingdom.common.path.NpcPathRetry;
 import com.xy2407.kingdom.common.path.NpcPathfinder;
 import com.xy2407.kingdom.common.path.RtsSharedPath;
 import com.xy2407.kingdom.server.path.RoadRouteService;
+import com.xy2407.kingdom.server.task.BuilderBoardService;
+import com.xy2407.kingdom.server.task.RegionTaskService;
 import com.xy2407.kingdom.common.path.SnapshotRepository;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.persistence.NpcSchema;
@@ -80,7 +82,6 @@ public class NpcEntity extends PathfinderMob {
     private static final double ARRIVE_SQR = 1.0D;
     private static final double WORK_ARRIVE_SQR = 4.0D;
     private static final double HOME_ARRIVE_SQR = 4.0D;
-    private static final int STATIONARY_TRAVEL_INTERVAL = 20;
     private static final int WORK_STUCK_TICKS = 40;
     private static final int WORK_STUCK_LIMIT = 3;
     private static final int WORK_SEARCH_FAIL_LIMIT = 8;
@@ -104,8 +105,6 @@ public class NpcEntity extends PathfinderMob {
     private final NpcIdleBehavior idle = new NpcIdleBehavior(this);
     private ResourceKey<Level> cachedDimension;
     private String cachedDimensionId;
-    private Vec3 lastTravelPos;
-    private int stillTicks;
     private final NpcVerticalMovement vertical = new NpcVerticalMovement(this);
     private BlockPos forageTarget;
     private BlockPos farmTarget;
@@ -484,13 +483,6 @@ public class NpcEntity extends PathfinderMob {
         workPathDeadlineNanos = 0L;
         vertical.resetCooldown();
         getNavigation().stop();
-        if (level() instanceof ServerLevel serverLevel) {
-            SnapshotRepository repository = SnapshotRepository.get(serverLevel.getServer());
-            if (repository != null) {
-                repository.refreshNow(serverLevel, blockPosition());
-                repository.refreshNow(serverLevel, stand);
-            }
-        }
         if (++workFailures < limit) {
             return;
         }
@@ -895,37 +887,15 @@ public class NpcEntity extends PathfinderMob {
     @Override
     public void travel(Vec3 travelVector) {
         if (level().isClientSide()) {
-            lastTravelPos = null;
-            stillTicks = 0;
             super.travel(travelVector);
             return;
         }
         int stride = farTravelStride();
         if (stride > 1) {
-            lastTravelPos = null;
-            stillTicks = 0;
             if (Math.floorMod(tickCount + getId(), stride) != 0) {
                 return;
             }
             super.travel(travelVector.scale(stride));
-            return;
-        }
-        if (!canThrottleTravel()) {
-            lastTravelPos = null;
-            stillTicks = 0;
-            super.travel(travelVector);
-            return;
-        }
-        Vec3 current = position();
-        boolean stable = lastTravelPos != null && current.distanceToSqr(lastTravelPos) < 1.0E-7D;
-        lastTravelPos = current;
-        if (!stable) {
-            stillTicks = 1;
-            super.travel(travelVector);
-            return;
-        }
-        if (++stillTicks % STATIONARY_TRAVEL_INTERVAL != 0) {
-            setDeltaMovement(Vec3.ZERO);
             return;
         }
         super.travel(travelVector);
@@ -945,14 +915,6 @@ public class NpcEntity extends PathfinderMob {
         return source.is(DamageTypes.CRAMMING) || super.isInvulnerableTo(source);
     }
 
-    @Override
-    protected void pushEntities() {
-        if (tickCount % 10 != 0) {
-            return;
-        }
-        super.pushEntities();
-    }
-
     private int farTravelStride() {
         if (--farTravelCheckTimer > 0) {
             return farTravelStrideCache;
@@ -962,20 +924,6 @@ public class NpcEntity extends PathfinderMob {
                 ? FAR_TRAVEL_STRIDE
                 : 1;
         return farTravelStrideCache;
-    }
-
-    private boolean canThrottleTravel() {
-        if (!onGround() || isInWater() || isInLava() || onClimbable()) {
-            return false;
-        }
-        if (isPassenger() || isVehicle()) {
-            return false;
-        }
-        Vec3 movement = getDeltaMovement();
-        if (movement.horizontalDistanceSqr() > 1.0E-4D) {
-            return false;
-        }
-        return movement.y > -0.12D && movement.y < 0.05D;
     }
 
     private String dimensionId() {
@@ -1170,6 +1118,10 @@ public class NpcEntity extends PathfinderMob {
             setSitting(false);
         }
         NpcManager.INSTANCE.removeNpc(id);
+        RegionTaskService.INSTANCE.onCitizenRemoved(id);
+        if (level() instanceof ServerLevel serverLevel && serverLevel.getServer() != null) {
+            BuilderBoardService.broadcastAll(serverLevel.getServer());
+        }
     }
 
     public boolean isSitting() {

@@ -134,17 +134,10 @@ public class WorldMapElement extends Canvas {
 
     private static final double DRAG_PIXELS = 4.0;
 
-    private static final long PAINT_STAT_NANOS = 10_000_000_000L;
-
     private static int failures;
     private static boolean loggedZeroInner;
     private static boolean loggedShortBuffer;
     private static boolean loggedBadSurface;
-    private static long lastPaintStatNanos;
-    private static long paintNanos;
-    private static int paintCalls;
-    private static long chunkPaintNanos;
-    private static int chunkPaintCalls;
 
     private static final int[] PALETTE = new int[256];
     private static boolean paletteReady;
@@ -398,7 +391,6 @@ public class WorldMapElement extends Canvas {
             }
             return;
         }
-        long start = System.nanoTime();
         fillRaster(pixels, surfaceWidth, surfaceHeight, paintedOriginX, paintedOriginZ,
                 paintedPixelsPerBlock, paintedStep, 0, 0, surfaceWidth, surfaceHeight);
         markSurfaceDirty();
@@ -411,9 +403,6 @@ public class WorldMapElement extends Canvas {
                     paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
         }, null);
         syncTexture();
-        paintNanos += System.nanoTime() - start;
-        paintCalls++;
-        reportPaint();
     }
 
     private void repaintChunk(long key) {
@@ -448,7 +437,6 @@ public class WorldMapElement extends Canvas {
             }
             return;
         }
-        long start = System.nanoTime();
         fillRaster(pixels, surfaceWidth, surfaceHeight, paintedOriginX, paintedOriginZ,
                 paintedPixelsPerBlock, 1, x0, y0, x1, y1);
         Rectangle2D bounds = new Rectangle2D.Double(x0, y0, x1 - x0, y1 - y0);
@@ -461,9 +449,6 @@ public class WorldMapElement extends Canvas {
             drawMarker(graphics, surfaceWidth, surfaceHeight,
                     paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
         }, bounds);
-        chunkPaintNanos += System.nanoTime() - start;
-        chunkPaintCalls++;
-        reportPaint();
     }
 
     private void fillRaster(int[] pixels, int surfaceWidth, int surfaceHeight,
@@ -1537,30 +1522,6 @@ public class WorldMapElement extends Canvas {
     public String toString() {
         return String.format(Locale.ROOT, "WorldMapElement[zoom=%.2f, pan=%.1f,%.1f]",
                 zoom, panX, panZ);
-    }
-
-    private static void reportPaint() {
-        long now = System.nanoTime();
-        if (now - lastPaintStatNanos < PAINT_STAT_NANOS) {
-            return;
-        }
-        lastPaintStatNanos = now;
-        if (paintCalls > 0) {
-            ModMain.LOGGER.info("[地图] 重绘统计：全量 {} 次 共 {} ms（均 {} ms）",
-                    paintCalls,
-                    fmt(paintNanos / 1_000_000.0),
-                    fmt(paintNanos / 1_000_000.0 / paintCalls));
-        }
-        if (chunkPaintCalls > 0) {
-            ModMain.LOGGER.info("[地图] 重绘统计：局部 {} 次 共 {} ms（均 {} ms）",
-                    chunkPaintCalls,
-                    fmt(chunkPaintNanos / 1_000_000.0),
-                    fmt(chunkPaintNanos / 1_000_000.0 / chunkPaintCalls));
-        }
-        paintNanos = 0L;
-        paintCalls = 0;
-        chunkPaintNanos = 0L;
-        chunkPaintCalls = 0;
     }
 
     private static void reportFailure(String stage, Throwable failure) {

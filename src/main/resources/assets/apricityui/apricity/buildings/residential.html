@@ -333,6 +333,12 @@ body{
   padding-right:2px;
 }
 
+/* NPC 名册块：比普通块多分一份高度，并保证至少露出 3~4 行 */
+.bp-block-people{flex:2 1 0;min-height:118px;}
+.bp-block-people .bp-list{min-height:74px;}
+/* 内容固定的块（分配格数、床位这类）不再和列表平分高度 */
+.bp-block-fixed{flex:0 0 auto;}
+
 /* 竖向滚动条：木色，不做圆角，和像素风格一致 */
 .bp-list::-webkit-scrollbar{
   width:7px;
@@ -523,7 +529,7 @@ body{
 
     <!-- 床位：用本页既有的 .bp-beds 指示器画"已住 / 总数"。
          一名市民一张床，所以床位数就是这栋住宅的居住上限。 -->
-    <div class="bp-block">
+    <div class="bp-block bp-block-fixed">
       <div class="bp-sec">
         <span class="bp-sec-title">床位</span>
         <span class="bp-sec-actions"><span class="bp-sec-note" id="rd-bed-note">0 / 0</span></span>
@@ -533,7 +539,7 @@ body{
 
     <!-- 住户名册：与农田「打理人」、养殖「饲养员」同一套交互 ——
          点一行即安排入住 / 让他搬走，改动立刻生效（不需要保存）。 -->
-    <div class="bp-block">
+    <div class="bp-block bp-block-people">
       <div class="bp-sec">
         <span class="bp-sec-title">住户</span>
         <span class="bp-sec-actions">

@@ -91,7 +91,8 @@ public final class NpcPathRetry {
             return null;
         }
         try {
-            NpcPathfinder.requestChunks(repository, level.dimension(), npc.blockPosition(), target);
+            repository.requestUnits(level.dimension(), npc.blockPosition(), target,
+                    NpcPathfinder.DEFAULT_PADDING);
             return NpcPathfinder.find(repository, level.dimension(), npc.blockPosition(), target);
         } finally {
             repository.releaseSearch();

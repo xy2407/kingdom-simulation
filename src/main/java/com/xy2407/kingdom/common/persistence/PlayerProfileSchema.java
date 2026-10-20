@@ -99,7 +99,7 @@ public final class PlayerProfileSchema implements Migration {
     public static String columns() {
         return String.join(", ", new String[] {
                 COL_UUID, COL_PLAYER_NAME, COL_NATION_ID, COL_TERRITORY_ID, COL_ONBOARDED,
-                COL_FIRST_JOIN_DAY, COL_UPDATED_AT
+                COL_FIRST_JOIN_DAY, COL_MONEY, COL_UPDATED_AT
         });
     }
 }

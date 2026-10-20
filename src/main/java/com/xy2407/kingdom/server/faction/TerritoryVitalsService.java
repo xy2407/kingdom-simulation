@@ -16,6 +16,8 @@ import com.xy2407.kingdom.common.faction.Territory;
 import com.xy2407.kingdom.common.faction.TerritoryVitals;
 import com.xy2407.kingdom.common.npc.NpcData;
 import com.xy2407.kingdom.common.npc.NpcManager;
+import com.xy2407.kingdom.server.task.BuilderBoardService;
+import com.xy2407.kingdom.server.task.RegionTaskService;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
@@ -164,6 +166,10 @@ public final class TerritoryVitalsService {
             }
         }
         NpcManager.INSTANCE.removeNpc(npc.getId());
+        RegionTaskService.INSTANCE.onCitizenRemoved(npc.getId());
+        if (fallback != null && fallback.getServer() != null) {
+            BuilderBoardService.broadcastAll(fallback.getServer());
+        }
     }
 
     private static ServerLevel dimensionLevel(ServerLevel fallback, NpcData npc) {

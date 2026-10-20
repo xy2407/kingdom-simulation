@@ -10,6 +10,7 @@ import com.sighs.apricityui.element.Input;
 import com.sighs.apricityui.init.Document;
 import com.sighs.apricityui.init.Element;
 import com.sighs.apricityui.screen.ApricityScreen;
+import com.xy2407.kingdom.client.aui.AuiLazyList;
 import com.xy2407.kingdom.common.network.building.BuildingStorageRequestPacket;
 import com.xy2407.kingdom.common.network.building.ResidentActionPacket;
 import com.xy2407.kingdom.common.network.building.ResidentListPacket;
@@ -242,32 +243,32 @@ public final class BuildingPanelScreen extends ApricityScreen {
             }
         }
         if (visible.isEmpty()) {
+            AuiLazyList.clear(host);
             host.setInnerHTML("<div class=\"bp-empty\">"
                     + (packet.workers().isEmpty() ? "城里还没有市民" : "没有匹配的市民") + "</div>");
             return;
         }
-        StringBuilder html = new StringBuilder();
-        for (int index = 0; index < visible.size(); index++) {
-            ResidentListPacket.Worker worker = visible.get(index);
-            boolean hired = residents.contains(worker.id());
-            String state = worker.note().isBlank() ? (hired ? "住户" : "空闲") : worker.note();
-            html.append("<div class=\"bp-item").append(hired ? " on" : "")
-                    .append("\" id=\"rd-worker-").append(index).append("\">")
-                    .append("<kingdom-entity-avatar class=\"bp-face\" skin=\"")
-                    .append(escape(worker.skin())).append("\"></kingdom-entity-avatar>")
-                    .append("<span class=\"bp-name\">").append(escape(worker.name())).append("</span>")
-                    .append("<span class=\"bp-sub\">").append(escape(state)).append("</span>")
-                    .append("</div>");
-        }
-        host.setInnerHTML(html.toString());
-        for (int index = 0; index < visible.size(); index++) {
-            UUID workerId = visible.get(index).id();
-            Element row = document.getElementById("rd-worker-" + index);
-            if (row != null) {
-                row.addEventListener("click", event ->
-                        PacketDistributor.sendToServer(ResidentActionPacket.toggleResident(workerId)));
-            }
-        }
+        AuiLazyList.render(host, visible.size(),
+                index -> {
+                    ResidentListPacket.Worker worker = visible.get(index);
+                    boolean hired = residents.contains(worker.id());
+                    String state = worker.note().isBlank() ? (hired ? "住户" : "空闲") : worker.note();
+                    return "<div class=\"bp-item" + (hired ? " on" : "")
+                            + "\" id=\"rd-worker-" + index + "\">"
+                            + "<kingdom-entity-avatar class=\"bp-face\" skin=\""
+                            + escape(worker.skin()) + "\"></kingdom-entity-avatar>"
+                            + "<span class=\"bp-name\">" + escape(worker.name()) + "</span>"
+                            + "<span class=\"bp-sub\">" + escape(state) + "</span>"
+                            + "</div>";
+                },
+                index -> {
+                    UUID workerId = visible.get(index).id();
+                    Element row = document.getElementById("rd-worker-" + index);
+                    if (row != null) {
+                        row.addEventListener("click", event ->
+                                PacketDistributor.sendToServer(ResidentActionPacket.toggleResident(workerId)));
+                    }
+                });
     }
 
     private static String escape(String raw) {

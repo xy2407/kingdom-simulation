@@ -6,12 +6,9 @@ import java.util.List;
 import net.minecraft.core.BlockPos;
 
 /**
- * 路径后处理拉直：把 A* 的 4 向阶梯路径合并成可行的直线段，供执行层沿直线驱动。
+ * 路径后处理拉直：仅合并同一水平层内可直行的航点段，任何 y 偏移的相邻航点一律保留。
  */
 public final class PathSmoother {
-
-    private static final int MAX_STEP_UP = 1;
-    private static final int MAX_DROP = 4;
 
     private PathSmoother() {
     }
@@ -27,7 +24,8 @@ public final class PathSmoother {
         while (anchor < path.size() - 1) {
             int next = anchor + 1;
             for (int j = path.size() - 1; j > anchor; j--) {
-                if (canWalkLine(path.get(anchor).pos(), path.get(j).pos(), view)) {
+                if (isFlat(path, anchor, j)
+                        && canWalkFlat(path.get(anchor).pos(), path.get(j).pos(), view)) {
                     next = j;
                     break;
                 }
@@ -38,36 +36,37 @@ public final class PathSmoother {
         return out;
     }
 
-    private static boolean canWalkLine(BlockPos from, BlockPos to, SnapshotView view) {
-        int steps = Math.max(Math.abs(to.getX() - from.getX()), Math.abs(to.getZ() - from.getZ()));
+    private static boolean isFlat(List<NpcPathfinder.Waypoint> path, int from, int to) {
+        int y = path.get(from).pos().getY();
+        for (int i = from + 1; i <= to; i++) {
+            if (path.get(i).pos().getY() != y) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean canWalkFlat(BlockPos from, BlockPos to, SnapshotView view) {
+        int y = from.getY();
+        int dx = to.getX() - from.getX();
+        int dz = to.getZ() - from.getZ();
+        int steps = Math.max(Math.abs(dx), Math.abs(dz));
         if (steps == 0) {
             return true;
         }
         int prevX = from.getX();
         int prevZ = from.getZ();
-        int prevY = from.getY();
         for (int i = 1; i <= steps; i++) {
-            double t = (double) i / steps;
-            int x = (int) Math.round(from.getX() + (to.getX() - from.getX()) * t);
-            int z = (int) Math.round(from.getZ() + (to.getZ() - from.getZ()) * t);
-            int y = (int) Math.round(from.getY() + (to.getY() - from.getY()) * t);
-            if (x == prevX && z == prevZ) {
-                continue;
-            }
+            int x = from.getX() + (int) Math.round((double) dx * i / steps);
+            int z = from.getZ() + (int) Math.round((double) dz * i / steps);
             if (!standableAt(view, x, y, z)) {
                 return false;
             }
-            int dy = y - prevY;
-            if (dy > MAX_STEP_UP || dy < -MAX_DROP) {
+            if (x != prevX && z != prevZ
+                    && (!standableAt(view, prevX, y, z) || !standableAt(view, x, y, prevZ))) {
                 return false;
             }
-            if (x != prevX && z != prevZ) {
-                if (!standableAt(view, prevX, y, z) || !standableAt(view, x, y, prevZ)) {
-                    return false;
-                }
-            }
             prevX = x;
-            prevY = y;
             prevZ = z;
         }
         return true;

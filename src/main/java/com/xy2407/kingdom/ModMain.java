@@ -24,7 +24,6 @@ import com.xy2407.kingdom.server.building.BuildingServerTick;
 import com.xy2407.kingdom.server.date.DateServerTick;
 import com.xy2407.kingdom.server.npc.NpcJoinWorldHandler;
 import com.xy2407.kingdom.server.npc.NpcServerTick;
-import com.xy2407.kingdom.server.path.SnapshotEvents;
 
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
@@ -62,7 +61,6 @@ public final class ModMain {
         NeoForge.EVENT_BUS.register(DateServerTick.class);
         NeoForge.EVENT_BUS.register(NpcJoinWorldHandler.class);
         NeoForge.EVENT_BUS.register(NpcServerTick.class);
-        NeoForge.EVENT_BUS.register(SnapshotEvents.class);
         ModEntities.ENTITY_TYPES.register(modEventBus);
         ModBlocks.BLOCKS.register(modEventBus);
         ModBlocks.ITEMS.register(modEventBus);

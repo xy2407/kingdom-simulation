@@ -31,6 +31,7 @@ import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.ranch.RanchPen;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
 import com.xy2407.kingdom.server.faction.MoneyService;
+import com.xy2407.kingdom.server.npc.NpcOccupation;
 import com.xy2407.kingdom.server.path.UnitSnapshotStore;
 import com.xy2407.kingdom.server.road.RoadStore;
 import com.xy2407.kingdom.server.ranch.RanchPenManager;
@@ -221,6 +222,11 @@ public final class KingdomCommands {
         NpcData nearest = nearestCitizen(player);
         if (nearest == null) {
             source.sendFailure(Component.literal("这个维度还没有市民，先用 /kingdom npc spawn 生成"));
+            return 0;
+        }
+        String conflict = NpcOccupation.conflict(nearest, building.id());
+        if (conflict != null) {
+            source.sendFailure(Component.literal(nearest.getName() + " " + conflict + "，无法指派"));
             return 0;
         }
         for (RanchPen pen : pens) {

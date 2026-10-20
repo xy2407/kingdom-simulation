@@ -369,6 +369,12 @@ body{
   padding-right:2px;
 }
 
+/* NPC 名册块：比普通块多分一份高度，并保证至少露出 3~4 行 */
+.bp-block-people{flex:2 1 0;min-height:118px;}
+.bp-block-people .bp-list{min-height:74px;}
+/* 内容固定的块（分配格数、床位这类）不再和列表平分高度 */
+.bp-block-fixed{flex:0 0 auto;}
+
 /* 竖向滚动条：木色，不做圆角，和像素风格一致 */
 .bp-list::-webkit-scrollbar{
   width:7px;
@@ -857,7 +863,7 @@ body{
       <div class="bp-info-row"><span class="bp-k">打理人</span><span class="bp-v" id="fd-workers-note">0 人</span></div>
     </div>
 
-    <div class="bp-block">
+    <div class="bp-block bp-block-fixed">
       <div class="bp-sec">
         <span class="bp-sec-title">分配格数</span>
         <span class="bp-sec-actions"><span class="bp-sec-note" id="fd-cap">上限 0</span></span>
@@ -878,7 +884,7 @@ body{
       <div class="bp-list" id="fd-crops"></div>
     </div>
 
-    <div class="bp-block">
+    <div class="bp-block bp-block-people">
       <div class="bp-sec">
         <span class="bp-sec-title">打理人</span>
         <span class="bp-sec-actions">

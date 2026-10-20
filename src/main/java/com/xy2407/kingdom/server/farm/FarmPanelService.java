@@ -21,6 +21,7 @@ import com.xy2407.kingdom.common.npc.NpcSchedule;
 import com.xy2407.kingdom.common.npc.NpcSubState;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
 import com.xy2407.kingdom.server.building.BuildingStorageMenu;
+import com.xy2407.kingdom.server.npc.NpcOccupation;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
@@ -80,7 +81,18 @@ public final class FarmPanelService {
             case FarmPanelActionPacket.ACTION_TOGGLE_WORKER -> {
                 FarmPlot plot = owned(manager, plotId, building);
                 if (plot != null) {
-                    manager.update(withToggledWorker(plot, packet.text()));
+                    UUID workerId = parseUuid(packet.text());
+                    String conflict = null;
+                    if (workerId != null && !plot.workerIds().contains(workerId)) {
+                        NpcData npc = NpcManager.INSTANCE.getNpc(workerId);
+                        conflict = npc == null ? "市民不存在或已死亡"
+                                : NpcOccupation.conflict(npc, plot.buildingId());
+                    }
+                    if (conflict == null) {
+                        manager.update(withToggledWorker(plot, packet.text()));
+                    } else {
+                        player.displayClientMessage(Component.literal(conflict + "，无法安排打理"), true);
+                    }
                 }
             }
             case FarmPanelActionPacket.ACTION_SET_AREA -> {
@@ -114,7 +126,7 @@ public final class FarmPanelService {
         }
         return new FarmPanelStatePacket(true, building.name(), building.farmSlots(),
                 FarmPlotManager.INSTANCE.usedSlots(building.id()), plots,
-                cropOptions(building), workerOptions());
+                cropOptions(building), workerOptions(building.id()));
     }
 
     private static List<FarmPanelStatePacket.CropOption> cropOptions(BuildingRecord building) {
@@ -150,19 +162,23 @@ public final class FarmPanelService {
         return "";
     }
 
-    private static List<FarmPanelStatePacket.WorkerOption> workerOptions() {
+    private static List<FarmPanelStatePacket.WorkerOption> workerOptions(UUID buildingId) {
         List<FarmPanelStatePacket.WorkerOption> options = new ArrayList<>();
         for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
             if (npc.isDead()) {
                 continue;
             }
             options.add(new FarmPanelStatePacket.WorkerOption(npc.getId(), npc.getName(), npc.getSkin(),
-                    workerNote(npc)));
+                    workerNote(npc, buildingId)));
         }
         return options;
     }
 
-    private static String workerNote(NpcData npc) {
+    private static String workerNote(NpcData npc, UUID buildingId) {
+        String conflict = NpcOccupation.note(npc, buildingId);
+        if (!conflict.isEmpty()) {
+            return conflict;
+        }
         if (npc.getBrain().isStarving()) {
             return "饥饿";
         }

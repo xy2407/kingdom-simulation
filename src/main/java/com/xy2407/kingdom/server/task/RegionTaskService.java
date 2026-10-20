@@ -22,7 +22,7 @@ import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.persistence.RegionTaskSchema;
 import com.xy2407.kingdom.common.task.RegionTask;
 import com.xy2407.kingdom.common.entity.NpcEntity;
-import com.xy2407.kingdom.common.path.SnapshotRepository;
+import com.xy2407.kingdom.server.npc.NpcOccupation;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -302,13 +302,18 @@ public final class RegionTaskService {
     }
 
     public void applyEmployee(ServerPlayer player, UUID npcId, boolean hire) {
-        NpcData npc = NpcManager.INSTANCE.getNpc(npcId);
-        if (npc == null || npc.isDead()) {
-            feedback(player, "这个市民不存在或已死亡");
-            return;
-        }
         if (hire) {
+            NpcData npc = NpcManager.INSTANCE.getNpc(npcId);
+            if (npc == null || npc.isDead()) {
+                feedback(player, "这个市民不存在或已死亡");
+                return;
+            }
             if (isEmployed(npcId)) {
+                return;
+            }
+            String conflict = NpcOccupation.conflict(npc, null);
+            if (conflict != null) {
+                feedback(player, npc.getName() + " " + conflict + "，不能同时加入建筑工队");
                 return;
             }
             employees.put(npcId, new Employee(npcId, npc.getName(), npc.getSkin(),
@@ -317,17 +322,36 @@ public final class RegionTaskService {
             if (!isEmployed(npcId)) {
                 return;
             }
-            for (RegionTask task : List.copyOf(tasks.values())) {
-                if (task.contains(npcId)) {
-                    task.assigned().remove(npcId);
-                    persist(task);
-                }
-            }
-            release(npcId, null);
-            employees.remove(npcId);
+            detachEmployee(npcId);
         }
         persistEmployee(npcId, hire);
         BuilderBoardService.broadcastAll(player.server);
+    }
+
+    private void detachEmployee(UUID npcId) {
+        for (RegionTask task : List.copyOf(tasks.values())) {
+            if (task.contains(npcId)) {
+                task.assigned().remove(npcId);
+                persist(task);
+            }
+        }
+        release(npcId, null);
+        employees.remove(npcId);
+    }
+
+    /**
+     * 市民被移除（死亡或驱逐）时由移除路径直接调用：解除雇佣并删除 builder_employee 记录
+     */
+    public void onCitizenRemoved(UUID npcId) {
+        if (npcId == null) {
+            return;
+        }
+        if (loaded) {
+            detachEmployee(npcId);
+        } else {
+            employees.remove(npcId);
+        }
+        persistEmployee(npcId, false);
     }
 
     public UUID pickHireCandidate(ServerLevel level) {
@@ -384,10 +408,6 @@ public final class RegionTaskService {
                     ? Block.UPDATE_CLIENTS | Block.UPDATE_NEIGHBORS
                     : Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE;
             level.setBlock(pos, Blocks.AIR.defaultBlockState(), flags);
-        }
-        SnapshotRepository repository = SnapshotRepository.get(server);
-        if (repository != null) {
-            repository.refreshNow(level, pos);
         }
         task.advance();
     }

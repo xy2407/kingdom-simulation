@@ -7,7 +7,6 @@ import com.xy2407.kingdom.common.date.DateSystem;
 import com.xy2407.kingdom.common.entity.NpcEntity;
 import com.xy2407.kingdom.common.farm.CropCatalog;
 import com.xy2407.kingdom.common.farm.FarmPlot;
-import com.xy2407.kingdom.common.path.SnapshotRepository;
 import com.xy2407.kingdom.server.farm.FarmLandRegistry;
 
 import net.minecraft.core.BlockPos;
@@ -64,7 +63,6 @@ final class FarmActionExecutor {
                                 BlockPos soil, BlockPos cropPos, BlockState cropState) {
         List<ItemStack> drops = Block.getDrops(cropState, level, cropPos, null, npc, ItemStack.EMPTY);
         level.setBlock(cropPos, Blocks.AIR.defaultBlockState(), Block.UPDATE_CLIENTS);
-        markSnapshot(level, cropPos);
         FarmProduceDeposit.hold(level, plot, cropPos, npc, drops);
         plant(level, plot, soil, cropPos, level.getBlockState(cropPos));
     }
@@ -83,7 +81,6 @@ final class FarmActionExecutor {
             return;
         }
         level.setBlock(cropPos, planted, Block.UPDATE_ALL);
-        markSnapshot(level, cropPos);
     }
 
     private static void till(ServerLevel level, BlockPos soil) {
@@ -96,14 +93,6 @@ final class FarmActionExecutor {
         level.setBlock(soil, Blocks.FARMLAND.defaultBlockState()
                 .setValue(FarmBlock.MOISTURE, FarmBlock.MAX_MOISTURE), Block.UPDATE_ALL);
         FarmLandRegistry.mark(level, soil, DateSystem.totalDay(level));
-        markSnapshot(level, soil);
-    }
-
-    private static void markSnapshot(ServerLevel level, BlockPos pos) {
-        SnapshotRepository repository = SnapshotRepository.get(level.getServer());
-        if (repository != null) {
-            repository.markDirty(level, pos);
-        }
     }
 
     private static Block cropBlock(String cropId) {
