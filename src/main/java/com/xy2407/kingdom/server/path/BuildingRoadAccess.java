@@ -54,7 +54,6 @@ public final class BuildingRoadAccess {
         EMPTY_BUILDINGS.clear();
     }
 
-    // 只允许服务端线程调（寻路提交入口在主线程）
     public static List<AccessCell> accessOf(ServerLevel level, BuildingRecord building) {
         if (level == null || building == null) {
             return List.of();
@@ -75,8 +74,6 @@ public final class BuildingRoadAccess {
         return cells;
     }
 
-    // 多源限深 BFS：起点 = 建筑包围盒外一圈的可行走站立格；目标 = 道路格（精确含 y）；
-    // 邻接与 RoadGraph 一致（4 向水平 + 相邻 y ±1），层序天然按代价递增，取最近 MAX_ACCESS_CELLS 个
     private static List<AccessCell> compute(ServerLevel level, BuildingRecord building) {
         if (!building.dimension().equals(level.dimension().location().toString())) {
             return List.of();
@@ -131,7 +128,6 @@ public final class BuildingRoadAccess {
         return result;
     }
 
-    // 建筑包围盒外一圈的可行走地面（地面方块坐标 = 站立位减一），y 限制在建筑高度附近防扫到屋顶
     private static List<Long> startCells(ServerLevel level, BuildingRecord building) {
         List<Long> starts = new ArrayList<>();
         int minX = building.min().getX() - 1;
@@ -157,7 +153,6 @@ public final class BuildingRoadAccess {
         return starts;
     }
 
-    // 与 P0 对齐后的 walkableSurfaceY 同语义：isWalkableFloor + 站立位 2 格 isPassable
     private static boolean isStandable(ServerLevel level, int x, int y, int z) {
         if (y < level.getMinBuildHeight() || y + 2 > level.getMaxBuildHeight() - 1) {
             return false;

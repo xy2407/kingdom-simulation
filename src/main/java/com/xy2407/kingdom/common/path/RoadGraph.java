@@ -78,7 +78,6 @@ public final class RoadGraph {
         return components[node];
     }
 
-    // 精确坐标匹配（含 y）
     public int nodeAt(long pos) {
         return nodeIds.getOrDefault(pos, -1);
     }
@@ -185,7 +184,6 @@ public final class RoadGraph {
             }
         }
 
-        // BFS 染色连通分量
         int[] components = new int[count];
         Arrays.fill(components, -1);
         int componentCount = 0;

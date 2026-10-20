@@ -32,8 +32,6 @@ public final class RoadGraphService {
         DIRTY.put(dimension, Boolean.TRUE);
     }
 
-    // 只允许在服务端线程调（寻路提交入口在 NpcEntity/RtsSharedPath，均在主线程）；
-    // A* 异步线程不要调本方法，只持有多返回的 RoadGraph 引用
     public static RoadGraph current(MinecraftServer server, String dimension) {
         RoadGraph graph = GRAPHS.get(dimension);
         if (graph != null && !Boolean.TRUE.equals(DIRTY.get(dimension))) {

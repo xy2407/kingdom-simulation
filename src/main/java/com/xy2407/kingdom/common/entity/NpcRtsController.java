@@ -17,7 +17,7 @@ final class NpcRtsController {
     private static final double DENSE_ARRIVE_SQR = 0.5625D;
     private static final double CROWD_ARRIVE_SQR = 2.25D;
     private static final double GROUP_HANDOFF_SQR = 9.0D;
-    private static final double ARRIVE_HEIGHT = 3.0D;
+    private static final double ARRIVE_HEIGHT = 1.0D;
     private static final int GIVE_UP_TICKS = 600;
 
     private final NpcEntity npc;
@@ -184,7 +184,8 @@ final class NpcRtsController {
         double dz = npc.getZ() - (destination.getZ() + 0.5D);
         double limit = clearOnArrive ? CROWD_ARRIVE_SQR : arriveSqr;
         return dx * dx + dz * dz < limit
-                && Math.abs(npc.getY() - destination.getY()) < ARRIVE_HEIGHT;
+                && Math.abs(npc.getY() - destination.getY()) < ARRIVE_HEIGHT
+                && npc.canOccupy(npc.blockPosition());
     }
 
 }

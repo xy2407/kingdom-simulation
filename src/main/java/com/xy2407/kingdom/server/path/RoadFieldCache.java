@@ -40,7 +40,6 @@ public final class RoadFieldCache {
         FIELDS.clear();
     }
 
-    // 返回 null 表示场不可用（建筑当前无有效接入格），调用方回退每趟搜索
     public static int[] nextField(ServerLevel level, BuildingRecord destination, RoadGraph graph) {
         String key = destination.id().toString();
         FieldEntry entry = FIELDS.get(key);

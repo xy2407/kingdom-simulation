@@ -45,7 +45,6 @@ public final class RtsSharedPath {
         }
     }
 
-    // 道路数据变动后调用：丢弃全部活跃共享路径与车道，下一次寻路按新路重算
     public static void clearAll() {
         synchronized (INSTANCES) {
             for (RtsSharedPath instance : INSTANCES.values()) {
@@ -99,7 +98,6 @@ public final class RtsSharedPath {
         return new Join(future, null, false);
     }
 
-    // 占用数最少的车道优先，同数取更靠中心的，保证人群自动摊开
     private static int pickLane(Entry entry, int laneSeed) {
         int[] use = entry.laneUse();
         int best = 0;

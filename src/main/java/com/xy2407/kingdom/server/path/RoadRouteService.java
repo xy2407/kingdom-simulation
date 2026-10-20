@@ -27,10 +27,8 @@ public final class RoadRouteService {
 
     private static final int BUILDING_DEPTH = 20;
 
-    // 近距离不走道路三段式：出门回家这类短途直接细层 A*，避免被吸附到建筑外围接入格绕圈
     private static final double NEAR_DIRECT_SQR = 400.0D;
 
-    // 接入点兜底全失败后缓存负面结果，避免每 10 tick 重扫上万列桶
     private static final Map<Long, Long> NO_ACCESS_UNTIL = new ConcurrentHashMap<>();
     private static final long NO_ACCESS_TTL_TICKS = 600L;
     private static final int NO_ACCESS_CAPACITY = 4096;
@@ -122,7 +120,6 @@ public final class RoadRouteService {
         return List.of();
     }
 
-    // 道路数据变动（铺设/清除）后调用：负面缓存立即失效，允许重新扫描接入点
     public static void clearNoAccess() {
         NO_ACCESS_UNTIL.clear();
     }

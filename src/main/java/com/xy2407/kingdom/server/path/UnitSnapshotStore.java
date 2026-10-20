@@ -333,7 +333,6 @@ public final class UnitSnapshotStore {
         return null;
     }
 
-    // 调试输出：缓存分层计数、待建/标脏/密封量、内存估算与各维度覆盖范围
     public List<String> report() {
         List<String> lines = new ArrayList<>();
         Map<String, int[]> ranges = new HashMap<>();

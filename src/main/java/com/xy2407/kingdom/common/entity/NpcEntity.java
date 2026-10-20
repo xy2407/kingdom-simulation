@@ -11,14 +11,10 @@ import java.util.concurrent.Future;
 import com.xy2407.kingdom.common.home.HomeBeds;
 import com.xy2407.kingdom.common.network.debug.NpcPathDebugBroadcast;
 import com.xy2407.kingdom.common.npc.*;
-import com.xy2407.kingdom.common.path.ChunkSnapshot;
-import com.xy2407.kingdom.common.path.NpcPathRetry;
-import com.xy2407.kingdom.common.path.NpcPathfinder;
-import com.xy2407.kingdom.common.path.RtsSharedPath;
+import com.xy2407.kingdom.common.path.*;
 import com.xy2407.kingdom.server.path.RoadRouteService;
 import com.xy2407.kingdom.server.task.BuilderBoardService;
 import com.xy2407.kingdom.server.task.RegionTaskService;
-import com.xy2407.kingdom.common.path.SnapshotRepository;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.persistence.NpcSchema;
 
@@ -80,14 +76,16 @@ public class NpcEntity extends PathfinderMob {
     private boolean inventoryLoading;
     private static final double WALK_SPEED = 0.5D;
     private static final double ARRIVE_SQR = 1.0D;
-    private static final double WORK_ARRIVE_SQR = 4.0D;
-    private static final double HOME_ARRIVE_SQR = 4.0D;
+    private static final double WORK_ARRIVE_SQR = 1.0D;
+    private static final double HOME_ARRIVE_SQR = 1.0D;
     private static final int WORK_STUCK_TICKS = 40;
     private static final int WORK_STUCK_LIMIT = 3;
     private static final int WORK_SEARCH_FAIL_LIMIT = 8;
+    private static final int LOCAL_RECONNECT_COOLDOWN_TICKS = 60;
+    private static final int LOCAL_RECONNECT_FAIL_TICKS = 100;
     private static final long WORK_PATH_TIMEOUT_NANOS = 10_000_000_000L;
     private static final int BUILDER_STUCK_TELEPORT_TICKS = 40;
-    private static final double[] SLIDE_OFFSETS = {0.25D, 0.5D};
+    private static final double[] SLIDE_OFFSETS = {0.25D, 0.5D, 0.75D, 1.0D};
     private static final double SLIDE_FORWARD = 0.3D;
     private static final int SLIDE_DURATION_TICKS = 8;
     private static final int SLIDE_COOLDOWN_TICKS = 30;
@@ -131,6 +129,7 @@ public class NpcEntity extends PathfinderMob {
     private Vec3 slideTarget;
     private int slideTicks;
     private int slideCooldown;
+    private int localReconnectCooldown;
     private int pathPaddingStage;
     private int builderStuckTicks;
     private double builderStuckBestDist = Double.MAX_VALUE;
@@ -187,10 +186,7 @@ public class NpcEntity extends PathfinderMob {
     }
 
     public boolean tickConstructionPath(BlockPos target) {
-        double adx = getX() - (target.getX() + 0.5D);
-        double adz = getZ() - (target.getZ() + 0.5D);
-        boolean closeEnough = adx * adx + adz * adz <= 4.0D
-                && Math.abs(Math.floor(getY() + 0.5D) - target.getY()) <= 2.0D;
+        boolean closeEnough = nearTarget(target, 1.0D) && canOccupy(blockPosition());
         boolean arrived = closeEnough || tickPathTo(target);
         if (arrived) {
             builderStuckTicks = 0;
@@ -217,7 +213,9 @@ public class NpcEntity extends PathfinderMob {
         double dx = getX() - (stand.getX() + 0.5D);
         double dz = getZ() - (stand.getZ() + 0.5D);
         double arriveSqr = rts.arrivalThreshold();
-        if (dx * dx + dz * dz < arriveSqr && Math.abs(Math.floor(getY() + 0.5D) - stand.getY()) < 1.0D) {
+        if (dx * dx + dz * dz < arriveSqr
+                && Math.abs(Math.floor(getY() + 0.5D) - stand.getY()) < 1.0D
+                && canOccupy(blockPosition())) {
             stopConstructionPath();
             if (rts.withinHandoff(blockPosition())) {
                 rts.clearGroupDest();
@@ -227,7 +225,9 @@ public class NpcEntity extends PathfinderMob {
         if (followIndex < followPath.size()) {
             followWaypoints();
             if (trackWorkStuck()) {
-                if (trySlide()) {
+                if (tryLocalReconnect()) {
+                    workStuckTicks = 0;
+                } else if (trySlide()) {
                     workStuckTicks = 0;
                 } else {
                     escalateWork(stand, WORK_STUCK_LIMIT);
@@ -402,6 +402,7 @@ public class NpcEntity extends PathfinderMob {
         slideTarget = null;
         slideTicks = 0;
         slideCooldown = 0;
+        localReconnectCooldown = 0;
         segmentTarget = null;
         followPath = List.of();
         followIndex = 0;
@@ -418,6 +419,24 @@ public class NpcEntity extends PathfinderMob {
             return false;
         }
         return ++workStuckTicks >= WORK_STUCK_TICKS;
+    }
+
+    private boolean tryLocalReconnect() {
+        if (localReconnectCooldown > 0 || followPath.isEmpty()) {
+            return false;
+        }
+        if (!(level() instanceof ServerLevel serverLevel)) {
+            return false;
+        }
+        List<NpcPathfinder.Waypoint> patched =
+                NpcLocalRepath.reconnect(serverLevel, blockPosition(), followPath, followIndex);
+        if (patched == null) {
+            localReconnectCooldown = LOCAL_RECONNECT_FAIL_TICKS;
+            return false;
+        }
+        localReconnectCooldown = LOCAL_RECONNECT_COOLDOWN_TICKS;
+        applyPath(patched);
+        return true;
     }
 
     private boolean trySlide() {
@@ -466,7 +485,7 @@ public class NpcEntity extends PathfinderMob {
         return true;
     }
 
-    private boolean canOccupy(BlockPos pos) {
+    boolean canOccupy(BlockPos pos) {
         if (!level().isLoaded(pos) || !standsOn(pos.below())
                 || !passable(pos) || !passable(pos.above())) {
             return false;
@@ -568,6 +587,9 @@ public class NpcEntity extends PathfinderMob {
         vertical.tickCooldown();
         if (slideCooldown > 0) {
             slideCooldown--;
+        }
+        if (localReconnectCooldown > 0) {
+            localReconnectCooldown--;
         }
         if (slideTicks > 0) {
             slideTicks--;
