@@ -1,7 +1,9 @@
 package com.xy2407.kingdom.client.farm;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import com.sighs.apricityui.element.Input;
@@ -424,12 +426,13 @@ public final class FarmPanelScreen extends ApricityScreen {
             return;
         }
         List<UUID> hired = assigned == null ? List.of() : assigned;
-        List<WorkerOption> visible = new ArrayList<>();
+        Map<UUID, WorkerOption> unique = new LinkedHashMap<>();
         for (WorkerOption worker : packet.workers()) {
             if (workerFilter.isBlank() || worker.name().contains(workerFilter)) {
-                visible.add(worker);
+                unique.putIfAbsent(worker.id(), worker);
             }
         }
+        List<WorkerOption> visible = new ArrayList<>(unique.values());
         if (visible.isEmpty()) {
             AuiLazyList.clear(workersHost);
             workersHost.setInnerHTML("<div class=\"bp-empty\">" + (packet.workers().isEmpty()

@@ -146,7 +146,7 @@ public final class RanchPanelService {
             animals.add(new RanchPanelStatePacket.Animal(pen == null ? null : pen.id(), spec.id(),
                     spec.name(), spec.entity(), spec.feed(), spec.output(), spec.mode(), statusLabel(pen),
                     spec.limit(), total, adults, pen != null && pen.running(),
-                    pen == null ? List.of() : pen.keeperIds()));
+                    NpcOccupation.aliveOnly(pen == null ? List.of() : pen.keeperIds())));
         }
         return new RanchPanelStatePacket(true, building.name(), building.level(), positionText(building),
                 animals, workerOptions(building.id()));

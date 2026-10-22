@@ -14,7 +14,11 @@ import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.common.building.BuildingBlueprints;
+import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingRecord;
+import com.xy2407.kingdom.common.building.IndustryKind;
+import com.xy2407.kingdom.common.date.DateSystem;
+import com.xy2407.kingdom.common.mining.MiningPlot;
 import com.xy2407.kingdom.common.entity.ModEntities;
 import com.xy2407.kingdom.common.entity.NpcEntity;
 import com.xy2407.kingdom.common.map.WorldSurfaceSampler;
@@ -31,6 +35,7 @@ import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.ranch.RanchPen;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
 import com.xy2407.kingdom.server.faction.MoneyService;
+import com.xy2407.kingdom.server.mining.MiningPlotManager;
 import com.xy2407.kingdom.server.npc.NpcOccupation;
 import com.xy2407.kingdom.server.path.UnitSnapshotStore;
 import com.xy2407.kingdom.server.road.RoadStore;
@@ -107,8 +112,155 @@ public final class KingdomCommands {
                         .then(mapCommand())
                         .then(farmCommand())
                         .then(ranchCommand())
+                        .then(mineCommand())
                         .then(snapshotCommand())
                         .then(fundsCommand())));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> mineCommand() {
+        return Commands.literal("mine")
+                .then(Commands.literal("create")
+                        .executes(ctx -> mineCreate(ctx, 8))
+                        .then(Commands.argument("half", IntegerArgumentType.integer(2, 32))
+                                .executes(ctx -> mineCreate(ctx, IntegerArgumentType.getInteger(ctx, "half")))))
+                .then(Commands.literal("pause").executes(ctx -> mineSetStatus(ctx, MiningPlot.STATUS_PAUSED)))
+                .then(Commands.literal("resume").executes(ctx -> mineSetStatus(ctx, MiningPlot.STATUS_RUNNING)))
+                .then(Commands.literal("status").executes(KingdomCommands::mineStatus));
+    }
+
+    private static int mineCreate(CommandContext<CommandSourceStack> ctx, int half)
+            throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        ServerLevel level = player.serverLevel();
+        BuildingRecord building = nearestMiningBuilding(player);
+        if (building == null) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "附近没有采矿分类的工业建筑——先给蓝图 json 填 industry_kind=采矿 再建造"));
+            return 0;
+        }
+        BlockPos min = new BlockPos(player.getBlockX() - half, level.getMinBuildHeight(),
+                player.getBlockZ() - half);
+        BlockPos max = new BlockPos(player.getBlockX() + half, player.getBlockY() + 8,
+                player.getBlockZ() + half);
+        int surfaceY = Integer.MIN_VALUE;
+        for (int x = min.getX(); x <= max.getX(); x++) {
+            for (int z = min.getZ(); z <= max.getZ(); z++) {
+                surfaceY = Math.max(surfaceY,
+                        WorldSurfaceSampler.walkableSurfaceY(level, x, z, WorldSurfaceSampler.NO_WALKABLE));
+            }
+        }
+        if (surfaceY == Integer.MIN_VALUE) {
+            ctx.getSource().sendFailure(Component.literal("框选范围内没有可站立的地表"));
+            return 0;
+        }
+        NpcData worker = nearestCitizen(player);
+        List<UUID> workers = worker == null ? List.of() : List.of(worker.getId());
+        if (worker != null) {
+            worker.setWorkplaceId(building.id().toString());
+            worker.setWorkRecipeId("");
+        }
+        int spanX = max.getX() - min.getX() + 1;
+        int spanZ = max.getZ() - min.getZ() + 1;
+        long[] rawCells = new long[Math.max(0, spanX * spanZ)];
+        int cellIndex = 0;
+        for (int x = min.getX(); x <= max.getX(); x++) {
+            for (int z = min.getZ(); z <= max.getZ(); z++) {
+                rawCells[cellIndex++] = BlockPos.asLong(x, surfaceY, z);
+            }
+        }
+        MiningPlot plot = MiningPlotManager.INSTANCE.create(building, "矿场",
+                min, max, surfaceY, workers, DateSystem.totalDay(level),
+                MiningPlot.normalize(rawCells));
+        if (plot == null) {
+            ctx.getSource().sendFailure(Component.literal("矿场创建失败"));
+            return 0;
+        }
+        int surface = surfaceY;
+        ctx.getSource().sendSuccess(() -> Component.literal("矿场已建立：范围 "
+                + min.getX() + "," + min.getZ() + " ~ " + max.getX() + "," + max.getZ()
+                + "　地表 y=" + surface
+                + "　采矿工=" + (worker == null ? "未指派" : worker.getName())), true);
+        return 1;
+    }
+
+    private static int mineSetStatus(CommandContext<CommandSourceStack> ctx, String status)
+            throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        MiningPlot plot = nearestPlot(player);
+        if (plot == null) {
+            ctx.getSource().sendFailure(Component.literal("附近没有矿场"));
+            return 0;
+        }
+        MiningPlotManager.INSTANCE.update(plot.withStatus(status));
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "矿场 " + plot.name() + " → " + status), true);
+        return 1;
+    }
+
+    private static int mineStatus(CommandContext<CommandSourceStack> ctx)
+            throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        MiningPlot plot = nearestPlot(player);
+        if (plot == null) {
+            ctx.getSource().sendFailure(Component.literal("附近没有矿场"));
+            return 0;
+        }
+        int total = plot.layerSize();
+        ctx.getSource().sendSuccess(() -> Component.literal("—— 矿场 " + plot.name() + " ——"), false);
+        ctx.getSource().sendSuccess(() -> Component.literal("状态=" + plot.status()
+                + "　当前层 y=" + plot.currentY() + "　本层进度 " + plot.cursor() + "/" + total
+                + "　地表 y=" + plot.surfaceY()), false);
+        ctx.getSource().sendSuccess(() -> Component.literal("采矿工="
+                + (plot.workerIds().isEmpty() ? "未指派" : plot.workerIds().size() + " 名")), false);
+        for (UUID workerId : plot.workerIds()) {
+            NpcData worker = NpcManager.INSTANCE.getNpc(workerId);
+            if (worker == null) {
+                continue;
+            }
+            boolean mining = worker.getBrain().isMiningControlled();
+            ctx.getSource().sendSuccess(() -> Component.literal("  " + worker.getName()
+                    + " 控制位=" + mining
+                    + " 位置=" + (int) worker.getX() + "," + (int) worker.getY() + "," + (int) worker.getZ()
+                    + " 岗位=" + (worker.getWorkplaceId() == null ? "无" : worker.getWorkplaceId().substring(0, 8))), false);
+        }
+        return 1;
+    }
+
+    private static BuildingRecord nearestMiningBuilding(ServerPlayer player) {
+        String dimension = player.level().dimension().location().toString();
+        BuildingRecord best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (BuildingRecord building : BuildingRegistry.INSTANCE.all()) {
+            if (!dimension.equals(building.dimension())) {
+                continue;
+            }
+            BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(building);
+            if (meta == null || meta.industryKind() != IndustryKind.MINING) {
+                continue;
+            }
+            double distance = building.min().distSqr(player.blockPosition());
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = building;
+            }
+        }
+        return best;
+    }
+
+    private static MiningPlot nearestPlot(ServerPlayer player) {
+        MiningPlot best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (MiningPlot plot : MiningPlotManager.INSTANCE.all()) {
+            if (!plot.dimension().equals(player.level().dimension().location().toString())) {
+                continue;
+            }
+            double distance = plot.min().distSqr(player.blockPosition());
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = plot;
+            }
+        }
+        return best;
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> fundsCommand() {
@@ -151,6 +303,40 @@ public final class KingdomCommands {
         CommandSourceStack source = ctx.getSource();
         ServerPlayer player = source.getPlayerOrException();
         source.sendSuccess(() -> Component.literal("—— 单元快照存储 ——"), false);
+        ServerLevel level = player.serverLevel();
+        String dimension = level.dimension().location().toString();
+        int chunkX = player.getBlockX() >> 4;
+        int chunkZ = player.getBlockZ() >> 4;
+        source.sendSuccess(() -> Component.literal("玩家：" + dimension + "  区块[" + chunkX + ","
+                + chunkZ + "]  坐标 " + player.getBlockX() + "," + player.getBlockY()
+                + "," + player.getBlockZ()), false);
+        int[] window = UnitSnapshotStore.INSTANCE.windowOf(dimension);
+        int playerLayer = player.getBlockY() >> 4;
+        source.sendSuccess(() -> Component.literal("玩家所在层=" + playerLayer + "  y "
+                + (playerLayer << 4) + ".." + ((playerLayer << 4) + 15)), false);
+        source.sendSuccess(() -> Component.literal("领地活动窗口：" + (window == null ? "未设置"
+                : ("层 " + window[0] + ".." + window[1] + "  y "
+                + (window[0] << 4) + ".." + ((window[1] << 4) + 15)))
+                + "（仅用于建筑按需预热，玩家窗口始终全高）"), false);
+        int minLayer = window == null ? level.getMinBuildHeight() >> 4 : window[0];
+        int maxLayer = window == null ? (level.getMaxBuildHeight() - 1) >> 4 : window[1];
+        int built = 0;
+        int total = 0;
+        for (int dx = -4; dx <= 4; dx++) {
+            for (int dz = -4; dz <= 4; dz++) {
+                for (int layer = minLayer; layer <= maxLayer; layer++) {
+                    total++;
+                    if (UnitSnapshotStore.INSTANCE.peek(dimension, chunkX + dx, layer, chunkZ + dz) != null) {
+                        built++;
+                    }
+                }
+            }
+        }
+        int builtFinal = built;
+        int totalFinal = total;
+        source.sendSuccess(() -> Component.literal("玩家窗口（±4 区块）：单元 " + builtFinal + "/"
+                + totalFinal + " 已构建"
+                + (totalFinal == 0 ? "" : String.format("（%.0f%%）", builtFinal * 100.0D / totalFinal))), false);
         for (String line : UnitSnapshotStore.INSTANCE.report()) {
             source.sendSuccess(() -> Component.literal(line), false);
         }
@@ -274,10 +460,10 @@ public final class KingdomCommands {
                 com.mojang.blaze3d.platform.NativeImage.Format.RGBA, size, size, false);
         for (int z = 0; z < size; z++) {
             for (int x = 0; x < size; x++) {
-                int packed = snapshot.colors()[z * size + x];
-                int abgr = packed == WorldSurfaceSampler.UNEXPLORED
+                int argb = snapshot.colors()[z * size + x];
+                int abgr = argb == WorldSurfaceSampler.UNEXPLORED
                         ? 0xFF000000
-                        : MapColor.getColorFromPackedId(packed);
+                        : (argb & 0xFF00FF00) | ((argb >> 16) & 0xFF) | ((argb & 0xFF) << 16);
                 image.setPixelRGBA(x, z, abgr);
             }
         }

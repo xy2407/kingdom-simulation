@@ -1,6 +1,7 @@
 package com.xy2407.kingdom.client.building;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -236,12 +237,13 @@ public final class BuildingPanelScreen extends ApricityScreen {
             host.setInnerHTML("<div class=\"bp-empty\">载入中…</div>");
             return;
         }
-        List<ResidentListPacket.Worker> visible = new ArrayList<>();
+        Map<UUID, ResidentListPacket.Worker> unique = new LinkedHashMap<>();
         for (ResidentListPacket.Worker worker : packet.workers()) {
             if (residentFilter.isBlank() || worker.name().contains(residentFilter)) {
-                visible.add(worker);
+                unique.putIfAbsent(worker.id(), worker);
             }
         }
+        List<ResidentListPacket.Worker> visible = new ArrayList<>(unique.values());
         if (visible.isEmpty()) {
             AuiLazyList.clear(host);
             host.setInnerHTML("<div class=\"bp-empty\">"

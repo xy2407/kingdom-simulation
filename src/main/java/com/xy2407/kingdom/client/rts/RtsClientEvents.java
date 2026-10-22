@@ -48,6 +48,14 @@ public final class RtsClientEvents {
             "key.categories.xy2407_kingdom"
     );
 
+    public static final KeyMapping TOGGLE_MINING_BRUSH = new KeyMapping(
+            "key.xy2407_kingdom.mining_brush",
+            KeyConflictContext.IN_GAME,
+            InputConstants.Type.KEYSYM,
+            GLFW.GLFW_KEY_M,
+            "key.categories.xy2407_kingdom"
+    );
+
     private static final float OVERLAY_DOCUMENT_Z = 2000.0F;
     private static final float OVERLAY_CROSSHAIR_Z = 100.0F;
 
@@ -67,6 +75,9 @@ public final class RtsClientEvents {
             if (RtsModeManager.isActive()) {
                 RtsModeManager.setOrthoEnabled(!RtsModeManager.isOrthoEnabled());
             }
+        }
+        while (TOGGLE_MINING_BRUSH.consumeClick()) {
+            com.xy2407.kingdom.client.mining.MiningBrushSelector.toggle();
         }
 
         if (minecraft.player == null || minecraft.level == null) {
@@ -207,6 +218,12 @@ public final class RtsClientEvents {
             return;
         }
         if (event.isCanceled() || overAui()) {
+            event.setCanceled(true);
+            return;
+        }
+        // 区域框选拖角中：滚轮调角块高度（对齐建筑投影的滚轮调 y 手感）
+        if (RegionSelectionState.isDragging()) {
+            RegionSelectionState.adjustHeight(event.getScrollDeltaY() > 0 ? 1 : -1);
             event.setCanceled(true);
             return;
         }

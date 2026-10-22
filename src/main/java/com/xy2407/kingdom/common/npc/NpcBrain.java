@@ -20,6 +20,7 @@ public final class NpcBrain {
     private boolean ranchControlled;
     private boolean industryControlled;
     private boolean restaurantControlled;
+    private boolean miningControlled;
     private WanderStyle wanderStyle = WanderStyle.RANDOM_WALK;
     private boolean forageDue;
     private int tickCounter = ThreadLocalRandom.current().nextInt(MAIN_LOOP_INTERVAL);
@@ -54,6 +55,20 @@ public final class NpcBrain {
         if (constructionControlled) {
             setPlan(phase(), NpcSubState.WORKING, NpcDetail.BUILDING);
             return;
+        }
+        if (miningControlled) {
+            NpcSubState scheduled = NpcSchedule.subState(owner.getShift(), owner.getDayTime());
+            boolean goingWork = scheduled == NpcSubState.MOVING
+                    && NpcSchedule.moveDetail(owner.getShift(), owner.getDayTime()) == NpcDetail.GOING_WORK;
+            if (scheduled == NpcSubState.WORKING || goingWork) {
+                setPlan(phase(), NpcSubState.WORKING, NpcDetail.MINING);
+                return;
+            }
+            if (owner.getSubState() == NpcSubState.WORKING) {
+                setPlan(phase(), NpcSubState.MOVING,
+                        NpcSchedule.moveDetail(owner.getShift(), owner.getDayTime()));
+                return;
+            }
         }
         if (farmControlled) {
             if (NpcSchedule.subState(owner.getShift(), owner.getDayTime()) == NpcSubState.WORKING) {
@@ -95,7 +110,7 @@ public final class NpcBrain {
 
     private void correctDrift() {
         if (rtsControlled || constructionControlled || farmControlled || ranchControlled
-                || industryControlled || restaurantControlled) {
+                || industryControlled || restaurantControlled || miningControlled) {
             return;
         }
         NpcSubState subState = owner.getSubState();
@@ -269,7 +284,8 @@ public final class NpcBrain {
                 + " 农=" + farmControlled
                 + " 牧=" + ranchControlled
                 + " 工=" + industryControlled
-                + " 餐=" + restaurantControlled + "]";
+                + " 餐=" + restaurantControlled
+                + " 矿=" + miningControlled + "]";
     }
 
     public boolean isRtsControlled() {
@@ -314,6 +330,14 @@ public final class NpcBrain {
 
     public boolean isRestaurantControlled() {
         return restaurantControlled;
+    }
+
+    public boolean isMiningControlled() {
+        return miningControlled;
+    }
+
+    public void setMiningControlled(boolean miningControlled) {
+        this.miningControlled = miningControlled;
     }
 
     public void setRestaurantControlled(boolean restaurantControlled) {

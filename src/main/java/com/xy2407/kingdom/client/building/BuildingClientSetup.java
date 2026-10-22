@@ -15,6 +15,7 @@ import com.xy2407.kingdom.client.structure.StructureDebugKeybind;
 import com.xy2407.kingdom.common.network.debug.NpcPathDebugHooks;
 import com.xy2407.kingdom.common.network.npc.NpcRosterHooks;
 import com.xy2407.kingdom.common.network.industry.IndustryPanelHooks;
+import com.xy2407.kingdom.common.network.mining.MiningPanelHooks;
 import com.xy2407.kingdom.common.network.building.BuildingMoveHooks;
 import com.xy2407.kingdom.common.network.building.BuildingPanelHooks;
 import com.xy2407.kingdom.common.network.building.BuildingSiteHooks;
@@ -67,6 +68,7 @@ public final class BuildingClientSetup {
         RestaurantHooks.menuSink = BuildingPanelClient::acceptRestaurantMenu;
         BuildingMoveHooks.syncSink = ClientBuildingStore::accept;
         IndustryPanelHooks.stateSink = IndustryPanelScreen::accept;
+        MiningPanelHooks.setStateSink(IndustryPanelScreen::acceptMines);
         FarmPanelHooks.stateSink = FarmPanelScreen::accept;
         RanchPanelHooks.stateSink = RanchPanelScreen::accept;
         CityHallHooks.openSink = CityHallScreen::open;

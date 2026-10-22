@@ -681,7 +681,7 @@ public final class CityHallScreen extends ApricityScreen {
         }
     }
 
-    private static String mapTipHtml() {
+    public static String mapTipHtml() {
         MapOverlayStore.BuildingView building = MapOverlayStore.selectedBuilding();
         if (building != null) {
             int width = building.maxX() - building.minX() + 1;

@@ -34,6 +34,8 @@ public final class NpcPathfinder {
 
     public static final int SEGMENT_RANGE = MAX_RANGE;
 
+    public static final int SEGMENT_VERTICAL = 32;
+
     static final int SEGMENT_RANGE_MIN = 16;
 
     static final int SEGMENT_Y_SPAN = 16;
@@ -138,21 +140,29 @@ public final class NpcPathfinder {
             return null;
         }
         double dx = end.getX() - start.getX();
+        double dy = end.getY() - start.getY();
         double dz = end.getZ() - start.getZ();
         double horizontal = Math.sqrt(dx * dx + dz * dz);
-        if (horizontal <= SEGMENT_RANGE) {
+        if (horizontal <= SEGMENT_RANGE && Math.abs(dy) <= SEGMENT_VERTICAL) {
             return null;
         }
+        double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        int limit = Math.abs(dy) > SEGMENT_VERTICAL
+                ? Math.min(SEGMENT_VERTICAL, (int) distance)
+                : Math.min(SEGMENT_RANGE, (int) distance);
         int[] bounds = bounds(start, end, padding);
         SnapshotView view = SnapshotView.create(repository, dimension, bounds[0], bounds[1], bounds[2], bounds[3]);
-        for (int step = SEGMENT_RANGE; step >= SEGMENT_RANGE_MIN; step -= 3) {
-            double t = step / horizontal;
+        for (int step = limit; step >= SEGMENT_RANGE_MIN; step -= 3) {
+            double t = step / distance;
             int x = (int) Math.floor(start.getX() + 0.5D + dx * t);
+            int y = (int) Math.floor(start.getY() + dy * t);
             int z = (int) Math.floor(start.getZ() + 0.5D + dz * t);
-            for (int y = start.getY() + SEGMENT_Y_SPAN;
-                 y >= start.getY() - SEGMENT_Y_SPAN; y--) {
-                if (view.standable(x, y, z)) {
-                    return new BlockPos(x, y, z);
+            for (int offset = 0; offset <= SEGMENT_Y_SPAN; offset++) {
+                if (view.standable(x, y - offset, z)) {
+                    return new BlockPos(x, y - offset, z);
+                }
+                if (offset > 0 && view.standable(x, y + offset, z)) {
+                    return new BlockPos(x, y + offset, z);
                 }
             }
         }
@@ -176,7 +186,8 @@ public final class NpcPathfinder {
         if (startY == Integer.MIN_VALUE || endY == Integer.MIN_VALUE) {
             return new PathResult(List.of(), view.missingChunks());
         }
-        if (start.getX() == end.getX() && start.getZ() == end.getZ()) {
+        if (start.getX() == end.getX() && start.getZ() == end.getZ()
+                && Math.abs(startY - endY) <= 2) {
             return new PathResult(List.of(new Waypoint(new BlockPos(start.getX(), startY, start.getZ()),
                     Waypoint.Move.WALK)), view.missingChunks());
         }
@@ -212,7 +223,8 @@ public final class NpcPathfinder {
             if (snappedStart == Integer.MIN_VALUE || snappedEnd == Integer.MIN_VALUE) {
                 return new PathResult(List.of(), view.missingChunks());
             }
-            if (start.getX() == end.getX() && start.getZ() == end.getZ()) {
+            if (start.getX() == end.getX() && start.getZ() == end.getZ()
+                    && Math.abs(snappedStart - snappedEnd) <= 2) {
                 return new PathResult(List.of(new Waypoint(new BlockPos(start.getX(), snappedStart, start.getZ()),
                         Waypoint.Move.WALK)), view.missingChunks());
             }

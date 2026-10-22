@@ -14,7 +14,7 @@ import net.minecraft.core.BlockPos;
  */
 final class NpcRtsController {
 
-    private static final double DENSE_ARRIVE_SQR = 0.5625D;
+    private static final double RTS_ARRIVE_SQR = 4.0D;
     private static final double CROWD_ARRIVE_SQR = 2.25D;
     private static final double GROUP_HANDOFF_SQR = 9.0D;
     private static final double ARRIVE_HEIGHT = 1.0D;
@@ -24,7 +24,6 @@ final class NpcRtsController {
     private final ArrayDeque<BlockPos> waypoints = new ArrayDeque<>();
     private BlockPos target;
     private boolean clearOnArrive;
-    private double arriveSqr = DENSE_ARRIVE_SQR;
     private BlockPos groupDest;
     private int stuckTicks;
     private BlockPos stuckAnchor;
@@ -59,7 +58,6 @@ final class NpcRtsController {
         waypoints.addAll(route);
         target = waypoints.peekLast();
         clearOnArrive = false;
-        arriveSqr = CROWD_ARRIVE_SQR;
         groupDest = null;
         stuckTicks = 0;
         stuckAnchor = null;
@@ -89,7 +87,7 @@ final class NpcRtsController {
     }
 
     double arrivalThreshold() {
-        return target == null ? 1.0D : (clearOnArrive ? CROWD_ARRIVE_SQR : arriveSqr);
+        return target == null ? 1.0D : RTS_ARRIVE_SQR;
     }
 
     boolean withinHandoff(BlockPos pos) {
@@ -155,7 +153,6 @@ final class NpcRtsController {
     private void apply(BlockPos destination, boolean clear) {
         target = destination;
         clearOnArrive = clear;
-        arriveSqr = DENSE_ARRIVE_SQR;
         npc.stopConstructionPath();
         NpcData data = npc.getCitizenId() == null ? null : NpcManager.INSTANCE.getNpc(npc.getCitizenId());
         if (data != null) {
@@ -182,10 +179,8 @@ final class NpcRtsController {
     private boolean isArrived(BlockPos destination) {
         double dx = npc.getX() - (destination.getX() + 0.5D);
         double dz = npc.getZ() - (destination.getZ() + 0.5D);
-        double limit = clearOnArrive ? CROWD_ARRIVE_SQR : arriveSqr;
-        return dx * dx + dz * dz < limit
-                && Math.abs(npc.getY() - destination.getY()) < ARRIVE_HEIGHT
-                && npc.canOccupy(npc.blockPosition());
+        return dx * dx + dz * dz < RTS_ARRIVE_SQR
+                && Math.abs(npc.getY() - destination.getY()) < ARRIVE_HEIGHT;
     }
 
 }

@@ -22,6 +22,11 @@ public record FarmPlot(UUID id, UUID buildingId, String blueprintName, String na
         extra = extra == null ? List.of() : List.copyOf(extra);
     }
 
+    public FarmPlot withWorkerIds(List<UUID> workers) {
+        return new FarmPlot(id, buildingId, blueprintName, name, slots, cropId, workers,
+                dimension, min, max, createdDay, extra);
+    }
+
     public boolean hasCore() {
         return max.getX() > min.getX() || max.getZ() > min.getZ();
     }

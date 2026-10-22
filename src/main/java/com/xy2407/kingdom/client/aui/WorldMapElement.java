@@ -22,14 +22,14 @@ import com.xy2407.kingdom.client.map.RoadClientStore;
 import com.xy2407.kingdom.client.map.WorldRoadScreen;
 import com.xy2407.kingdom.common.building.BuildingType;
 import com.xy2407.kingdom.common.faction.Territory;
+import com.xy2407.kingdom.common.map.WorldSurfaceSampler;
 import com.xy2407.kingdom.common.road.RoadPolyline;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.util.FastColor;
 import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.material.MapColor;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 
@@ -89,6 +89,25 @@ public class WorldMapElement extends Canvas {
 
     private static final int CHUNK_SIZE = 16;
 
+    private static final int CHUNK_AREA = CHUNK_SIZE * CHUNK_SIZE;
+
+    // 块高度无效值（浮点载体）
+    private static final float NO_HEIGHT = Float.NaN;
+
+    // 光照参数（Xaero 同源几何）：环境光 0.5 + 直射光，平地归一
+    private static final float DIRECT_LIGHT = 0.6666667f * 0.88388f;
+
+    private static final float FLAT_NORMALIZE = 0.9714f;
+
+    private static final float DEPTH_BASE = 63.0f;
+
+    // 等高线：高度带间距与真坎最小高差
+    private static final int CONTOUR_STEP = 12;
+
+    private static final int CONTOUR_DROP = 3;
+
+    private static final float CONTOUR_DIM = 0.75f;
+
     private static final double MIN_CHUNK_GRID_PIXELS = 32.0;
 
     private static final int CHUNK_GRID_THICKNESS = 2;
@@ -139,9 +158,6 @@ public class WorldMapElement extends Canvas {
     private static boolean loggedShortBuffer;
     private static boolean loggedBadSurface;
 
-    private static final int[] PALETTE = new int[256];
-    private static boolean paletteReady;
-
     private double zoom = 1.0;
     private double panX;
     private double panZ;
@@ -158,6 +174,16 @@ public class WorldMapElement extends Canvas {
     private int paintedOriginZ;
     private long paintedStamp;
     private long nextContentNanos;
+    private long paintedPlayerChunk = NO_CHUNK;
+    private float[] rowHeightA;
+    private float[] rowHeightB;
+    private int[] rowColorBuffer;
+
+    private static final long NO_CHUNK = Long.MIN_VALUE;
+
+    private static final Color PLAYER_MARKER_OUTLINE = new Color(246, 240, 224);
+
+    private static final Color PLAYER_MARKER_FILL = new Color(214, 48, 38);
 
     private static BufferedImage markerImage;
     private static Rectangle markerContentBounds;
@@ -281,7 +307,7 @@ public class WorldMapElement extends Canvas {
         }
         ImageDrawer.drawWithUvWindow(poseStack, textureLocation,
                 (float) contentPos.x, (float) contentPos.y,
-                (float) contentSize.width(), (float) contentSize.height(), true,
+                (float) contentSize.width(), (float) contentSize.height(), false,
                 getWidth(), getHeight(),
                 (float) (SURFACE_MARGIN - dragPixelX), (float) (SURFACE_MARGIN - dragPixelY),
                 (float) contentSize.width(), (float) contentSize.height());
@@ -325,6 +351,22 @@ public class WorldMapElement extends Canvas {
         boolean geometry = resized || forceRebuild || paintedViewX != viewX || paintedViewZ != viewZ
                 || paintedStep != step || paintedToken != token
                 || Double.compare(paintedBlocks, blocksX) != 0 || selectionDirty;
+
+        // 玩家移动 → 局部重绘玩家标记（新旧位置各覆盖 2×2 区块，静止时零开销）
+        long playerKey = playerChunkKey();
+        if (playerKey != paintedPlayerChunk) {
+            long previous = paintedPlayerChunk;
+            paintedPlayerChunk = playerKey;
+            if (!geometry && previous != NO_CHUNK && paintedWidth > 0
+                    && getWidth() == paintedWidth && getHeight() == paintedHeight) {
+                repaintAroundPlayer(playerKey);
+                if (previous != playerKey) {
+                    repaintAroundPlayer(previous);
+                }
+                syncTexture();
+                return;
+            }
+        }
 
         if (!geometry) {
             long now = System.nanoTime();
@@ -401,6 +443,8 @@ public class WorldMapElement extends Canvas {
             drawSelection(graphics, 0, 0, surfaceWidth, surfaceHeight);
             drawMarker(graphics, surfaceWidth, surfaceHeight,
                     paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
+            drawPlayerMarker(graphics, surfaceWidth, surfaceHeight,
+                    paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
         }, null);
         syncTexture();
     }
@@ -448,6 +492,8 @@ public class WorldMapElement extends Canvas {
             drawSelection(graphics, x0, y0, x1, y1);
             drawMarker(graphics, surfaceWidth, surfaceHeight,
                     paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
+            drawPlayerMarker(graphics, surfaceWidth, surfaceHeight,
+                    paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
         }, bounds);
     }
 
@@ -473,39 +519,261 @@ public class WorldMapElement extends Canvas {
         if (!ClientMapStore.hasAnyChunk()) {
             return;
         }
-        int startY = top - (top % step);
-        for (int py = startY; py < bottom; py += step) {
-            int worldZ = originZ + (int) Math.round(py / pixelsPerBlock);
-            int chunkZ = worldZ >> 4;
-            int offsetInChunk = (worldZ & 15) * CHUNK_SIZE;
-            int rowStart = Math.max(py, top);
-            int rowEnd = Math.min(py + step, bottom);
-            byte[] cell = null;
-            int loadedChunkX = Integer.MIN_VALUE;
-            int startX = left - (left % step);
-            for (int px = startX; px < right; px += step) {
-                int worldX = originX + (int) Math.round(px / pixelsPerBlock);
-                int chunkX = worldX >> 4;
-                if (chunkX != loadedChunkX) {
-                    loadedChunkX = chunkX;
-                    cell = ClientMapStore.chunk(chunkX, chunkZ);
+        // 两条路径，光照都在渲染层按"当前视口的有效高度场"现算（缩放级别越高
+        // 高度场越平滑，只有大尺度地形出明暗——这正是缩小时不糊的关键）：
+        // ① step>1：块平均颜色 + 块平均高度 → 块间坡度（归一到每格）→ 光照；
+        // ② step==1：逐像素 1:1 高度场 → 光照；最近邻锐利。
+        double invPpb = 1.0D / pixelsPerBlock;
+        if (step > 1) {
+            int startY = top - (top % step);
+            int slots = (right - left) / step + 4;
+            float[] curH = rowHeightBuffer(0, slots);
+            float[] prevH = rowHeightBuffer(1, slots);
+            int[] curColor = rowColorBuffer(slots);
+            boolean prevValid = false;
+            int prevCount = 0;
+            float blocksPerSample = (float) (step * invPpb);
+            for (int py = startY; py < bottom; py += step) {
+                double vz0 = originZ + (py - 0.5) * invPpb;
+                double vz1 = vz0 + invPpb;
+                int gz0 = (int) Math.floor(vz0);
+                int gz1 = (int) Math.ceil(vz1) - 1;
+                int rowStart = Math.max(py, top);
+                int rowEnd = Math.min(py + step, bottom);
+                int startX = left - (left % step);
+                int count = 0;
+                for (int px = startX; px < right; px += step) {
+                    double vx0 = originX + (px - 0.5) * invPpb;
+                    double vx1 = vx0 + invPpb;
+                    int gx0 = (int) Math.floor(vx0);
+                    int gx1 = (int) Math.ceil(vx1) - 1;
+                    long sumR = 0;
+                    long sumG = 0;
+                    long sumB = 0;
+                    float sumH = 0.0f;
+                    int samples = 0;
+                    int hCount = 0;
+                    for (int gz = gz0; gz <= gz1; gz++) {
+                        int offsetInChunk = (gz & 15) * CHUNK_SIZE;
+                        for (int gx = gx0; gx <= gx1; gx++) {
+                            int[] cell = ClientMapStore.chunk(gx >> 4, gz >> 4);
+                            if (cell == null) {
+                                continue;
+                            }
+                            int argb = cell[offsetInChunk + (gx & 15)];
+                            if (argb == 0) {
+                                continue;
+                            }
+                            sumR += (argb >> 16) & 0xFF;
+                            sumG += (argb >> 8) & 0xFF;
+                            sumB += argb & 0xFF;
+                            samples++;
+                            float h = cell[CHUNK_AREA + offsetInChunk + (gx & 15)];
+                            if (h != WorldSurfaceSampler.NO_SURFACE) {
+                                sumH += h;
+                                hCount++;
+                            }
+                        }
+                    }
+                    if (samples == 0) {
+                        // 未探索/无数据块同样占位，保持 index 与采样点一一对应，
+                        // 否则夹黑块时颜色与位置整体错开（内容跑到边缘、中心发黑）
+                        curColor[count] = 0;
+                        curH[count] = NO_HEIGHT;
+                        count++;
+                        continue;
+                    }
+                    curColor[count] = 0xFF000000
+                            | ((int) (sumR / samples)) << 16
+                            | ((int) (sumG / samples)) << 8
+                            | (int) (sumB / samples);
+                    curH[count] = hCount == 0 ? NO_HEIGHT : sumH / hCount;
+                    count++;
                 }
-                if (cell == null) {
-                    continue;
+                int index = 0;
+                for (int px = startX; px < right && index < count; px += step, index++) {
+                    float k = 1.0f;
+                    float center = curH[index];
+                    if (center != NO_HEIGHT) {
+                        float up = prevValid && index < prevCount ? prevH[index] : NO_HEIGHT;
+                        float leftH = index > 0 ? curH[index - 1] : NO_HEIGHT;
+                        float dhN = up == NO_HEIGHT ? 0.0f : (center - up) / blocksPerSample;
+                        float dhW = leftH == NO_HEIGHT ? 0.0f : (center - leftH) / blocksPerSample;
+                        k = slopeLight(dhN, dhW) * depthBrightness(center);
+                        if (isContourBlock(center, up, leftH)) {
+                            k *= CONTOUR_DIM;
+                        }
+                    }
+                    int color = applyBrightness(curColor[index], k);
+                    if (color == 0) {
+                        continue;
+                    }
+                    int columnStart = Math.max(px, left);
+                    int columnEnd = Math.min(px + step, right);
+                    for (int y = rowStart; y < rowEnd; y++) {
+                        int row = y * surfaceWidth;
+                        Arrays.fill(pixels, row + columnStart, row + columnEnd, color);
+                    }
                 }
-                int packed = cell[offsetInChunk + (worldX & 15)] & 0xFF;
-                if (packed == 0) {
-                    continue;
-                }
-                int color = mapArgb(packed);
-                int columnStart = Math.max(px, left);
-                int columnEnd = Math.min(px + step, right);
-                for (int y = rowStart; y < rowEnd; y++) {
-                    int row = y * surfaceWidth;
-                    Arrays.fill(pixels, row + columnStart, row + columnEnd, color);
+                float[] swap = prevH;
+                prevH = curH;
+                curH = swap;
+                prevValid = true;
+                prevCount = count;
+            }
+        } else {
+            int startY = top - (top % step);
+            for (int py = startY; py < bottom; py += step) {
+                int worldZ = (int) Math.round(originZ + (py + 0.5) * invPpb);
+                int chunkZ = worldZ >> 4;
+                int offsetInChunk = (worldZ & 15) * CHUNK_SIZE;
+                int rowStart = Math.max(py, top);
+                int rowEnd = Math.min(py + step, bottom);
+                int[] cell = null;
+                int[] northCell = null;
+                int[] southCell = null;
+                int[] westCell = null;
+                int[] eastCell = null;
+                int loadedChunkX = Integer.MIN_VALUE;
+                int startX = left - (left % step);
+                for (int px = startX; px < right; px += step) {
+                    int worldX = (int) Math.round(originX + (px + 0.5) * invPpb);
+                    int chunkX = worldX >> 4;
+                    if (chunkX != loadedChunkX) {
+                        loadedChunkX = chunkX;
+                        cell = ClientMapStore.chunk(chunkX, chunkZ);
+                        northCell = ClientMapStore.chunk(chunkX, chunkZ - 1);
+                        southCell = ClientMapStore.chunk(chunkX, chunkZ + 1);
+                        westCell = ClientMapStore.chunk(chunkX - 1, chunkZ);
+                        eastCell = ClientMapStore.chunk(chunkX + 1, chunkZ);
+                    }
+                    if (cell == null) {
+                        continue;
+                    }
+                    int local = offsetInChunk + (worldX & 15);
+                    int color = cell[local];
+                    if (color == 0) {
+                        continue;
+                    }
+                    int height = cell[CHUNK_AREA + local];
+                    float k = 1.0f;
+                    if (height != WorldSurfaceSampler.NO_SURFACE) {
+                        int hN = (worldZ & 15) == 0
+                                ? heightAt(northCell, worldX, worldZ)
+                                : cell[CHUNK_AREA + local - CHUNK_SIZE];
+                        int hS = (worldZ & 15) == 15
+                                ? heightAt(southCell, worldX, worldZ)
+                                : cell[CHUNK_AREA + local + CHUNK_SIZE];
+                        int hW = (worldX & 15) == 0
+                                ? heightAt(westCell, worldX, worldZ)
+                                : cell[CHUNK_AREA + local - 1];
+                        int hE = (worldX & 15) == 15
+                                ? heightAt(eastCell, worldX, worldZ)
+                                : cell[CHUNK_AREA + local + 1];
+                        int dhN = hN == WorldSurfaceSampler.NO_SURFACE ? 0 : height - hN;
+                        int dhW = hW == WorldSurfaceSampler.NO_SURFACE ? 0 : height - hW;
+                        k = slopeLight(dhN, dhW) * depthBrightness(height);
+                        if (isContourBlock(height, hN, hS, hW, hE)) {
+                            k *= CONTOUR_DIM;
+                        }
+                    }
+                    color = applyBrightness(color, k);
+                    int columnStart = Math.max(px, left);
+                    int columnEnd = Math.min(px + step, right);
+                    for (int y = rowStart; y < rowEnd; y++) {
+                        int row = y * surfaceWidth;
+                        Arrays.fill(pixels, row + columnStart, row + columnEnd, color);
+                    }
                 }
             }
         }
+    }
+
+    private static int heightAt(int[] cell, int worldX, int worldZ) {
+        if (cell == null) {
+            return WorldSurfaceSampler.NO_SURFACE;
+        }
+        return cell[CHUNK_AREA + (worldZ & 15) * CHUNK_SIZE + (worldX & 15)];
+    }
+
+    // 坡度光照：表面法线与西北上方光向点乘，平地归一为 1
+    private static float slopeLight(float dhN, float dhW) {
+        float crossZ = -dhN;
+        float cos;
+        if (crossZ >= 1.0f) {
+            cos = 0.0f;
+        } else if (dhN == 1.0f && dhW == 1.0f) {
+            cos = 1.0f;
+        } else {
+            float crossX = dhN - dhW;
+            float cast = 1.0f - crossZ;
+            float magnitude = (float) Math.sqrt(crossX * crossX + 1.0f + crossZ * crossZ);
+            cos = (cast / magnitude) * 0.70710678f;
+        }
+        float direct = cos <= 0.0f
+                ? 0.0f
+                : Math.min(1.0f, (float) Math.ceil(cos * 10.0f) / 10.0f) * DIRECT_LIGHT;
+        return (0.5f + direct) / FLAT_NORMALIZE;
+    }
+
+    private static float depthBrightness(float height) {
+        return Math.max(0.9f, Math.min(1.0f, height / DEPTH_BASE));
+    }
+
+    private static int applyBrightness(int argb, float k) {
+        if (k == 1.0f) {
+            return argb;
+        }
+        int red = Math.min(255, Math.round(((argb >>> 16) & 0xFF) * k));
+        int green = Math.min(255, Math.round(((argb >>> 8) & 0xFF) * k));
+        int blue = Math.min(255, Math.round((argb & 0xFF) * k));
+        return 0xFF000000 | (red << 16) | (green << 8) | blue;
+    }
+
+    // 等高线（缩小路径，块平均高度）：与上/左邻块跨高度带且高差 ≥ CONTOUR_DROP
+    private static boolean isContourBlock(float height, float hN, float hW) {
+        if (height == NO_HEIGHT) {
+            return false;
+        }
+        int center = Math.round(height);
+        int band = Math.floorDiv(center, CONTOUR_STEP);
+        return crossesBand(hN, band, center) || crossesBand(hW, band, center);
+    }
+
+    // 等高线（放大路径，四邻）
+    private static boolean isContourBlock(int height, int hN, int hS, int hW, int hE) {
+        int band = Math.floorDiv(height, CONTOUR_STEP);
+        return crossesBand(hN, band, height) || crossesBand(hS, band, height)
+                || crossesBand(hW, band, height) || crossesBand(hE, band, height);
+    }
+
+    private static boolean crossesBand(float neighbor, int band, int center) {
+        if (neighbor == NO_HEIGHT || neighbor == WorldSurfaceSampler.NO_SURFACE) {
+            return false;
+        }
+        int value = Math.round(neighbor);
+        return Math.floorDiv(value, CONTOUR_STEP) != band
+                && Math.abs(value - center) >= CONTOUR_DROP;
+    }
+
+    private float[] rowHeightBuffer(int slot, int slots) {
+        float[] buffer = slot == 0 ? rowHeightA : rowHeightB;
+        if (buffer == null || buffer.length < slots) {
+            buffer = new float[slots];
+            if (slot == 0) {
+                rowHeightA = buffer;
+            } else {
+                rowHeightB = buffer;
+            }
+        }
+        return buffer;
+    }
+
+    private int[] rowColorBuffer(int slots) {
+        if (rowColorBuffer == null || rowColorBuffer.length < slots) {
+            rowColorBuffer = new int[slots];
+        }
+        return rowColorBuffer;
     }
 
     private int[] surfacePixels() {
@@ -990,6 +1258,39 @@ public class WorldMapElement extends Canvas {
         }
     }
 
+    // 玩家位置标记：固定屏幕尺寸的红点白边，仅标自己；随移动局部重绘
+    private void drawPlayerMarker(Graphics2D graphics, int surfaceWidth, int surfaceHeight,
+                                  int originX, int originZ, double pixelsPerBlock) {
+        LocalPlayer player = Minecraft.getInstance().player;
+        if (player == null) {
+            return;
+        }
+        int cx = (int) Math.round((player.getX() - originX) * pixelsPerBlock);
+        int cz = (int) Math.round((player.getZ() - originZ) * pixelsPerBlock);
+        if (cx < -8 || cz < -8 || cx >= surfaceWidth + 8 || cz >= surfaceHeight + 8) {
+            return;
+        }
+        graphics.setColor(PLAYER_MARKER_OUTLINE);
+        graphics.fillRect(cx - 3, cz - 3, 7, 7);
+        graphics.setColor(PLAYER_MARKER_FILL);
+        graphics.fillRect(cx - 2, cz - 2, 5, 5);
+    }
+
+    private static long playerChunkKey() {
+        LocalPlayer player = Minecraft.getInstance().player;
+        return player == null ? NO_CHUNK : ChunkPos.asLong(player.blockPosition());
+    }
+
+    // 重画玩家所在区块及其相邻区块，保证标记残影被底图覆盖
+    private void repaintAroundPlayer(long key) {
+        int chunkX = ChunkPos.getX(key);
+        int chunkZ = ChunkPos.getZ(key);
+        repaintChunk(ChunkPos.asLong(chunkX, chunkZ));
+        repaintChunk(ChunkPos.asLong(chunkX + 1, chunkZ));
+        repaintChunk(ChunkPos.asLong(chunkX, chunkZ + 1));
+        repaintChunk(ChunkPos.asLong(chunkX + 1, chunkZ + 1));
+    }
+
     private static BufferedImage markerImage() {
         if (markerImage != null) {
             return markerImage;
@@ -1057,24 +1358,6 @@ public class WorldMapElement extends Canvas {
 
     private double clampZoom(double value) {
         return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value));
-    }
-
-    private static int mapArgb(int packed) {
-        if (packed < 0 || packed > 255) {
-            return 0;
-        }
-        if (!paletteReady) {
-            for (int index = 0; index < PALETTE.length; index++) {
-                int abgr = MapColor.getColorFromPackedId(index);
-                PALETTE[index] = FastColor.ARGB32.color(
-                        FastColor.ARGB32.alpha(abgr),
-                        FastColor.ARGB32.blue(abgr),
-                        FastColor.ARGB32.green(abgr),
-                        FastColor.ARGB32.red(abgr));
-            }
-            paletteReady = true;
-        }
-        return PALETTE[packed];
     }
 
     private void updateTooltip(MouseEvent event) {

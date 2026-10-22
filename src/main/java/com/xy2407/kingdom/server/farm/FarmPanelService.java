@@ -121,7 +121,8 @@ public final class FarmPanelService {
         for (FarmPlot plot : FarmPlotManager.INSTANCE.plotsOf(building.id())) {
             plots.add(new FarmPanelStatePacket.Plot(plot.id(), plot.name(), plot.slots(), plot.cropId(),
                     plot.hasArea(), plot.min().getX(), plot.min().getZ(),
-                    plot.max().getX(), plot.max().getZ(), plot.min().getY(), plot.workerIds(),
+                    plot.max().getX(), plot.max().getZ(), plot.min().getY(),
+                    NpcOccupation.aliveOnly(plot.workerIds()),
                     plot.extra()));
         }
         return new FarmPanelStatePacket(true, building.name(), building.farmSlots(),

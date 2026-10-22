@@ -28,7 +28,7 @@ public final class RtsSharedPath {
 
     private static final double JOIN_RADIUS_SQR = 24.0D * 24.0D;
     private static final long ENTRY_TTL_TICKS = 600L;
-    private static final double[] LANE_OFFSETS = {0.0D, 0.7D, -0.7D, 1.4D, -1.4D, 2.1D, -2.1D, 2.8D, -2.8D};
+    private static final double[] LANE_OFFSETS = {0.0D, 0.7D, -0.7D, 1.4D, -1.4D, 2.1D, -2.1D};
     private static final int LANE_TAPER_WAYPOINTS = 4;
 
     private static final Map<MinecraftServer, RtsSharedPath> INSTANCES =

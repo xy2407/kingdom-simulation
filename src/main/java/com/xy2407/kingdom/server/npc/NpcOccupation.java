@@ -1,11 +1,17 @@
 package com.xy2407.kingdom.server.npc;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import com.xy2407.kingdom.common.farm.FarmPlot;
+import com.xy2407.kingdom.common.mining.MiningPlot;
 import com.xy2407.kingdom.common.npc.NpcData;
+import com.xy2407.kingdom.common.npc.NpcManager;
+import com.xy2407.kingdom.common.npc.NpcMiningService;
 import com.xy2407.kingdom.common.ranch.RanchPen;
 import com.xy2407.kingdom.server.farm.FarmPlotManager;
+import com.xy2407.kingdom.server.mining.MiningPlotManager;
 import com.xy2407.kingdom.server.ranch.RanchPenManager;
 import com.xy2407.kingdom.server.task.RegionTaskService;
 
@@ -44,6 +50,51 @@ public final class NpcOccupation {
 
     public static boolean isEmployed(NpcData npc) {
         return conflict(npc, null) != null;
+    }
+
+    public static void detachWork(UUID npcId) {
+        if (npcId == null) {
+            return;
+        }
+        for (FarmPlot plot : FarmPlotManager.INSTANCE.all()) {
+            if (!plot.workerIds().contains(npcId)) {
+                continue;
+            }
+            List<UUID> workers = new ArrayList<>(plot.workerIds());
+            workers.remove(npcId);
+            FarmPlotManager.INSTANCE.update(plot.withWorkerIds(workers));
+        }
+        for (RanchPen pen : RanchPenManager.INSTANCE.all()) {
+            if (!pen.keeperIds().contains(npcId)) {
+                continue;
+            }
+            List<UUID> keepers = new ArrayList<>(pen.keeperIds());
+            keepers.remove(npcId);
+            RanchPenManager.INSTANCE.update(pen.withKeeperIds(keepers));
+        }
+        for (MiningPlot plot : MiningPlotManager.INSTANCE.all()) {
+            if (!plot.workerIds().contains(npcId)) {
+                continue;
+            }
+            List<UUID> workers = new ArrayList<>(plot.workerIds());
+            workers.remove(npcId);
+            MiningPlotManager.INSTANCE.update(plot.withWorkerIds(workers));
+        }
+        NpcMiningService.unlinkWorker(npcId);
+    }
+
+    public static List<UUID> aliveOnly(List<UUID> ids) {
+        List<UUID> result = new ArrayList<>();
+        if (ids == null) {
+            return result;
+        }
+        for (UUID id : ids) {
+            NpcData npc = NpcManager.INSTANCE.getNpc(id);
+            if (npc != null && !npc.isDead()) {
+                result.add(id);
+            }
+        }
+        return result;
     }
 
     public static String note(NpcData npc, UUID allowedBuildingId) {

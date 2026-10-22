@@ -712,10 +712,22 @@ body{
       <div class="bp-empty" id="im-empty">这座建筑没有配置生产配方</div>
     </div>
 
+    <!-- 矿坑：一处建筑一个矿坑，行由 Java 注入 -->
+    <div class="bp-block">
+      <div class="bp-sec">
+        <span class="bp-sec-title">矿坑</span>
+        <span class="bp-sec-actions">
+          <span class="bp-sec-note" id="im-mine-count">0 处</span>
+        </span>
+      </div>
+      <div class="bp-list" id="im-mines"></div>
+      <div class="bp-empty" id="im-mine-empty">这座建筑还没有矿坑</div>
+    </div>
+
   </div>
 
   <div class="bp-foot" id="im-foot">
-    <div class="bp-btn bp-btn-main" id="im-start">开始生产</div>
+    <div class="bp-btn bp-btn-main" id="im-start">＋ 创建矿坑</div>
     <div class="bp-btn" id="bp-close">关闭</div>
   </div>
 
@@ -759,6 +771,47 @@ body{
 
   <div class="bp-foot bp-foot-off" id="ic-foot">
     <div class="bp-btn" id="ic-close">返回</div>
+  </div>
+
+  <!-- ======================= 三级：矿坑详情（看进度 + 派矿工 + 暂停删除） ======================= -->
+  <div class="bp-head bp-head-off" id="in-head">
+    <span class="bp-type">矿坑</span>
+    <span class="bp-title" id="in-name">—</span>
+    <span class="bp-back" id="in-back">返回</span>
+  </div>
+
+  <div class="bp-body bp-body-off" id="in-body">
+
+    <div class="bp-info">
+      <div class="bp-info-row"><span class="bp-k">范围</span><span class="bp-v" id="in-area">—</span></div>
+      <div class="bp-info-row"><span class="bp-k">当前层</span><span class="bp-v" id="in-layer">—</span></div>
+      <div class="bp-info-row"><span class="bp-k">本层进度</span><span class="bp-v" id="in-progress">—</span></div>
+      <div class="bp-info-row"><span class="bp-k">状态</span><span class="bp-v" id="in-status">未开始</span></div>
+    </div>
+
+    <div class="bp-block bp-block-people">
+      <div class="bp-sec">
+        <span class="bp-sec-title">矿工</span>
+        <span class="bp-sec-actions">
+          <span class="bp-sec-note" id="in-workers-note">0 人</span>
+        </span>
+      </div>
+      <div class="bp-search">
+        <span class="bp-search-icon">⌕</span>
+        <input type="text" id="in-worker-search" maxlength="16" placeholder="搜索附近居民…">
+        <span class="bp-search-clear" id="in-worker-search-clear">✕</span>
+      </div>
+      <div class="bp-list" id="in-workers"></div>
+      <div class="bp-empty" id="in-workers-empty">城里还没有可雇的市民</div>
+    </div>
+
+  </div>
+
+  <div class="bp-foot bp-foot-off" id="in-foot">
+    <div class="bp-btn bp-btn-main" id="in-pause">暂停开采</div>
+    <div class="bp-btn" id="in-redraw">重新框选</div>
+    <div class="bp-btn" id="in-delete">删除矿坑</div>
+    <div class="bp-btn" id="in-close">返回</div>
   </div>
 
   <!-- 与 farm.html 的 fd-foot 同款：打开仓库独占底栏第二行，不与主操作挤在一起 -->

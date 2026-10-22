@@ -8,6 +8,7 @@ import java.util.UUID;
 
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingRecord;
+import com.xy2407.kingdom.common.building.IndustryKind;
 import com.xy2407.kingdom.common.building.BuildingType;
 import com.xy2407.kingdom.common.building.ItemCount;
 import com.xy2407.kingdom.common.building.RecipeSpec;
@@ -82,7 +83,8 @@ public final class NpcIndustryService {
                 continue;
             }
             BuildingRecord building = buildingOf(npc);
-            boolean industry = building != null && isIndustry(building);
+            boolean industry = building != null && isIndustry(building)
+                    && !isMiningKind(building);
             NpcBrain brain = npc.getBrain();
             if (!industry) {
                 if (brain.isIndustryControlled()) {
@@ -100,6 +102,11 @@ public final class NpcIndustryService {
         for (Map.Entry<UUID, List<NpcData>> entry : crews.entrySet()) {
             handOver(buildings.get(entry.getKey()), entry.getValue());
         }
+    }
+
+    private static boolean isMiningKind(BuildingRecord building) {
+        BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(building);
+        return meta != null && meta.industryKind() == IndustryKind.MINING;
     }
 
     private static void handOver(BuildingRecord building, List<NpcData> crew) {

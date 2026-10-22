@@ -6,9 +6,11 @@ import java.util.List;
 import net.minecraft.core.BlockPos;
 
 /**
- * 路径后处理拉直：仅合并同一水平层内可直行的航点段，任何 y 偏移的相邻航点一律保留。
+ * 路径后处理拉直：仅同层内向后最多 4 格合并直线段，贴合道路表现且限制开销。
  */
 public final class PathSmoother {
+
+    private static final int MAX_SPAN = 4;
 
     private PathSmoother() {
     }
@@ -22,8 +24,9 @@ public final class PathSmoother {
         int anchor = 0;
         out.add(path.get(0));
         while (anchor < path.size() - 1) {
+            int limit = Math.min(path.size() - 1, anchor + MAX_SPAN);
             int next = anchor + 1;
-            for (int j = path.size() - 1; j > anchor; j--) {
+            for (int j = limit; j > anchor; j--) {
                 if (isFlat(path, anchor, j)
                         && canWalkFlat(path.get(anchor).pos(), path.get(j).pos(), view)) {
                     next = j;

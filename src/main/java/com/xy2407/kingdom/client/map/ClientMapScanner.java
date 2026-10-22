@@ -167,8 +167,10 @@ public final class ClientMapScanner {
             if (!level.getChunkSource().hasChunk(chunkX, chunkZ)) {
                 continue;
             }
-            int[] colors = WorldSurfaceSampler.sampleChunk(level, chunkX, chunkZ);
-            ClientMapStore.record(level.dimension(), chunkX, chunkZ, colors);
+            WorldSurfaceSampler.SampledChunk chunkData =
+                    WorldSurfaceSampler.sampleChunk(level, chunkX, chunkZ);
+            ClientMapStore.record(level.dimension(), chunkX, chunkZ,
+                    chunkData.colors(), chunkData.heights());
             sampled++;
         }
         return sampled;

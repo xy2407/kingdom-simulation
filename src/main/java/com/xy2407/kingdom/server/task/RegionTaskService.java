@@ -352,6 +352,7 @@ public final class RegionTaskService {
             employees.remove(npcId);
         }
         persistEmployee(npcId, false);
+        NpcOccupation.detachWork(npcId);
     }
 
     public UUID pickHireCandidate(ServerLevel level) {

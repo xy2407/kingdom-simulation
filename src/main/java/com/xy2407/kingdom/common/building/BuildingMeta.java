@@ -10,7 +10,8 @@ public record BuildingMeta(String id, String name, BuildingType type,
                            List<CropSpec> crops,
                            List<AnimalSpec> animals, List<RecipeSpec> recipes,
                            String subtype, List<MenuSpec> menu,
-                           List<TroopSpec> troops, int patrolRadius, String nation) {
+                           List<TroopSpec> troops, int patrolRadius, String nation,
+                           IndustryKind industryKind) {
 
     public static final String SUBTYPE_RESTAURANT = "restaurant";
     public static final String SUBTYPE_SHOP = "shop";
@@ -34,7 +35,7 @@ public record BuildingMeta(String id, String name, BuildingType type,
 
     public static BuildingMeta fallback(String id, BuildingType type) {
         return new BuildingMeta(id, shortName(id), type, List.of(), 1, 0, 0, 0, List.of(),
-                List.of(), List.of(), "", List.of(), List.of(), 0, "");
+                List.of(), List.of(), "", List.of(), List.of(), 0, "", null);
     }
 
     public static String shortName(String id) {
@@ -47,5 +48,9 @@ public record BuildingMeta(String id, String name, BuildingType type,
 
     public String typeLabel() {
         return type == null ? "未分类" : type.label();
+    }
+
+    public String industryKindLabel() {
+        return industryKind == null ? "未分类" : industryKind.label();
     }
 }

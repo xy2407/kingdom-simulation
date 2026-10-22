@@ -8,6 +8,7 @@ import com.sighs.apricityui.init.Element;
 import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingType;
+import com.xy2407.kingdom.client.aui.AuiLazyList;
 import com.xy2407.kingdom.client.aui.KingdomAuiStencil;
 import com.xy2407.kingdom.client.aui.StructurePreviewElement;
 import com.xy2407.kingdom.client.building.BuildingPanelClient;
@@ -677,12 +678,9 @@ public final class StructureDebugKeybind {
             container.setInnerHTML("<div class=\"card-empty\">没有符合条件的建筑</div>");
             return;
         }
-        StringBuilder html = new StringBuilder();
-        for (int index = 0; index < visible.size(); index++) {
-            html.append(cardHtml(visible.get(index), index));
-        }
-        container.setInnerHTML(html.toString());
-        bindCards(document, visible);
+        AuiLazyList.renderHorizontal(container, visible.size(),
+                index -> cardHtml(visible.get(index), index),
+                index -> bindCard(document, visible.get(index), index));
     }
 
     private static boolean matchesSearch(KingdomSimulationStructures.Entry entry) {
@@ -714,18 +712,15 @@ public final class StructureDebugKeybind {
                 + "</div>" + cap + load + "</div>";
     }
 
-    private static void bindCards(Document document, List<KingdomSimulationStructures.Entry> visible) {
-        for (int index = 0; index < visible.size(); index++) {
-            KingdomSimulationStructures.Entry entry = visible.get(index);
-            cardIndex.put("card-" + index, entry);
-            Element tooBig = document.getElementById("big-" + index);
-            if (tooBig != null) {
-                tooBig.addEventListener("click", event -> expandPreview(tooBig, entry.id()));
-            }
-            Element load = document.getElementById("load-" + index);
-            if (load != null) {
-                load.addEventListener("click", event -> loadIntoWorld(entry.id()));
-            }
+    private static void bindCard(Document document, KingdomSimulationStructures.Entry entry, int index) {
+        cardIndex.put("card-" + index, entry);
+        Element tooBig = document.getElementById("big-" + index);
+        if (tooBig != null) {
+            tooBig.addEventListener("click", event -> expandPreview(tooBig, entry.id()));
+        }
+        Element load = document.getElementById("load-" + index);
+        if (load != null) {
+            load.addEventListener("click", event -> loadIntoWorld(entry.id()));
         }
     }
 

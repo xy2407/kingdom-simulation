@@ -1,7 +1,9 @@
 package com.xy2407.kingdom.client.ranch;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import com.sighs.apricityui.element.Input;
@@ -272,12 +274,13 @@ public final class RanchPanelScreen extends ApricityScreen {
         }
         List<UUID> keepers = animal == null ? List.of() : animal.keepers();
         setText(workersNote, keepers.size() + " 人");
-        List<Worker> visible = new ArrayList<>();
+        Map<UUID, Worker> unique = new LinkedHashMap<>();
         for (Worker worker : latest.workers()) {
             if (workerFilter.isBlank() || worker.name().contains(workerFilter)) {
-                visible.add(worker);
+                unique.putIfAbsent(worker.id(), worker);
             }
         }
+        List<Worker> visible = new ArrayList<>(unique.values());
         if (visible.isEmpty()) {
             AuiLazyList.clear(workersHost);
             workersHost.setInnerHTML("");

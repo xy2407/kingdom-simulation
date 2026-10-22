@@ -38,6 +38,7 @@ import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
@@ -81,11 +82,15 @@ public class NpcEntity extends PathfinderMob {
     private static final int WORK_STUCK_TICKS = 40;
     private static final int WORK_STUCK_LIMIT = 3;
     private static final int WORK_SEARCH_FAIL_LIMIT = 8;
+    private static final int SEGMENT_STALE_LIMIT = 300;
     private static final int LOCAL_RECONNECT_COOLDOWN_TICKS = 60;
     private static final int LOCAL_RECONNECT_FAIL_TICKS = 100;
+    private static final int BUILDER_REPATH_INTERVAL = 5;
     private static final long WORK_PATH_TIMEOUT_NANOS = 10_000_000_000L;
     private static final int BUILDER_STUCK_TELEPORT_TICKS = 40;
     private static final double[] SLIDE_OFFSETS = {0.25D, 0.5D, 0.75D, 1.0D};
+    private static final double CORNER_ARRIVE = 0.35D;
+    private static final double PASSED_MAX_SQR = 4.0D;
     private static final double SLIDE_FORWARD = 0.3D;
     private static final int SLIDE_DURATION_TICKS = 8;
     private static final int SLIDE_COOLDOWN_TICKS = 30;
@@ -123,6 +128,8 @@ public class NpcEntity extends PathfinderMob {
     private BlockPos workStandSource;
     private BlockPos workStand;
     private BlockPos segmentTarget;
+    private int segmentStaleTicks;
+    private double segmentBestDistance = Double.MAX_VALUE;
     private BlockPos workAnchor;
     private int workStuckTicks;
     private int workFailures;
@@ -130,6 +137,7 @@ public class NpcEntity extends PathfinderMob {
     private int slideTicks;
     private int slideCooldown;
     private int localReconnectCooldown;
+    private int builderRepathCooldown;
     private int pathPaddingStage;
     private int builderStuckTicks;
     private double builderStuckBestDist = Double.MAX_VALUE;
@@ -186,19 +194,35 @@ public class NpcEntity extends PathfinderMob {
     }
 
     public boolean tickConstructionPath(BlockPos target) {
-        boolean closeEnough = nearTarget(target, 1.0D) && canOccupy(blockPosition());
-        boolean arrived = closeEnough || tickPathTo(target);
-        if (arrived) {
+        double adx = getX() - (target.getX() + 0.5D);
+        double adz = getZ() - (target.getZ() + 0.5D);
+        boolean closeEnough = adx * adx + adz * adz <= 4.0D
+                && Math.abs(Math.floor(getY() + 0.5D) - target.getY()) <= 2.0D;
+        if (closeEnough) {
             builderStuckTicks = 0;
             builderStuckBestDist = Double.MAX_VALUE;
-        } else {
-            checkBuilderStuck(target);
-        }
-        if (closeEnough) {
             followPath = List.of();
             followIndex = 0;
+            return true;
         }
-        return arrived;
+        if (followIndex >= followPath.size() && --builderRepathCooldown <= 0) {
+            builderRepathCooldown = BUILDER_REPATH_INTERVAL;
+            if (level() instanceof ServerLevel serverLevel) {
+                int chebyshev = Math.max(Math.abs(target.getX() - getBlockX()),
+                        Math.abs(target.getZ() - getBlockZ())) + Math.abs(target.getY() - getBlockY());
+                int depth = Math.max(4, Math.min(16, chebyshev + 3));
+                List<NpcPathfinder.Waypoint> direct =
+                        NpcLocalRepath.findPath(serverLevel, blockPosition(), target, depth);
+                if (direct != null) {
+                    applyPath(direct);
+                }
+            }
+        }
+        if (followIndex < followPath.size()) {
+            followWaypoints();
+        }
+        checkBuilderStuck(target);
+        return false;
     }
 
     boolean tickPathTo(BlockPos target) {
@@ -214,8 +238,7 @@ public class NpcEntity extends PathfinderMob {
         double dz = getZ() - (stand.getZ() + 0.5D);
         double arriveSqr = rts.arrivalThreshold();
         if (dx * dx + dz * dz < arriveSqr
-                && Math.abs(Math.floor(getY() + 0.5D) - stand.getY()) < 1.0D
-                && canOccupy(blockPosition())) {
+                && Math.abs(Math.floor(getY() + 0.5D) - stand.getY()) < 1.0D) {
             stopConstructionPath();
             if (rts.withinHandoff(blockPosition())) {
                 rts.clearGroupDest();
@@ -485,7 +508,7 @@ public class NpcEntity extends PathfinderMob {
         return true;
     }
 
-    boolean canOccupy(BlockPos pos) {
+    public boolean canOccupy(BlockPos pos) {
         if (!level().isLoaded(pos) || !standsOn(pos.below())
                 || !passable(pos) || !passable(pos.above())) {
             return false;
@@ -513,12 +536,26 @@ public class NpcEntity extends PathfinderMob {
     private BlockPos applySegment(BlockPos stand) {
         if (segmentTarget != null && nearTarget(segmentTarget, WORK_ARRIVE_SQR)) {
             segmentTarget = null;
+            segmentStaleTicks = 0;
+            segmentBestDistance = Double.MAX_VALUE;
+        }
+        if (segmentTarget != null) {
+            double distance = blockPosition().distSqr(segmentTarget);
+            if (distance < segmentBestDistance - 0.01D) {
+                segmentBestDistance = distance;
+                segmentStaleTicks = 0;
+            } else if (++segmentStaleTicks > SEGMENT_STALE_LIMIT) {
+                segmentTarget = null;
+                segmentStaleTicks = 0;
+                segmentBestDistance = Double.MAX_VALUE;
+            }
         }
         if (segmentTarget != null) {
             return segmentTarget;
         }
-        if (blockPosition().distSqr(stand) <= (double) NpcPathfinder.SEGMENT_RANGE
-                * NpcPathfinder.SEGMENT_RANGE) {
+        BlockPos here = blockPosition();
+        if (here.distSqr(stand) <= (double) NpcPathfinder.SEGMENT_RANGE * NpcPathfinder.SEGMENT_RANGE
+                && Math.abs(here.getY() - stand.getY()) <= NpcPathfinder.SEGMENT_VERTICAL) {
             return stand;
         }
         if (!(level() instanceof ServerLevel serverLevel)) {
@@ -526,11 +563,13 @@ public class NpcEntity extends PathfinderMob {
         }
         SnapshotRepository repository = SnapshotRepository.get(serverLevel.getServer());
         BlockPos midway = NpcPathfinder.midway(repository, serverLevel.dimension(),
-                blockPosition(), stand, NpcPathfinder.paddingOf(pathPaddingStage));
+                here, stand, NpcPathfinder.paddingOf(pathPaddingStage));
         if (midway == null) {
             return stand;
         }
-        segmentTarget = new BlockPos((midway.getX() >> 3) << 3, midway.getY(), (midway.getZ() >> 3) << 3);
+        segmentTarget = midway;
+        segmentStaleTicks = 0;
+        segmentBestDistance = Double.MAX_VALUE;
         return segmentTarget;
     }
 
@@ -614,11 +653,15 @@ public class NpcEntity extends PathfinderMob {
             double dz = getZ() - (pos.getZ() + 0.5D);
             double arrive = switch (waypoint.move()) {
                 case CLIMB -> 1.15D;
-                case WALK -> 0.5D;
+                case WALK -> isCorner(followIndex) ? CORNER_ARRIVE : 0.5D;
                 default -> 1.0D;
             };
             if (dx * dx + dz * dz <= arrive * arrive
                     && Math.abs(Math.floor(getY() + 0.5D) - pos.getY()) < 1.0D) {
+                if (waypoint.move() == NpcPathfinder.Waypoint.Move.CLIMB
+                        && followIndex + 1 < followPath.size()) {
+                    teleportOffLadder(pos, followPath.get(followIndex + 1).pos());
+                }
                 followIndex++;
                 continue;
             }
@@ -646,6 +689,9 @@ public class NpcEntity extends PathfinderMob {
                 || next.move() == NpcPathfinder.Waypoint.Move.CLIMB) {
             return false;
         }
+        if (isCorner(index) || waypoint.pos().distSqr(blockPosition()) > PASSED_MAX_SQR) {
+            return false;
+        }
         BlockPos pos = waypoint.pos();
         BlockPos nextPos = next.pos();
         if (Math.abs(nextPos.getY() - pos.getY()) > 1) {
@@ -656,6 +702,23 @@ public class NpcEntity extends PathfinderMob {
         double relX = getX() - (pos.getX() + 0.5D);
         double relZ = getZ() - (pos.getZ() + 0.5D);
         return relX * dirX + relZ * dirZ > 0.0D;
+    }
+
+    private boolean isCorner(int index) {
+        if (index <= 0 || index + 1 >= followPath.size()) {
+            return false;
+        }
+        BlockPos prev = followPath.get(index - 1).pos();
+        BlockPos current = followPath.get(index).pos();
+        BlockPos next = followPath.get(index + 1).pos();
+        if (prev.getY() != current.getY() || current.getY() != next.getY()) {
+            return true;
+        }
+        int ax = current.getX() - prev.getX();
+        int az = current.getZ() - prev.getZ();
+        int bx = next.getX() - current.getX();
+        int bz = next.getZ() - current.getZ();
+        return ax * bx + az * bz <= 0;
     }
 
     private void resyncFollowIndex() {
@@ -713,6 +776,48 @@ public class NpcEntity extends PathfinderMob {
 
     private void climbMove(double climbDirection) {
         vertical.climbMove(climbDirection);
+    }
+
+    private void teleportOffLadder(BlockPos current, BlockPos next) {
+        if (isClimbCell(next)) {
+            return;
+        }
+        BlockPos target = adjacentStep(current, next);
+        if (target == null || !canOccupy(target)) {
+            return;
+        }
+        teleportTo(target.getX() + 0.5D, target.getY(), target.getZ() + 0.5D);
+        setDeltaMovement(Vec3.ZERO);
+        vertical.resetCooldown();
+        fallDistance = 0.0F;
+    }
+
+    private BlockPos adjacentStep(BlockPos current, BlockPos next) {
+        int sx = Integer.signum(next.getX() - current.getX());
+        int sz = Integer.signum(next.getZ() - current.getZ());
+        if (sx == 0 && sz == 0) {
+            int sy = Integer.signum(next.getY() - current.getY());
+            return sy == 0 ? null : current.above(sy);
+        }
+        if (sx == 0 || sz == 0) {
+            return current.offset(sx, 0, sz);
+        }
+        BlockPos diagonal = current.offset(sx, 0, sz);
+        if (canOccupy(diagonal)) {
+            return diagonal;
+        }
+        BlockPos alongX = current.offset(sx, 0, 0);
+        if (canOccupy(alongX)) {
+            return alongX;
+        }
+        BlockPos alongZ = current.offset(0, 0, sz);
+        return canOccupy(alongZ) ? alongZ : null;
+    }
+
+    private boolean isClimbCell(BlockPos pos) {
+        BlockState at = level().getBlockState(pos);
+        BlockState below = level().getBlockState(pos.below());
+        return at.is(BlockTags.CLIMBABLE) || below.is(BlockTags.CLIMBABLE);
     }
 
     public BlockPos getNavTarget() {
@@ -1226,6 +1331,10 @@ public class NpcEntity extends PathfinderMob {
                 stopSitting();
                 stayAt(data.getWorkX(), data.getWorkY(), data.getWorkZ());
                 NpcIndustryService.tick(this, data);
+            }
+            case MINING -> {
+                stopSitting();
+                NpcMiningService.tick(this, data);
             }
             case COOKING -> {
                 stopSitting();

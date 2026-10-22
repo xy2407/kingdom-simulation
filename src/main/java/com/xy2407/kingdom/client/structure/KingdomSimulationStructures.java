@@ -27,9 +27,16 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
+
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.packs.resources.Resource;
+import net.minecraft.server.packs.resources.ResourceManager;
 
 /**
  * 本地建筑库目录，只扫描结构文件名与尺寸供预览卡片使用。
@@ -43,6 +50,9 @@ public final class KingdomSimulationStructures {
     private static final String STRUCTURES_NAME = "structures";
     private static final String NBT_EXTENSION = ".nbt";
     private static final int SCAN_DEPTH = 2;
+    private static final String BUNDLED_NAMESPACE = "xy2407_kingdom";
+    private static final String BUNDLED_ROOT = "kingdom_simulation/structures";
+    private static final String BUNDLED_PREFIX = BUNDLED_ROOT + "/";
 
     private KingdomSimulationStructures() {
     }
@@ -70,32 +80,78 @@ public final class KingdomSimulationStructures {
     public static List<Entry> scan() {
         deploy();
         List<Entry> entries = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
         Path dir = structuresDir();
-        if (!Files.isDirectory(dir)) {
-            return entries;
+        if (Files.isDirectory(dir)) {
+            for (Path file : listLocal(dir)) {
+                Summary summary = readSummary(file);
+                if (summary == null) {
+                    StructureDebugChat.chat("剔除无法解析的结构文件：%s", dir.relativize(file));
+                    continue;
+                }
+                String id = stripExtension(dir.relativize(file).toString().replace('\\', '/'));
+                if (!seen.add(id)) {
+                    continue;
+                }
+                BuildingMeta meta = BuildingMetaLoader.load(file, id);
+                entries.add(new Entry(id, meta, summary.size(), summary.beds()));
+            }
         }
-        List<Path> files;
+        scanBundled(entries, seen);
+        entries.sort(Comparator.comparing(Entry::id));
+        return entries;
+    }
+
+    private static List<Path> listLocal(Path dir) {
         try (Stream<Path> stream = Files.walk(dir, SCAN_DEPTH)) {
-            files = stream.filter(Files::isRegularFile)
+            return stream.filter(Files::isRegularFile)
                     .filter(path -> path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(NBT_EXTENSION))
                     .sorted(Comparator.comparing(path -> dir.relativize(path).toString()))
                     .toList();
         } catch (IOException exception) {
             ModMain.LOGGER.error("Failed to list kingdom simulation structures folder {}", dir, exception);
-            return entries;
+            return List.of();
         }
+    }
 
-        for (Path file : files) {
-            Summary summary = readSummary(file);
-            if (summary == null) {
-                StructureDebugChat.chat("剔除无法解析的结构文件：%s", dir.relativize(file));
+    private static void scanBundled(List<Entry> entries, Set<String> seen) {
+        ResourceManager manager = Minecraft.getInstance().getResourceManager();
+        if (manager == null) {
+            return;
+        }
+        Map<ResourceLocation, Resource> found;
+        try {
+            found = manager.listResources(BUNDLED_ROOT, location ->
+                    BUNDLED_NAMESPACE.equals(location.getNamespace())
+                            && location.getPath().startsWith(BUNDLED_PREFIX)
+                            && location.getPath().endsWith(NBT_EXTENSION));
+        } catch (RuntimeException exception) {
+            ModMain.LOGGER.error("Failed to list bundled kingdom structures", exception);
+            return;
+        }
+        for (Map.Entry<ResourceLocation, Resource> item : found.entrySet()) {
+            String path = item.getKey().getPath().substring(BUNDLED_PREFIX.length());
+            if (path.chars().filter(character -> character == '/').count() > 1L) {
                 continue;
             }
-            String id = stripExtension(dir.relativize(file).toString().replace('\\', '/'));
-            BuildingMeta meta = BuildingMetaLoader.load(file, id);
+            String id = stripExtension(path);
+            if (!seen.add(id)) {
+                continue;
+            }
+            Summary summary;
+            try (InputStream stream = item.getValue().open()) {
+                summary = readSummary(stream);
+            } catch (IOException exception) {
+                continue;
+            }
+            if (summary == null) {
+                continue;
+            }
+            int slash = id.lastIndexOf('/');
+            String folder = slash < 0 ? null : id.substring(0, slash);
+            BuildingMeta meta = BuildingMeta.fallback(id, BuildingType.parse(folder));
             entries.add(new Entry(id, meta, summary.size(), summary.beds()));
         }
-        return entries;
     }
 
     private static String stripExtension(String relativePath) {
@@ -107,11 +163,19 @@ public final class KingdomSimulationStructures {
     }
 
     private static Summary readSummary(Path file) {
-        CompoundTag root;
         try (InputStream stream = Files.newInputStream(file)) {
-            root = NbtIo.readCompressed(stream, NbtAccounter.unlimitedHeap());
+            return readSummary(stream);
         } catch (IOException exception) {
             ModMain.LOGGER.error("Failed to read structure file {}", file, exception);
+            return null;
+        }
+    }
+
+    private static Summary readSummary(InputStream stream) {
+        CompoundTag root;
+        try {
+            root = NbtIo.readCompressed(stream, NbtAccounter.unlimitedHeap());
+        } catch (IOException exception) {
             return null;
         }
         ListTag sizeTag = root.getList("size", Tag.TAG_INT);

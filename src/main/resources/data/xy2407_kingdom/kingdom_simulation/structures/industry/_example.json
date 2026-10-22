@@ -1,6 +1,7 @@
 {
   "name": "木工坊",
   "type": "INDUSTRY",
+  "industry_kind": "加工",
   "tags": ["example", "wood"],
   "level": 1,
   "jobs": 3,

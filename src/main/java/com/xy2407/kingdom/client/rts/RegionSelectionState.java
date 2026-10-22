@@ -3,6 +3,7 @@ package com.xy2407.kingdom.client.rts;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.level.Level;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -25,6 +26,7 @@ public final class RegionSelectionState {
     private static BlockPos cornerB;
     private static BlockPos hover;
     private static int dragCorner;
+    private static Integer dragY;
     private static boolean regionVisible;
 
     private RegionSelectionState() {
@@ -37,7 +39,7 @@ public final class RegionSelectionState {
     public static void begin(Kind value) {
         kind = value == null ? Kind.FILL : value;
         resetCorners();
-        hint((kind == Kind.FILL ? "填充" : "拆除") + "区域：右键点击方块表面放角块，左键按住可拖动角块");
+        hint((kind == Kind.FILL ? "填充" : "拆除") + "区域：右键点击方块表面放角块，左键按住拖动角块，拖住时滚轮调高度");
     }
 
     public static void resetCorners() {
@@ -45,6 +47,7 @@ public final class RegionSelectionState {
         cornerB = null;
         hover = null;
         dragCorner = 0;
+        dragY = null;
         regionVisible = false;
         RegionHudLayer.closeConfirm();
     }
@@ -114,10 +117,14 @@ public final class RegionSelectionState {
             }
             hover = pickHover();
             if (dragCorner != 0 && hover != null) {
+                BlockPos base = hover.immutable();
+                BlockPos moved = dragY != null
+                        ? new BlockPos(base.getX(), dragY, base.getZ())
+                        : base;
                 if (dragCorner == 1) {
-                    cornerA = hover.immutable();
+                    cornerA = moved;
                 } else if (dragCorner == 2) {
-                    cornerB = hover.immutable();
+                    cornerB = moved;
                 }
             }
         } catch (Exception failure) {
@@ -171,6 +178,41 @@ public final class RegionSelectionState {
 
     public static void onLeftUp() {
         dragCorner = 0;
+        dragY = null;
+    }
+
+    public static boolean isDragging() {
+        return dragCorner != 0;
+    }
+
+    // 左键拖住角块时滚轮调该角高度；未拖动时调最后放置的角。
+    // 拖动中只记录 y 覆盖（x/z 仍随鼠标），避免被下一帧 hover 覆盖掉。
+    public static void adjustHeight(int delta) {
+        BlockPos target = dragCorner == 1 ? cornerA
+                : dragCorner == 2 ? cornerB
+                : cornerB != null ? cornerB : cornerA;
+        if (target == null) {
+            return;
+        }
+        int newY = clampHeight(target.getY() + delta);
+        if (dragCorner != 0) {
+            dragY = newY;
+        }
+        if (dragCorner == 1 || (dragCorner == 0 && target == cornerA)) {
+            cornerA = new BlockPos(cornerA.getX(), newY, cornerA.getZ());
+        } else {
+            cornerB = new BlockPos(cornerB.getX(), newY, cornerB.getZ());
+        }
+        hint("角块高度 → " + newY);
+    }
+
+    private static int clampHeight(int y) {
+        Level level = Minecraft.getInstance().level;
+        if (level == null) {
+            return y;
+        }
+        return Math.max(level.getMinBuildHeight(),
+                Math.min(level.getMaxBuildHeight() - 1, y));
     }
 
     public static void onKeyPress(int key) {

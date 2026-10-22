@@ -138,13 +138,13 @@ public final class BuildingConstructionService {
                 out.add(new BuildingTask.Step(
                         new BlockPos(pillar.getX(), y0 + 2, pillar.getZ()), SCAFFOLD_STATE,
                         BuildingTask.WorkKind.PILLAR, section,
-                        new BlockPos(pillar.getX(), y0 + 2, pillar.getZ())));
+                        new BlockPos(neighbor.getX(), y0 + 1, neighbor.getZ())));
                 out.add(new BuildingTask.Step(
                         new BlockPos(pillar.getX(), y0 + 3, pillar.getZ()), SCAFFOLD_STATE,
                         BuildingTask.WorkKind.PILLAR, section,
-                        new BlockPos(pillar.getX(), y0 + 3, pillar.getZ())));
+                        new BlockPos(neighbor.getX(), y0 + 1, neighbor.getZ())));
             }
-            appendRing(out, walk, y1, section, new BlockPos(walk.get(0).getX(), y1, walk.get(0).getZ()));
+            appendRing(out, walk, y1, section, new BlockPos(walk.get(0).getX(), y0 + 1, walk.get(0).getZ()));
             for (int y = y0; y <= Math.min(y1, height - 1); y++) {
                 for (StructureModel.BlockEntry entry : plan.layer(y)) {
                     BlockPos pos = entry.pos();
@@ -182,6 +182,11 @@ public final class BuildingConstructionService {
         if (repository == null) {
             return;
         }
+        BlockPos min = new BlockPos(origin.getX() - 8, origin.getY() - 2, origin.getZ() - 8);
+        BlockPos max = new BlockPos(origin.getX() + size.getX() + 8, origin.getY() + height + 4,
+                origin.getZ() + size.getZ() + 8);
+        UnitSnapshotStore.INSTANCE.buildNow(level.getServer(),
+                level.dimension().location().toString(), min, max);
         BlockPos from = new BlockPos((int) Math.floor(architect.getX()), (int) Math.floor(architect.getY()),
                 (int) Math.floor(architect.getZ()));
         BlockPos to = origin.offset(size.getX() / 2, Math.min(height, 8), size.getZ() / 2);

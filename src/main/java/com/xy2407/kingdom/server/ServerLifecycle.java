@@ -1,7 +1,10 @@
 package com.xy2407.kingdom.server;
 
 import com.xy2407.kingdom.common.npc.NpcManager;
+import com.xy2407.kingdom.common.npc.NpcMiningService;
 import com.xy2407.kingdom.common.path.SnapshotRepository;
+import com.xy2407.kingdom.server.mining.MiningPlotManager;
+import com.xy2407.kingdom.server.mining.MiningScanService;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
 import com.xy2407.kingdom.server.building.BuildingStorageStore;
@@ -59,6 +62,9 @@ public final class ServerLifecycle {
         RoadGraphService.reset();
         BuildingRoadAccess.reset();
         RoadFieldCache.reset();
+        MiningPlotManager.INSTANCE.reset();
+        NpcMiningService.reset();
+        MiningScanService.reset();
         MapOverlayCollector.install(event.getServer());
         UnitSnapshotStore.INSTANCE.reset();
         com.xy2407.kingdom.ModMain.LOGGER.info("[快照] 单元落盘压缩={}",

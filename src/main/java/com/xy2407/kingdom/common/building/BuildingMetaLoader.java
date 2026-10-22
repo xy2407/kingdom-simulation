@@ -65,7 +65,9 @@ public final class BuildingMetaLoader {
                 menu(root),
                 troops(root),
                 Math.max(0, integer(root, "patrol_radius", 0)),
-                string(root, "nation", "")
+                string(root, "nation", ""),
+                IndustryKind.parse(string(root, "industry_kind",
+                        string(root, "industryKind", null)))
         );
     }
 

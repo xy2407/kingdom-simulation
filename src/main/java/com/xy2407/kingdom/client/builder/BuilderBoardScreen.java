@@ -2,7 +2,9 @@ package com.xy2407.kingdom.client.builder;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -237,9 +239,14 @@ public final class BuilderBoardScreen extends ApricityScreen {
             host.setInnerHTML("<div class=\"bb-empty\">还没有建筑工，点上面「雇佣市民」收一个人</div>");
             return;
         }
-        AuiLazyList.render(host, employees.size(),
+        Map<UUID, BuilderBoardDataPacket.EmployeeEntry> unique = new LinkedHashMap<>();
+        for (BuilderBoardDataPacket.EmployeeEntry employee : employees) {
+            unique.putIfAbsent(employee.npcId(), employee);
+        }
+        List<BuilderBoardDataPacket.EmployeeEntry> roster = new ArrayList<>(unique.values());
+        AuiLazyList.render(host, roster.size(),
                 index -> {
-                    BuilderBoardDataPacket.EmployeeEntry employee = employees.get(index);
+                    BuilderBoardDataPacket.EmployeeEntry employee = roster.get(index);
                     return "<div class=\"bb-emp-row\">"
                             + "<div class=\"bb-face-frame\" id=\"bb-emp-" + index + "\">"
                             + "<kingdom-entity-avatar class=\"bb-face\" skin=\""
@@ -253,7 +260,7 @@ public final class BuilderBoardScreen extends ApricityScreen {
                             + "</div>";
                 },
                 index -> {
-                    BuilderBoardDataPacket.EmployeeEntry employee = employees.get(index);
+                    BuilderBoardDataPacket.EmployeeEntry employee = roster.get(index);
                     Element frame = document.getElementById("bb-emp-" + index);
                     if (frame != null) {
                         frame.addEventListener("mousedown", event ->

@@ -5,6 +5,7 @@ import com.xy2407.kingdom.common.path.ChunkSnapshot;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.material.MapColor;
@@ -12,15 +13,15 @@ import net.minecraft.world.level.material.MapColor;
 import java.util.Arrays;
 
 /**
- * 世界表面采样：把一块区域的地表转成地图像素，逐列取最高的有色方块。
+ * 世界表面采样：逐列取地表色与高度，颜色存无光照基色，光照由渲染层按视口分辨率现算。
  */
 public final class WorldSurfaceSampler {
 
-    public static final int UNEXPLORED = -1;
+    public static final int UNEXPLORED = 0;
 
     public static final int NO_WALKABLE = Integer.MIN_VALUE;
 
-    private static final int NO_SURFACE = Integer.MIN_VALUE;
+    public static final int NO_SURFACE = Integer.MIN_VALUE;
 
     private static final int MAX_STEP_HEIGHT = 1;
 
@@ -30,7 +31,7 @@ public final class WorldSurfaceSampler {
     private WorldSurfaceSampler() {
     }
 
-    public record Snapshot(int originX, int originZ, int size, int[] colors) {
+    public record Snapshot(int originX, int originZ, int size, int[] colors, int[] heights) {
 
         public int at(int worldX, int worldZ) {
             int x = worldX - originX;
@@ -52,16 +53,16 @@ public final class WorldSurfaceSampler {
         }
     }
 
+    public record SampledChunk(int[] colors, int[] heights) {
+    }
+
     public static Snapshot sample(Level level, int centerX, int centerZ, int radius) {
         int size = radius * 2 + 1;
         int originX = centerX - radius;
         int originZ = centerZ - radius;
         int[] colors = new int[size * size];
-        Arrays.fill(colors, UNEXPLORED);
-
         int[] heights = new int[size * size];
         Arrays.fill(heights, NO_SURFACE);
-        MapColor[] mapColors = new MapColor[size * size];
 
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         for (int dz = 0; dz < size; dz++) {
@@ -78,39 +79,28 @@ public final class WorldSurfaceSampler {
                 }
                 int index = dz * size + dx;
                 cursor.set(worldX, surface, worldZ);
-                heights[index] = surface;
-                mapColors[index] = level.getBlockState(cursor).getMapColor(level, cursor);
-            }
-        }
-
-        for (int dz = 0; dz < size; dz++) {
-            for (int dx = 0; dx < size; dx++) {
-                int index = dz * size + dx;
-                MapColor mapColor = mapColors[index];
-                if (mapColor == null || mapColor == MapColor.NONE) {
+                BlockState state = level.getBlockState(cursor);
+                if (state.getMapColor(level, cursor) == MapColor.NONE) {
                     continue;
                 }
-                colors[index] = mapColor.getPackedId(
-                        brightnessFor(heights, size, dx, dz, heights[index]));
+                heights[index] = surface;
+                colors[index] = baseArgb(state.getMapColor(level, cursor));
             }
         }
 
-        return new Snapshot(originX, originZ, size, colors);
+        return new Snapshot(originX, originZ, size, colors, heights);
     }
 
-    public static int[] sampleChunk(Level level, int chunkX, int chunkZ) {
+    public static SampledChunk sampleChunk(Level level, int chunkX, int chunkZ) {
         int[] colors = new int[CHUNK_CELLS];
-        Arrays.fill(colors, UNEXPLORED);
+        int[] heights = new int[CHUNK_CELLS];
+        Arrays.fill(heights, NO_SURFACE);
         if (!level.getChunkSource().hasChunk(chunkX, chunkZ)) {
-            return colors;
+            return new SampledChunk(colors, heights);
         }
 
         int originX = chunkX << 4;
         int originZ = chunkZ << 4;
-        int[] heights = new int[CHUNK_CELLS];
-        Arrays.fill(heights, NO_SURFACE);
-        MapColor[] mapColors = new MapColor[CHUNK_CELLS];
-
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         for (int dz = 0; dz < CHUNK_SIDE; dz++) {
             for (int dx = 0; dx < CHUNK_SIDE; dx++) {
@@ -122,58 +112,25 @@ public final class WorldSurfaceSampler {
                 }
                 int index = dz * CHUNK_SIDE + dx;
                 cursor.set(worldX, surface, worldZ);
-                heights[index] = surface;
-                mapColors[index] = level.getBlockState(cursor).getMapColor(level, cursor);
-            }
-        }
-
-        for (int dz = 0; dz < CHUNK_SIDE; dz++) {
-            for (int dx = 0; dx < CHUNK_SIDE; dx++) {
-                int index = dz * CHUNK_SIDE + dx;
-                MapColor mapColor = mapColors[index];
-                if (mapColor == null || mapColor == MapColor.NONE) {
+                BlockState state = level.getBlockState(cursor);
+                MapColor mapColor = state.getMapColor(level, cursor);
+                if (mapColor == MapColor.NONE) {
                     continue;
                 }
-                colors[index] = mapColor.getPackedId(
-                        brightnessFor(heights, CHUNK_SIDE, dx, dz, heights[index]));
+                heights[index] = surface;
+                colors[index] = baseArgb(mapColor);
             }
         }
-        return colors;
+        return new SampledChunk(colors, heights);
     }
 
-    private static MapColor.Brightness brightnessFor(int[] heights, int size,
-                                                     int dx, int dz, int height) {
-        long sum = 0;
-        int count = 0;
-        for (int offsetZ = -1; offsetZ <= 1; offsetZ++) {
-            for (int offsetX = -1; offsetX <= 1; offsetX++) {
-                if (offsetX == 0 && offsetZ == 0) {
-                    continue;
-                }
-                int neighborX = dx + offsetX;
-                int neighborZ = dz + offsetZ;
-                if (neighborX < 0 || neighborZ < 0 || neighborX >= size || neighborZ >= size) {
-                    continue;
-                }
-                int neighbor = heights[neighborZ * size + neighborX];
-                if (neighbor == NO_SURFACE) {
-                    continue;
-                }
-                sum += neighbor;
-                count++;
-            }
-        }
-        if (count == 0) {
-            return MapColor.Brightness.NORMAL;
-        }
-        double average = sum / (double) count;
-        if (height > average) {
-            return MapColor.Brightness.HIGH;
-        }
-        if (height < average) {
-            return MapColor.Brightness.LOW;
-        }
-        return MapColor.Brightness.NORMAL;
+    // 地貌基色：MapColor 的 NORMAL 档，无任何光照（光照在渲染层按视口分辨率现算）
+    private static int baseArgb(MapColor mapColor) {
+        int abgr = MapColor.getColorFromPackedId(mapColor.getPackedId(MapColor.Brightness.NORMAL));
+        int red = abgr & 0xFF;
+        int green = (abgr >>> 8) & 0xFF;
+        int blue = (abgr >>> 16) & 0xFF;
+        return 0xFF000000 | (red << 16) | (green << 8) | blue;
     }
 
     // 道路面的可行走采样（P0 对齐，D1 已定）：判定完全复用寻路快照的谓词语义——
@@ -247,7 +204,7 @@ public final class WorldSurfaceSampler {
         for (int y = from; y >= bottom; y--) {
             cursor.set(worldX, y, worldZ);
             BlockState state = level.getBlockState(cursor);
-            if (state.isAir()) {
+            if (state.isAir() || isGroundPlant(state)) {
                 continue;
             }
             if (state.getMapColor(level, cursor) != MapColor.NONE) {
@@ -255,5 +212,12 @@ public final class WorldSurfaceSampler {
             }
         }
         return NO_SURFACE;
+    }
+
+    // 覆盖在地表上的草类植物不采样（Xaero 同款做法），花朵/树叶/作物照常出图
+    private static boolean isGroundPlant(BlockState state) {
+        return state.is(Blocks.SHORT_GRASS) || state.is(Blocks.TALL_GRASS)
+                || state.is(Blocks.FERN) || state.is(Blocks.LARGE_FERN)
+                || state.is(Blocks.DEAD_BUSH);
     }
 }

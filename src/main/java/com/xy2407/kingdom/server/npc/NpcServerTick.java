@@ -2,6 +2,10 @@ package com.xy2407.kingdom.server.npc;
 
 import com.xy2407.kingdom.common.date.DailyProcessor;
 import com.xy2407.kingdom.common.npc.NpcManager;
+import com.xy2407.kingdom.common.npc.NpcMiningService;
+import com.xy2407.kingdom.common.path.SnapshotRepository;
+import com.xy2407.kingdom.server.mining.MiningPlotManager;
+import com.xy2407.kingdom.server.mining.MiningScanService;
 import com.xy2407.kingdom.server.path.UnitSnapshotStore;
 import com.xy2407.kingdom.server.faction.TerritoryVitalsService;
 import com.xy2407.kingdom.server.government.GovernmentAffairService;
@@ -40,8 +44,15 @@ public final class NpcServerTick {
     @SubscribeEvent
     public static void onServerTick(ServerTickEvent.Post event) {
         ServerLevel overworld = event.getServer().overworld();
+        SnapshotRepository repository = SnapshotRepository.get(event.getServer());
+        if (repository != null) {
+            repository.resetTickSearches();
+        }
         UnitSnapshotStore.INSTANCE.tick(event.getServer());
+        MiningPlotManager.INSTANCE.tick(event.getServer());
+        NpcMiningService.assign(event.getServer());
         NpcManager.INSTANCE.tick(overworld);
         CommuteScheduler.tick(event.getServer());
+        MiningScanService.tick(event.getServer());
     }
 }

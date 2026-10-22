@@ -1,5 +1,7 @@
 package com.xy2407.kingdom.common.path;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -24,10 +26,11 @@ public final class SnapshotRepository {
     private static final Map<MinecraftServer, SnapshotRepository> INSTANCES = new ConcurrentHashMap<>();
     private static final Set<MinecraftServer> SHUTDOWN = ConcurrentHashMap.newKeySet();
 
-    private static final int MAX_SEARCHES_PER_TICK = 20;
+    private static final int MAX_SEARCHES_PER_TICK = 40;
     private static final int SEARCH_THREADS = 4;
 
     private final AtomicInteger threadSeq = new AtomicInteger();
+    private final Map<String, Set<Long>> requestedUnits = new HashMap<>();
     private int searchesThisTick;
     private int commuteSearchesThisTick;
     private ExecutorService executor;
@@ -90,6 +93,12 @@ public final class SnapshotRepository {
         return true;
     }
 
+    public void resetTickSearches() {
+        searchesThisTick = 0;
+        commuteSearchesThisTick = 0;
+        requestedUnits.clear();
+    }
+
     public void resetCommuteSearches() {
         commuteSearchesThisTick = 0;
     }
@@ -99,6 +108,7 @@ public final class SnapshotRepository {
 
     public void requestUnits(ResourceKey<Level> dimension, BlockPos start, BlockPos end, int padding) {
         String dim = dimension.location().toString();
+        Set<Long> seen = requestedUnits.computeIfAbsent(dim, key -> new HashSet<>());
         int minX = Math.min(start.getX(), end.getX()) - padding;
         int maxX = Math.max(start.getX(), end.getX()) + padding;
         int minZ = Math.min(start.getZ(), end.getZ()) - padding;
@@ -108,6 +118,10 @@ public final class SnapshotRepository {
         for (int cx = minX >> 4; cx <= maxX >> 4; cx++) {
             for (int cz = minZ >> 4; cz <= maxZ >> 4; cz++) {
                 for (int layer = minY >> 4; layer <= maxY >> 4; layer++) {
+                    long packed = (((long) cx) << 42) ^ (((long) layer) << 21) ^ (cz & 0x1FFFFFL);
+                    if (!seen.add(packed)) {
+                        continue;
+                    }
                     UnitSnapshotStore.INSTANCE.request(dim, cx, layer, cz);
                 }
             }

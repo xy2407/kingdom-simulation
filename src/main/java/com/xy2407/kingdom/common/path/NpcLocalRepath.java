@@ -25,6 +25,71 @@ public final class NpcLocalRepath {
     private NpcLocalRepath() {
     }
 
+    public static List<NpcPathfinder.Waypoint> findPath(Level level, BlockPos from, BlockPos to,
+                                                        int maxDepth) {
+        if (level == null || from == null || to == null) {
+            return null;
+        }
+        long start = from.asLong();
+        long goal = to.asLong();
+        if (start == goal) {
+            return null;
+        }
+        int limit = Math.max(2, Math.min(MAX_DEPTH, maxDepth));
+        Map<Long, Long> cameFrom = new HashMap<>();
+        Map<Long, Integer> depth = new HashMap<>();
+        ArrayDeque<Long> queue = new ArrayDeque<>();
+        cameFrom.put(start, start);
+        depth.put(start, 0);
+        queue.add(start);
+        while (!queue.isEmpty()) {
+            long current = queue.poll();
+            int currentDepth = depth.get(current);
+            if (currentDepth >= limit) {
+                continue;
+            }
+            BlockPos pos = BlockPos.of(current);
+            for (Direction direction : NpcPathfinder.HORIZONTALS) {
+                int nx = pos.getX() + direction.getStepX();
+                int nz = pos.getZ() + direction.getStepZ();
+                for (int dy = -1; dy <= 1; dy++) {
+                    int ny = pos.getY() + dy;
+                    long next = BlockPos.asLong(nx, ny, nz);
+                    if (depth.containsKey(next) || !isStandable(level, nx, ny, nz, dy > 0)) {
+                        continue;
+                    }
+                    cameFrom.put(next, current);
+                    depth.put(next, currentDepth + 1);
+                    if (next == goal) {
+                        return waypoints(trace(cameFrom, start, next));
+                    }
+                    queue.add(next);
+                }
+            }
+        }
+        long best = -1L;
+        int bestDistance = Integer.MAX_VALUE;
+        for (long visited : depth.keySet()) {
+            BlockPos pos = BlockPos.of(visited);
+            int distance = Math.abs(pos.getX() - to.getX())
+                    + Math.abs(pos.getY() - to.getY())
+                    + Math.abs(pos.getZ() - to.getZ());
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = visited;
+            }
+        }
+        return best < 0L ? null : waypoints(trace(cameFrom, start, best));
+    }
+
+    private static List<NpcPathfinder.Waypoint> waypoints(List<BlockPos> points) {
+        List<NpcPathfinder.Waypoint> out = new ArrayList<>(points.size());
+        for (int i = 0; i < points.size(); i++) {
+            out.add(new NpcPathfinder.Waypoint(points.get(i), moveOf(points, i)));
+        }
+        return out.size() < 2 ? null : out;
+    }
+
     public static List<NpcPathfinder.Waypoint> reconnect(Level level, BlockPos from,
                                                          List<NpcPathfinder.Waypoint> path, int index) {
         if (level == null || path == null || from == null || index < 0 || index >= path.size()) {

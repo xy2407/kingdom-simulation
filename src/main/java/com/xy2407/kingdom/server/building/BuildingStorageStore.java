@@ -5,6 +5,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -19,10 +20,11 @@ import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.TagParser;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.items.ItemStackHandler;
 
 /**
- * 建筑仓库存储：SQLite 是真源，AUI 的 SavedData 只是会话载体，进出各搬一次。
+ * 建筑仓库存储：SQLite 是真源，AUI 的 SavedData 是唯一在跑的容器实例，进出各搬一次。
  */
 public final class BuildingStorageStore {
 
@@ -34,9 +36,9 @@ public final class BuildingStorageStore {
 
     private static final String DATA_NAME_PREFIX = "kingdom_building_storage_";
 
-    private static final int FLUSH_INTERVAL_TICKS = 60;
+    private static final int FLUSH_INTERVAL_TICKS = 20;
 
-    private final Map<UUID, ItemStackHandler> handlers = new ConcurrentHashMap<>();
+    private final Set<UUID> loaded = ConcurrentHashMap.newKeySet();
     private final Map<UUID, String> lastWritten = new ConcurrentHashMap<>();
     private int tickCounter;
 
@@ -44,7 +46,7 @@ public final class BuildingStorageStore {
     }
 
     public void reset() {
-        handlers.clear();
+        loaded.clear();
         lastWritten.clear();
         tickCounter = 0;
     }
@@ -57,27 +59,29 @@ public final class BuildingStorageStore {
         if (server == null || buildingId == null) {
             return null;
         }
-        int slots = Math.max(1, capacity);
-        ItemStackHandler cached = handlers.get(buildingId);
-        if (cached != null && cached.getSlots() == slots) {
-            return cached;
+        ItemStackHandler base = baseOf(server, buildingId);
+        if (base == null) {
+            return null;
         }
+        int slots = Math.max(1, Math.min(capacity, base.getSlots()));
+        return slots == base.getSlots() ? base : new CapacityView(base, slots);
+    }
 
+    private ItemStackHandler baseOf(MinecraftServer server, UUID buildingId) {
         ApricitySavedData data = ApricitySavedData.get(server, dataName(buildingId));
-        ItemStackHandler handler = data.getOrCreate(AUI_INVENTORY_KEY, slots);
-        if (cached == null) {
+        ItemStackHandler base = data.getOrCreate(AUI_INVENTORY_KEY, BuildingStorageMenu.MAX_SLOTS);
+        if (loaded.add(buildingId)) {
             String snbt = readSnbt(buildingId);
             if (snbt != null && !snbt.isBlank()) {
-                readSnbtInto(handler, server.registryAccess(), snbt);
+                readSnbtInto(base, server.registryAccess(), snbt);
             }
             lastWritten.put(buildingId, snbt == null ? "" : snbt);
         }
-        handlers.put(buildingId, handler);
-        return handler;
+        return base;
     }
 
     public void tick(MinecraftServer server) {
-        if (server == null || handlers.isEmpty() || !KingdomPersistence.isReady()) {
+        if (server == null || loaded.isEmpty() || !KingdomPersistence.isReady()) {
             return;
         }
         if (++tickCounter < FLUSH_INTERVAL_TICKS) {
@@ -88,11 +92,13 @@ public final class BuildingStorageStore {
     }
 
     public void flushAll(MinecraftServer server) {
-        if (server == null || handlers.isEmpty() || !KingdomPersistence.isReady()) {
+        if (server == null || loaded.isEmpty() || !KingdomPersistence.isReady()) {
             return;
         }
-        for (Map.Entry<UUID, ItemStackHandler> entry : handlers.entrySet()) {
-            flush(server, entry.getKey(), entry.getValue());
+        for (UUID buildingId : loaded) {
+            ApricitySavedData data = ApricitySavedData.get(server, dataName(buildingId));
+            ItemStackHandler base = data.getOrCreate(AUI_INVENTORY_KEY, BuildingStorageMenu.MAX_SLOTS);
+            flush(server, buildingId, base);
         }
     }
 
@@ -141,6 +147,53 @@ public final class BuildingStorageStore {
             handler.deserializeNBT(registries, tag);
         } catch (Exception invalid) {
             LOGGER.warn("建筑仓库数据解析失败，按空仓库处理", invalid);
+        }
+    }
+
+    private static final class CapacityView extends ItemStackHandler {
+
+        private final ItemStackHandler delegate;
+        private final int slots;
+
+        private CapacityView(ItemStackHandler delegate, int slots) {
+            super(0);
+            this.delegate = delegate;
+            this.slots = slots;
+        }
+
+        @Override
+        public int getSlots() {
+            return slots;
+        }
+
+        @Override
+        public ItemStack getStackInSlot(int slot) {
+            return delegate.getStackInSlot(slot);
+        }
+
+        @Override
+        public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) {
+            return delegate.insertItem(slot, stack, simulate);
+        }
+
+        @Override
+        public ItemStack extractItem(int slot, int amount, boolean simulate) {
+            return delegate.extractItem(slot, amount, simulate);
+        }
+
+        @Override
+        public int getSlotLimit(int slot) {
+            return delegate.getSlotLimit(slot);
+        }
+
+        @Override
+        public boolean isItemValid(int slot, ItemStack stack) {
+            return delegate.isItemValid(slot, stack);
+        }
+
+        @Override
+        public void setStackInSlot(int slot, ItemStack stack) {
+            delegate.setStackInSlot(slot, stack);
         }
     }
 }

@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <!-- 世界地图页：mode=gui 全屏铺开（与世界道路页同一套视口），纯 DOM + 自定义元素 <world-map>，
+         必须 intercept 否则地图拖不动。本页只做"看图"：拖动/缩放/点选/框选购买/道路传送，无画笔。 -->
+    <meta name="aui-viewport" content="mode=gui">
+    <meta name="aui-mouse-events" content="intercept">
+    <title>世 界 地 图</title>
+    <style>
+        @font-face {
+            font-family: 'Zpix';
+            src: url('/font/zpix.ttf') format('truetype');
+            font-display: block;
+        }
+
+        :root {
+            --parchment: #c8ac7c;
+            --parchment-hi: #d6bc94;
+            --parchment-max: #e8d2a8;
+            --border-deep: #3a2814;
+            --border-dark: #4a3218;
+            --border-mid: #6a4a20;
+            --border-light: #8a6e3c;
+            --ink: #1a0e04;
+            --ink-2: #4a3218;
+            --gold: #c9a227;
+            --gold-l: #f5e08a;
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+        }
+
+        body {
+            font-family: 'Zpix', monospace;
+            font-size: 12px;
+            color: var(--ink);
+        }
+
+        world-map {
+            image-rendering: pixelated;
+        }
+
+        /* 舞台：铺满视口，未探索区块是黑的，底色就是黑 */
+        .stage {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            overflow: hidden;
+        }
+
+        .stage world-map {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* 顶部提示条：绝对定位叠在地图上，不占文档流 */
+        .map-hint {
+            position: absolute;
+            left: 0;
+            top: 10px;
+            width: 100%;
+            z-index: 3;
+            text-align: center;
+            font-size: 11px;
+            line-height: 15px;
+            letter-spacing: 1px;
+            color: rgba(216, 188, 140, .8);
+            text-shadow: 1px 1px 0 rgba(0, 0, 0, .8);
+        }
+
+        /* 信息条：绝对定位叠在地图下层边缘（同市政厅全屏图的 is-overlay 做法） */
+        .map-tip {
+            position: absolute;
+            left: 10px;
+            right: 10px;
+            bottom: 10px;
+            z-index: 3;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            padding: 6px 14px;
+            background-color: rgba(20, 12, 6, .92);
+            border: 1px solid var(--border-mid);
+        }
+
+        .map-tip.is-open {
+            display: flex;
+        }
+
+        .map-tip .k {
+            margin-right: 16px;
+            font-size: 16px;
+            line-height: 22px;
+            color: var(--gold-l);
+        }
+
+        .map-tip .v {
+            margin-right: 16px;
+            font-size: 16px;
+            line-height: 22px;
+            color: #d8bc8c;
+        }
+
+        /* 弹窗：购买区块 / 道路传送 */
+        .modal {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 4;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(0, 0, 0, .55);
+        }
+
+        .modal.is-open {
+            display: flex;
+        }
+
+        .modal-box {
+            width: 430px;
+            padding: 18px;
+            background-color: var(--parchment);
+            border: 2px solid var(--border-dark);
+            box-shadow: 0 0 0 2px #2a1a08, 0 0 0 4px #4a3218;
+        }
+
+        .modal-title {
+            margin-bottom: 12px;
+            font-size: 18px;
+            line-height: 24px;
+            letter-spacing: 2px;
+            color: var(--ink);
+        }
+
+        .rline {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+            font-size: 14px;
+            line-height: 20px;
+            color: var(--ink-2);
+        }
+
+        .rline-k {
+            color: var(--ink);
+        }
+
+        .modal-btns {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 14px;
+        }
+
+        .btn {
+            margin-left: 10px;
+            padding: 5px 18px;
+            font-size: 14px;
+            line-height: 20px;
+            cursor: pointer;
+            color: var(--ink);
+            background-color: var(--parchment-hi);
+            border: 2px solid var(--border-dark);
+            box-shadow: 0 0 0 1px #2a1a08;
+        }
+
+        .btn.is-primary {
+            background-color: var(--gold);
+        }
+
+        .btn:hover {
+            background-color: var(--parchment-max);
+        }
+
+        .btn.is-primary:hover {
+            background-color: var(--gold-l);
+        }
+    </style>
+</head>
+<body>
+<div class="stage" id="wmStage">
+    <world-map id="wmMap" center-x="0" center-z="0" radius="320"></world-map>
+    <div class="map-hint">拖 动 平 移　·　滚 轮 缩 放　·　右 键 框 选 购 买　·　左 键 点 选 信 息　·　E S C 关 闭</div>
+    <div class="map-tip" id="wmTip"></div>
+</div>
+
+<div class="modal" id="wmBuyModal">
+    <div class="modal-box">
+        <div class="modal-title">购 买 区 块</div>
+        <div id="wmBuyBody"></div>
+        <div class="modal-btns">
+            <span class="btn" id="wmBuyCancel">取 消</span>
+            <span class="btn is-primary" id="wmBuyConfirm">确 认</span>
+        </div>
+    </div>
+</div>
+
+<div class="modal" id="wmRoadModal">
+    <div class="modal-box">
+        <div class="modal-title">道 路 传 送</div>
+        <div id="wmRoadBody"></div>
+        <div class="modal-btns">
+            <span class="btn" id="wmRoadCancel">取 消</span>
+            <span class="btn is-primary" id="wmRoadConfirm">确 认</span>
+        </div>
+    </div>
+</div>
+</body>
+</html>

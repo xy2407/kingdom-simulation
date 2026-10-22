@@ -1,7 +1,9 @@
 package com.xy2407.kingdom.client.industry;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import com.sighs.apricityui.element.Input;
@@ -10,12 +12,18 @@ import com.sighs.apricityui.init.Document;
 import com.sighs.apricityui.init.Element;
 import com.sighs.apricityui.screen.ApricityScreen;
 import com.xy2407.kingdom.client.aui.AuiLazyList;
+import com.xy2407.kingdom.client.mining.MiningBrushSelector;
+import com.xy2407.kingdom.client.mining.MiningPlotOverlay;
+import com.xy2407.kingdom.client.rts.RtsModeManager;
 import com.xy2407.kingdom.common.network.building.BuildingStorageRequestPacket;
 import com.xy2407.kingdom.common.network.industry.IndustryPanelActionPacket;
 import com.xy2407.kingdom.common.network.industry.IndustryPanelRequestPacket;
 import com.xy2407.kingdom.common.network.industry.IndustryPanelStatePacket;
 import com.xy2407.kingdom.common.network.industry.IndustryPanelStatePacket.Recipe;
 import com.xy2407.kingdom.common.network.industry.IndustryPanelStatePacket.Worker;
+import com.xy2407.kingdom.common.network.mining.MiningPanelActionPacket;
+import com.xy2407.kingdom.common.network.mining.MiningPanelRequestPacket;
+import com.xy2407.kingdom.common.network.mining.MiningPanelStatePacket;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -65,6 +73,28 @@ public final class IndustryPanelScreen extends ApricityScreen {
     private Element workersNote;
     private Element workersEmpty;
     private Element workerSearchInput;
+
+    private Element mineListHost;
+    private Element mineCountText;
+    private Element mineEmptyHint;
+    private Element mineHead;
+    private Element mineBody;
+    private Element mineFoot;
+    private Element mineNameText;
+    private Element mineAreaText;
+    private Element mineLayerText;
+    private Element mineProgressText;
+    private Element mineStatusText;
+    private Element mineWorkersHost;
+    private Element mineWorkersNote;
+    private Element mineWorkersEmpty;
+    private Element mineWorkerSearchInput;
+    private Element minePauseButton;
+
+    private MiningPanelStatePacket mineState = MiningPanelStatePacket.outside();
+    private UUID selectedMineId;
+    private String mineWorkerFilter = "";
+    private String shownMineWorkerFilter;
 
     private IndustryPanelStatePacket latest = IndustryPanelStatePacket.outside();
     private String selectedRecipeId;
@@ -117,6 +147,22 @@ public final class IndustryPanelScreen extends ApricityScreen {
         workersNote = document.getElementById("ic-workers-note");
         workersEmpty = document.getElementById("ic-workers-empty");
         workerSearchInput = document.getElementById("ic-worker-search");
+        mineListHost = document.getElementById("im-mines");
+        mineCountText = document.getElementById("im-mine-count");
+        mineEmptyHint = document.getElementById("im-mine-empty");
+        mineHead = document.getElementById("in-head");
+        mineBody = document.getElementById("in-body");
+        mineFoot = document.getElementById("in-foot");
+        mineNameText = document.getElementById("in-name");
+        mineAreaText = document.getElementById("in-area");
+        mineLayerText = document.getElementById("in-layer");
+        mineProgressText = document.getElementById("in-progress");
+        mineStatusText = document.getElementById("in-status");
+        mineWorkersHost = document.getElementById("in-workers");
+        mineWorkersNote = document.getElementById("in-workers-note");
+        mineWorkersEmpty = document.getElementById("in-workers-empty");
+        mineWorkerSearchInput = document.getElementById("in-worker-search");
+        minePauseButton = document.getElementById("in-pause");
 
         on("im-search-clear", () -> setFilter(""));
         on("ic-back", this::closeDetail);
@@ -125,11 +171,18 @@ public final class IndustryPanelScreen extends ApricityScreen {
         on("ic-worker-search-clear", () -> setWorkerFilter(""));
         on("bp-warehouse", this::openWarehouse);
         on("bp-close", this::onClose);
-        on("im-start", () -> hint("工业生产由在岗工人自动推进，点配方卡片派人即可开产"));
+        on("im-start", this::startMineBrush);
+        on("in-back", this::closeMineDetail);
+        on("in-close", this::closeMineDetail);
+        on("in-pause", this::toggleMineStatus);
+        on("in-redraw", this::redrawMine);
+        on("in-delete", this::deleteMine);
+        on("in-worker-search-clear", () -> setMineWorkerFilter(""));
 
         setLevel(false);
         apply(latest);
         PacketDistributor.sendToServer(new IndustryPanelRequestPacket());
+        PacketDistributor.sendToServer(new MiningPanelRequestPacket());
     }
 
     private void on(String elementId, Runnable action) {
@@ -160,9 +213,16 @@ public final class IndustryPanelScreen extends ApricityScreen {
             shownWorkerFilter = input.getValue();
             setWorkerFilter(shownWorkerFilter);
         }
+        if (mineWorkerSearchInput instanceof Input input && !input.getValue().equals(shownMineWorkerFilter)) {
+            shownMineWorkerFilter = input.getValue();
+            setMineWorkerFilter(shownMineWorkerFilter);
+        }
         if (--refreshIn <= 0) {
             refreshIn = REFRESH_INTERVAL;
             PacketDistributor.sendToServer(new IndustryPanelRequestPacket());
+            if (selectedMineId != null) {
+                PacketDistributor.sendToServer(new MiningPanelRequestPacket());
+            }
         }
     }
 
@@ -186,6 +246,26 @@ public final class IndustryPanelScreen extends ApricityScreen {
         refreshList(packet);
         refreshDetail(selected);
         refreshWorkers(selected);
+        refreshMines();
+    }
+
+    public static void acceptMines(MiningPanelStatePacket packet) {
+        MiningPlotOverlay.cache(packet);
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.screen instanceof IndustryPanelScreen screen) {
+            screen.applyMines(packet);
+        }
+    }
+
+    private void applyMines(MiningPanelStatePacket packet) {
+        mineState = packet;
+        if (selectedMineId != null && mine(selectedMineId) == null) {
+            selectedMineId = null;
+            setLevel(selectedRecipeId != null);
+        }
+        refreshMines();
+        refreshMineDetail();
+        refreshMineWorkers();
     }
 
     private void refreshList(IndustryPanelStatePacket packet) {
@@ -258,12 +338,13 @@ public final class IndustryPanelScreen extends ApricityScreen {
             setText(workersEmpty, "先点一张配方卡片");
             return;
         }
-        List<Worker> visible = new ArrayList<>();
+        Map<UUID, Worker> unique = new LinkedHashMap<>();
         for (Worker worker : latest.workers()) {
             if (workerFilter.isBlank() || worker.name().contains(workerFilter)) {
-                visible.add(worker);
+                unique.putIfAbsent(worker.id(), worker);
             }
         }
+        List<Worker> visible = new ArrayList<>(unique.values());
         if (visible.isEmpty()) {
             AuiLazyList.clear(workersHost);
             workersHost.setInnerHTML("");
@@ -332,12 +413,214 @@ public final class IndustryPanelScreen extends ApricityScreen {
     }
 
     private void setLevel(boolean detail) {
-        setShown(mainHead, !detail);
-        setShown(mainBody, !detail);
-        setShown(mainFoot, !detail);
-        setShown(detailHead, detail);
-        setShown(detailBody, detail);
-        setShown(detailFoot, detail);
+        boolean mine = selectedMineId != null;
+        setShown(mainHead, !detail && !mine);
+        setShown(mainBody, !detail && !mine);
+        setShown(mainFoot, !detail && !mine);
+        setShown(detailHead, detail && !mine);
+        setShown(detailBody, detail && !mine);
+        setShown(detailFoot, detail && !mine);
+        setShown(mineHead, mine);
+        setShown(mineBody, mine);
+        setShown(mineFoot, mine);
+    }
+
+    private void refreshMines() {
+        if (mineListHost == null) {
+            return;
+        }
+        List<MiningPanelStatePacket.Mine> mines = mineState.mines();
+        setText(mineCountText, mines.size() + " 处");
+        if (mines.isEmpty()) {
+            mineListHost.setInnerHTML("");
+            setShown(mineEmptyHint, true);
+            setText(mineEmptyHint, mineState.inside() ? "这座建筑还没有矿坑" : "载入中…");
+            return;
+        }
+        setShown(mineEmptyHint, false);
+        StringBuilder html = new StringBuilder();
+        for (int index = 0; index < mines.size(); index++) {
+            MiningPanelStatePacket.Mine mine = mines.get(index);
+            boolean active = mine.id().equals(selectedMineId);
+            html.append("<div class=\"").append(ROW).append(active ? " " + ON : "")
+                    .append("\" id=\"im-mine-row-").append(index).append("\">")
+                    .append("<span class=\"bp-name\">").append(escape(mine.name())).append("</span>")
+                    .append("<span class=\"bp-sub\">")
+                    .append(mine.maxX() - mine.minX() + 1).append("×")
+                    .append(mine.maxZ() - mine.minZ() + 1).append("</span>")
+                    .append("<span class=\"bp-sub\">y ").append(mine.currentY()).append("</span>")
+                    .append("<span class=\"bp-tag\">").append(statusLabel(mine.status())).append("</span>")
+                    .append("<span class=\"bp-sub\">").append(mine.workers().size()).append(" 人</span>")
+                    .append("</div>");
+        }
+        mineListHost.setInnerHTML(html.toString());
+        for (int index = 0; index < mines.size(); index++) {
+            UUID mineId = mines.get(index).id();
+            Element row = boundDocument.getElementById("im-mine-row-" + index);
+            if (row != null) {
+                row.addEventListener("click", event -> openMineDetail(mineId));
+            }
+        }
+    }
+
+    private void refreshMineDetail() {
+        MiningPanelStatePacket.Mine mine = mine(selectedMineId);
+        setText(mineNameText, mine == null ? "矿坑" : mine.name());
+        setText(mineAreaText, mine == null ? "—"
+                : mine.minX() + "," + mine.minZ() + " ~ " + mine.maxX() + "," + mine.maxZ());
+        setText(mineLayerText, mine == null ? "—" : ("y " + mine.currentY() + "（地表 " + mine.surfaceY() + "）"));
+        setText(mineProgressText, mine == null ? "—"
+                : (mine.cursor() + " / " + mine.layerSize()));
+        setText(mineStatusText, mine == null ? "未开始" : statusLabel(mine.status()));
+        if (minePauseButton != null) {
+            setText(minePauseButton, mine != null && "PAUSED".equals(mine.status()) ? "继续开采" : "暂停开采");
+        }
+    }
+
+    private void refreshMineWorkers() {
+        if (mineWorkersHost == null) {
+            return;
+        }
+        MiningPanelStatePacket.Mine mine = mine(selectedMineId);
+        List<UUID> crew = mine == null ? List.of() : mine.workers();
+        setText(mineWorkersNote, crew.size() + " 人");
+        if (mine == null) {
+            mineWorkersHost.setInnerHTML("");
+            setShown(mineWorkersEmpty, true);
+            setText(mineWorkersEmpty, "先选一处矿坑");
+            return;
+        }
+        Map<UUID, MiningPanelStatePacket.WorkerOption> unique = new LinkedHashMap<>();
+        for (MiningPanelStatePacket.WorkerOption worker : mineState.workers()) {
+            if (mineWorkerFilter.isBlank() || worker.name().contains(mineWorkerFilter)) {
+                unique.putIfAbsent(worker.id(), worker);
+            }
+        }
+        List<MiningPanelStatePacket.WorkerOption> visible = new ArrayList<>(unique.values());
+        if (visible.isEmpty()) {
+            AuiLazyList.clear(mineWorkersHost);
+            mineWorkersHost.setInnerHTML("");
+            setShown(mineWorkersEmpty, true);
+            setText(mineWorkersEmpty, mineState.workers().isEmpty() ? "城里还没有可雇的市民" : "没有匹配的市民");
+            return;
+        }
+        setShown(mineWorkersEmpty, false);
+        AuiLazyList.render(mineWorkersHost, visible.size(),
+                index -> {
+                    MiningPanelStatePacket.WorkerOption worker = visible.get(index);
+                    boolean hired = crew.contains(worker.id());
+                    String state = worker.note().isBlank() ? (hired ? "在岗" : "空闲") : worker.note();
+                    return "<div class=\"" + ROW + (hired ? " " + ON : "")
+                            + "\" id=\"in-worker-" + index + "\">"
+                            + "<kingdom-entity-avatar class=\"bp-worker-face\" skin=\""
+                            + escape(worker.skin()) + "\"></kingdom-entity-avatar>"
+                            + "<span class=\"bp-name\">" + escape(worker.name()) + "</span>"
+                            + "<span class=\"bp-sub\">" + escape(state) + "</span>"
+                            + "</div>";
+                },
+                index -> {
+                    UUID workerId = visible.get(index).id();
+                    Element row = boundDocument.getElementById("in-worker-" + index);
+                    if (row != null) {
+                        row.addEventListener("click", event -> toggleMineWorker(workerId));
+                    }
+                });
+    }
+
+    private void openMineDetail(UUID mineId) {
+        if (mineId == null) {
+            return;
+        }
+        selectedMineId = mineId;
+        MiningPlotOverlay.setActive(mineId);
+        setLevel(false);
+        refreshMineDetail();
+        refreshMineWorkers();
+    }
+
+    private void closeMineDetail() {
+        selectedMineId = null;
+        MiningPlotOverlay.setActive(null);
+        setLevel(selectedRecipeId != null);
+        refreshMines();
+    }
+
+    private void toggleMineWorker(UUID workerId) {
+        if (selectedMineId == null) {
+            return;
+        }
+        send(MiningPanelActionPacket.toggleWorker(selectedMineId, workerId));
+    }
+
+    private void toggleMineStatus() {
+        MiningPanelStatePacket.Mine mine = mine(selectedMineId);
+        if (mine == null) {
+            return;
+        }
+        send("PAUSED".equals(mine.status())
+                ? MiningPanelActionPacket.resume(mine.id())
+                : MiningPanelActionPacket.pause(mine.id()));
+    }
+
+    private void deleteMine() {
+        if (selectedMineId == null) {
+            return;
+        }
+        send(MiningPanelActionPacket.delete(selectedMineId));
+        selectedMineId = null;
+        setLevel(false);
+    }
+
+    private void redrawMine() {
+        onClose();
+        if (!RtsModeManager.isActive()) {
+            RtsModeManager.enter();
+        }
+        MiningBrushSelector.begin(null);
+        PacketDistributor.sendToServer(new MiningPanelRequestPacket());
+    }
+
+    private void startMineBrush() {
+        onClose();
+        if (!RtsModeManager.isActive()) {
+            RtsModeManager.enter();
+        }
+        MiningBrushSelector.begin(null);
+        PacketDistributor.sendToServer(new MiningPanelRequestPacket());
+    }
+
+    private void setMineWorkerFilter(String value) {
+        mineWorkerFilter = value == null ? "" : value;
+        refreshMineWorkers();
+    }
+
+    private void send(MiningPanelActionPacket packet) {
+        PacketDistributor.sendToServer(packet);
+    }
+
+    private MiningPanelStatePacket.Mine mine(UUID mineId) {
+        if (mineId == null) {
+            return null;
+        }
+        for (MiningPanelStatePacket.Mine mine : mineState.mines()) {
+            if (mine.id().equals(mineId)) {
+                return mine;
+            }
+        }
+        return null;
+    }
+
+    private static String statusLabel(String status) {
+        if ("RUNNING".equals(status)) {
+            return "开采中";
+        }
+        if ("PAUSED".equals(status)) {
+            return "已暂停";
+        }
+        if ("DONE".equals(status)) {
+            return "已挖完";
+        }
+        return "待开工";
     }
 
     private void toggleWorker(UUID workerId) {

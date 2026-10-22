@@ -7,6 +7,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -36,14 +37,15 @@ import net.neoforged.fml.loading.FMLPaths;
 public final class ClientMapStore {
 
     private static final int MAGIC = 0x4B4D4150;
-    private static final int VERSION = 3;
+    private static final int VERSION = 5;
     private static final int CHUNK_SIDE = 16;
     private static final int CHUNK_CELLS = CHUNK_SIDE * CHUNK_SIDE;
-    private static final byte EMPTY_CELL = 0;
+    // 每区块存两段：前段 ARGB 基色、后段地表高度（NO_SURFACE 表示无效）
+    private static final int CHUNK_SIZE = CHUNK_CELLS * 2;
     private static final long FLUSH_INTERVAL_NANOS = 30_000_000_000L;
     private static final String FOLDER = "kingdom-client-map";
 
-    private static final Map<ResourceKey<Level>, Map<Long, byte[]>> CHUNKS = new HashMap<>();
+    private static final Map<ResourceKey<Level>, Map<Long, int[]>> CHUNKS = new HashMap<>();
     private static final Map<ResourceKey<Level>, int[]> CENTERS = new HashMap<>();
     private static final Set<ResourceKey<Level>> DIRTY = new HashSet<>();
 
@@ -92,17 +94,19 @@ public final class ClientMapStore {
     }
 
     public static boolean has(ResourceKey<Level> dimension, int chunkX, int chunkZ) {
-        Map<Long, byte[]> chunks = CHUNKS.get(dimension);
+        Map<Long, int[]> chunks = CHUNKS.get(dimension);
         return chunks != null && chunks.containsKey(ChunkPos.asLong(chunkX, chunkZ));
     }
 
     public static boolean explored(int chunkX, int chunkZ) {
-        Map<Long, byte[]> chunks = focused == null ? null : CHUNKS.get(focused);
+        Map<Long, int[]> chunks = focused == null ? null : CHUNKS.get(focused);
         return chunks != null && chunks.containsKey(ChunkPos.asLong(chunkX, chunkZ));
     }
 
-    public static void record(ResourceKey<Level> dimension, int chunkX, int chunkZ, int[] colors) {
-        if (dimension == null || colors == null || colors.length < CHUNK_CELLS) {
+    public static void record(ResourceKey<Level> dimension, int chunkX, int chunkZ,
+                              int[] colors, int[] heights) {
+        if (dimension == null || colors == null || heights == null
+                || colors.length < CHUNK_CELLS || heights.length < CHUNK_CELLS) {
             return;
         }
         boolean wrote = false;
@@ -115,18 +119,28 @@ public final class ClientMapStore {
         if (!wrote) {
             return;
         }
-        Map<Long, byte[]> chunks = CHUNKS.computeIfAbsent(dimension, key -> new ConcurrentHashMap<>());
+        Map<Long, int[]> chunks = CHUNKS.computeIfAbsent(dimension, key -> new ConcurrentHashMap<>());
         long id = ChunkPos.asLong(chunkX, chunkZ);
-        byte[] cell = chunks.computeIfAbsent(id, key -> new byte[CHUNK_CELLS]);
+        int[] cell = chunks.computeIfAbsent(id, key -> {
+            int[] created = new int[CHUNK_SIZE];
+            Arrays.fill(created, CHUNK_CELLS, CHUNK_SIZE, WorldSurfaceSampler.NO_SURFACE);
+            return created;
+        });
         boolean changed = false;
         synchronized (cell) {
             for (int index = 0; index < CHUNK_CELLS; index++) {
-                int packed = colors[index];
-                if (packed == WorldSurfaceSampler.UNEXPLORED || packed == EMPTY_CELL) {
+                int color = colors[index];
+                if (color == WorldSurfaceSampler.UNEXPLORED) {
                     continue;
                 }
-                if (cell[index] != (byte) packed) {
-                    cell[index] = (byte) packed;
+                if (cell[index] != color) {
+                    cell[index] = color;
+                    changed = true;
+                }
+                int height = heights[index];
+                if (height != WorldSurfaceSampler.NO_SURFACE
+                        && cell[CHUNK_CELLS + index] != height) {
+                    cell[CHUNK_CELLS + index] = height;
                     changed = true;
                 }
             }
@@ -141,37 +155,24 @@ public final class ClientMapStore {
         }
     }
 
-    public static int packedAt(int worldX, int worldZ) {
-        Map<Long, byte[]> chunks = focused == null ? null : CHUNKS.get(focused);
-        if (chunks == null) {
-            return WorldSurfaceSampler.UNEXPLORED;
-        }
-        byte[] cell = chunks.get(ChunkPos.asLong(worldX >> 4, worldZ >> 4));
-        if (cell == null) {
-            return WorldSurfaceSampler.UNEXPLORED;
-        }
-        int value = cell[(worldZ & 15) * CHUNK_SIDE + (worldX & 15)] & 0xFF;
-        return value == EMPTY_CELL ? WorldSurfaceSampler.UNEXPLORED : value;
-    }
-
-    public static byte[] chunk(int chunkX, int chunkZ) {
-        Map<Long, byte[]> chunks = focused == null ? null : CHUNKS.get(focused);
+    public static int[] chunk(int chunkX, int chunkZ) {
+        Map<Long, int[]> chunks = focused == null ? null : CHUNKS.get(focused);
         return chunks == null ? null : chunks.get(ChunkPos.asLong(chunkX, chunkZ));
     }
 
     public static boolean hasAnyChunk() {
-        Map<Long, byte[]> chunks = focused == null ? null : CHUNKS.get(focused);
+        Map<Long, int[]> chunks = focused == null ? null : CHUNKS.get(focused);
         return chunks != null && !chunks.isEmpty();
     }
 
     public static int chunkCount() {
-        Map<Long, byte[]> chunks = focused == null ? null : CHUNKS.get(focused);
+        Map<Long, int[]> chunks = focused == null ? null : CHUNKS.get(focused);
         return chunks == null ? 0 : chunks.size();
     }
 
     public static int totalChunkCount() {
         int total = 0;
-        for (Map<Long, byte[]> chunks : CHUNKS.values()) {
+        for (Map<Long, int[]> chunks : CHUNKS.values()) {
             total += chunks.size();
         }
         return total;
@@ -250,10 +251,10 @@ public final class ClientMapStore {
             return;
         }
         lastFlushNanos = System.nanoTime();
-        Map<ResourceKey<Level>, Map<Long, byte[]>> snapshot = snapshot();
+        Map<ResourceKey<Level>, Map<Long, int[]>> snapshot = snapshot();
         DIRTY.clear();
         String target = world;
-        for (Map.Entry<ResourceKey<Level>, Map<Long, byte[]>> entry : snapshot.entrySet()) {
+        for (Map.Entry<ResourceKey<Level>, Map<Long, int[]>> entry : snapshot.entrySet()) {
             write(target, entry.getKey(), entry.getValue());
         }
     }
@@ -271,26 +272,26 @@ public final class ClientMapStore {
     }
 
     private static void flushAsync() {
-        Map<ResourceKey<Level>, Map<Long, byte[]>> snapshot = snapshot();
+        Map<ResourceKey<Level>, Map<Long, int[]>> snapshot = snapshot();
         DIRTY.clear();
         String target = world;
         io().execute(() -> {
-            for (Map.Entry<ResourceKey<Level>, Map<Long, byte[]>> entry : snapshot.entrySet()) {
+            for (Map.Entry<ResourceKey<Level>, Map<Long, int[]>> entry : snapshot.entrySet()) {
                 write(target, entry.getKey(), entry.getValue());
             }
         });
     }
 
-    private static Map<ResourceKey<Level>, Map<Long, byte[]>> snapshot() {
-        Map<ResourceKey<Level>, Map<Long, byte[]>> result = new HashMap<>();
+    private static Map<ResourceKey<Level>, Map<Long, int[]>> snapshot() {
+        Map<ResourceKey<Level>, Map<Long, int[]>> result = new HashMap<>();
         for (ResourceKey<Level> dimension : new HashSet<>(DIRTY)) {
-            Map<Long, byte[]> chunks = CHUNKS.get(dimension);
+            Map<Long, int[]> chunks = CHUNKS.get(dimension);
             if (chunks == null) {
                 continue;
             }
-            Map<Long, byte[]> copy = new HashMap<>(chunks.size());
-            for (Map.Entry<Long, byte[]> entry : chunks.entrySet()) {
-                byte[] cell;
+            Map<Long, int[]> copy = new HashMap<>(chunks.size());
+            for (Map.Entry<Long, int[]> entry : chunks.entrySet()) {
+                int[] cell;
                 synchronized (entry.getValue()) {
                     cell = entry.getValue().clone();
                 }
@@ -309,7 +310,7 @@ public final class ClientMapStore {
                     dimension.location(), path);
             return;
         }
-        Map<Long, byte[]> chunks = new ConcurrentHashMap<>();
+        Map<Long, int[]> chunks = new ConcurrentHashMap<>();
         int[] center = new int[] {0, 0};
         int loaded = 0;
         boolean stale = false;
@@ -323,8 +324,11 @@ public final class ClientMapStore {
                 int count = Math.max(0, in.readInt());
                 for (int index = 0; index < count; index++) {
                     long id = in.readLong();
-                    byte[] cell = new byte[CHUNK_CELLS];
-                    in.readFully(cell);
+                    int[] cell = new int[CHUNK_SIZE];
+                    Arrays.fill(cell, CHUNK_CELLS, CHUNK_SIZE, WorldSurfaceSampler.NO_SURFACE);
+                    for (int pixel = 0; pixel < CHUNK_SIZE; pixel++) {
+                        cell[pixel] = in.readInt();
+                    }
                     chunks.put(id, cell);
                 }
                 loaded = count;
@@ -351,7 +355,7 @@ public final class ClientMapStore {
                 dimension.location(), loaded, center[0], center[1]);
     }
 
-    private static void write(String target, ResourceKey<Level> dimension, Map<Long, byte[]> chunks) {
+    private static void write(String target, ResourceKey<Level> dimension, Map<Long, int[]> chunks) {
         if (target.isBlank() || chunks == null) {
             return;
         }
@@ -366,9 +370,11 @@ public final class ClientMapStore {
                 out.writeInt(center[0]);
                 out.writeInt(center[1]);
                 out.writeInt(chunks.size());
-                for (Map.Entry<Long, byte[]> entry : chunks.entrySet()) {
+                for (Map.Entry<Long, int[]> entry : chunks.entrySet()) {
                     out.writeLong(entry.getKey());
-                    out.write(entry.getValue(), 0, CHUNK_CELLS);
+                    for (int pixel = 0; pixel < CHUNK_SIZE; pixel++) {
+                        out.writeInt(entry.getValue()[pixel]);
+                    }
                 }
             }
         } catch (IOException failure) {
