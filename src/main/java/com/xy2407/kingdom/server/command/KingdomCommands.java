@@ -104,6 +104,8 @@ public final class KingdomCommands {
                                                 .executes(ctx -> highMoveOver(ctx, null))
                                                 .then(Commands.argument("pos", Vec3Argument.vec3())
                                                         .executes(ctx -> highMoveOver(ctx, Vec3Argument.getVec3(ctx, "pos"))))))
+                                .then(Commands.literal("lumber")
+                                        .executes(KingdomCommands::lumberTest))
                         .then(Commands.literal("place")
                                 .then(Commands.literal("structures")
                                         .then(Commands.argument("name", StringArgumentType.string())
@@ -462,7 +464,7 @@ public final class KingdomCommands {
             for (int x = 0; x < size; x++) {
                 int argb = snapshot.colors()[z * size + x];
                 int abgr = argb == WorldSurfaceSampler.UNEXPLORED
-                        ? 0xFF000000
+                        ? 0xFF221A12
                         : (argb & 0xFF00FF00) | ((argb >> 16) & 0xFF) | ((argb & 0xFF) << 16);
                 image.setPixelRGBA(x, z, abgr);
             }
@@ -488,6 +490,57 @@ public final class KingdomCommands {
                         + "　已探索 " + explored + "/" + total
                         + "　耗时 " + elapsedMs + "ms"), false);
         return explored;
+    }
+
+    private static int lumberTest(CommandContext<CommandSourceStack> ctx) {
+        ServerPlayer player = ctx.getSource().getPlayer();
+        if (player == null) {
+            ctx.getSource().sendFailure(Component.literal("必须由玩家执行"));
+            return 0;
+        }
+        ServerLevel level = player.serverLevel();
+        BlockPos center = player.blockPosition();
+        int radius = 20;
+        List<Long> cells = new java.util.ArrayList<>();
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                if (dx * dx + dz * dz > radius * radius) {
+                    continue;
+                }
+                int x = center.getX() + dx;
+                int z = center.getZ() + dz;
+                if (!level.hasChunk(x >> 4, z >> 4)) {
+                    continue;
+                }
+                int y = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, x, z) - 1;
+                cells.add(BlockPos.asLong(x, y, z));
+            }
+        }
+        List<BlockPos> trees = com.xy2407.kingdom.server.lumber.LumberSurveyService
+                .scanCells(level, cells);
+        if (trees.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "半径 20 内没扫到可砍的树（需要：该列有原木、原木下面是空气/非原木、树干顶上一格是自然树叶）"));
+            return 0;
+        }
+        com.xy2407.kingdom.common.entity.NpcEntity npc =
+                com.xy2407.kingdom.server.lumber.NpcLumberService.nearestWorker(level, center, 64.0D);
+        if (npc == null) {
+            ctx.getSource().sendFailure(Component.literal("附近 64 格内没有市民"));
+            return 0;
+        }
+        com.xy2407.kingdom.server.lumber.NpcLumberService.clearQueue(npc);
+        for (BlockPos tree : trees) {
+            com.xy2407.kingdom.server.lumber.NpcLumberService.appendTree(npc, tree);
+        }
+        com.xy2407.kingdom.server.lumber.NpcLumberService.forceActive(npc);
+        String who = npc.getName().getString();
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "伐木测试：扫描 " + cells.size() + " 格，找到 " + trees.size()
+                        + " 棵树，已交给最近的市民 " + who), false);
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "伐木状态：" + com.xy2407.kingdom.server.lumber.NpcLumberService.debugState(npc)), false);
+        return trees.size();
     }
 
     private static int spawn(CommandContext<CommandSourceStack> ctx, boolean together)

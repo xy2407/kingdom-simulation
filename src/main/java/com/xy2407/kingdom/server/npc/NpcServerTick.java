@@ -50,9 +50,12 @@ public final class NpcServerTick {
         }
         UnitSnapshotStore.INSTANCE.tick(event.getServer());
         MiningPlotManager.INSTANCE.tick(event.getServer());
+        com.xy2407.kingdom.server.area.PlotAreaManager.INSTANCE.tick(event.getServer());
         NpcMiningService.assign(event.getServer());
         NpcManager.INSTANCE.tick(overworld);
         CommuteScheduler.tick(event.getServer());
         MiningScanService.tick(event.getServer());
+        com.xy2407.kingdom.server.lumber.LumberSurveyService.INSTANCE.tick(event.getServer());
+        com.xy2407.kingdom.server.tourism.TourismService.INSTANCE.tick(event.getServer());
     }
 }

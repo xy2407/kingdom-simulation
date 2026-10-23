@@ -40,12 +40,16 @@ public final class ClientMapStore {
     private static final int VERSION = 5;
     private static final int CHUNK_SIDE = 16;
     private static final int CHUNK_CELLS = CHUNK_SIDE * CHUNK_SIDE;
-    // 每区块存两段：前段 ARGB 基色、后段地表高度（NO_SURFACE 表示无效）
+
     private static final int CHUNK_SIZE = CHUNK_CELLS * 2;
     private static final long FLUSH_INTERVAL_NANOS = 30_000_000_000L;
     private static final String FOLDER = "kingdom-client-map";
 
     private static final Map<ResourceKey<Level>, Map<Long, int[]>> CHUNKS = new HashMap<>();
+
+    private static final Map<ResourceKey<Level>, Map<Long, Map<Integer, int[]>>> LEVELS = new HashMap<>();
+
+    public static final int MAX_LEVEL = 4;
     private static final Map<ResourceKey<Level>, int[]> CENTERS = new HashMap<>();
     private static final Set<ResourceKey<Level>> DIRTY = new HashSet<>();
 
@@ -76,6 +80,7 @@ public final class ClientMapStore {
             flushNow();
             CHUNKS.clear();
             CENTERS.clear();
+            LEVELS.clear();
             DIRTY.clear();
             world = current;
             focused = null;
@@ -146,6 +151,10 @@ public final class ClientMapStore {
             }
         }
         if (changed) {
+            Map<Long, Map<Integer, int[]>> dimensionLevels = LEVELS.get(dimension);
+            if (dimensionLevels != null) {
+                dimensionLevels.remove(id);
+            }
             DIRTY.add(dimension);
             stamp++;
             DIRTY_KEYS[dirtyCursor] = id;
@@ -158,6 +167,79 @@ public final class ClientMapStore {
     public static int[] chunk(int chunkX, int chunkZ) {
         Map<Long, int[]> chunks = focused == null ? null : CHUNKS.get(focused);
         return chunks == null ? null : chunks.get(ChunkPos.asLong(chunkX, chunkZ));
+    }
+
+    public static int[] chunkAt(ResourceKey<Level> dimension, int chunkX, int chunkZ, int level) {
+        if (level <= 0) {
+            return chunk(chunkX, chunkZ);
+        }
+        Map<Long, int[]> chunks = CHUNKS.get(dimension);
+        if (chunks == null || !chunks.containsKey(ChunkPos.asLong(chunkX, chunkZ))) {
+            return null;
+        }
+        Map<Long, Map<Integer, int[]>> dimensionLevels =
+                LEVELS.computeIfAbsent(dimension, key -> new ConcurrentHashMap<>());
+        Map<Integer, int[]> levels =
+                dimensionLevels.computeIfAbsent(ChunkPos.asLong(chunkX, chunkZ),
+                        key -> new ConcurrentHashMap<>());
+        int[] cached = levels.get(level);
+        if (cached != null) {
+            return cached;
+        }
+        int[] built = buildLevel(dimension, chunkX, chunkZ, level);
+        levels.put(level, built);
+        return built;
+    }
+
+    private static int[] buildLevel(ResourceKey<Level> dimension, int chunkX, int chunkZ, int level) {
+        int side = CHUNK_SIDE >> level;
+        int area = side * side;
+        int[] result = new int[area * 2];
+        Arrays.fill(result, area, area * 2, WorldSurfaceSampler.NO_SURFACE);
+        int[] source = chunkAt(dimension, chunkX, chunkZ, level - 1);
+        if (source == null) {
+            return result;
+        }
+        int sourceSide = CHUNK_SIDE >> (level - 1);
+        int sourceArea = sourceSide * sourceSide;
+        for (int ty = 0; ty < side; ty++) {
+            for (int tx = 0; tx < side; tx++) {
+                long sumR = 0;
+                long sumG = 0;
+                long sumB = 0;
+                long sumH = 0;
+                int colorCount = 0;
+                int hCount = 0;
+                for (int sy = 0; sy < 2; sy++) {
+                    for (int sx = 0; sx < 2; sx++) {
+                        int sourceIndex = (ty * 2 + sy) * sourceSide + (tx * 2 + sx);
+                        int argb = source[sourceIndex];
+                        if (argb != 0) {
+                            sumR += (argb >> 16) & 0xFF;
+                            sumG += (argb >> 8) & 0xFF;
+                            sumB += argb & 0xFF;
+                            colorCount++;
+                        }
+                        float h = source[sourceArea + sourceIndex];
+                        if (h != WorldSurfaceSampler.NO_SURFACE) {
+                            sumH += h;
+                            hCount++;
+                        }
+                    }
+                }
+                int targetIndex = ty * side + tx;
+                if (colorCount > 0) {
+                    result[targetIndex] = 0xFF000000
+                            | ((int) (sumR / colorCount)) << 16
+                            | ((int) (sumG / colorCount)) << 8
+                            | (int) (sumB / colorCount);
+                }
+                if (hCount > 0) {
+                    result[area + targetIndex] = Math.round(sumH / hCount);
+                }
+            }
+        }
+        return result;
     }
 
     public static boolean hasAnyChunk() {
@@ -348,6 +430,7 @@ public final class ClientMapStore {
             return;
         }
         CHUNKS.put(dimension, chunks);
+        LEVELS.remove(dimension);
         CENTERS.put(dimension, center);
         revision++;
         focusToken++;

@@ -79,7 +79,9 @@ public record RtsMoveCommandPacket(List<UUID> entityIds, Vec3 target) implements
                 }
                 Entity entity = RtsSelectionService.findEntity(level, id);
                 if (entity instanceof NpcEntity npc) {
-                    units.add(npc);
+                    if (!npc.isTouristEntity()) {
+                        units.add(npc);
+                    }
                 } else if (entity instanceof RtsFakePlayerEntity fake
                         && player.getUUID().equals(fake.getOwnerUUID())) {
                     fakes.add(fake);

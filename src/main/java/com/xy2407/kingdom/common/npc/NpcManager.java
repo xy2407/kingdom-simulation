@@ -184,7 +184,7 @@ public final class NpcManager {
 
     public void onNewDay(int day) {
         for (NpcData npc : byId.values()) {
-            if (!npc.isDead()) {
+            if (!npc.isDead() && !npc.isTourist()) {
                 npc.setAge(npc.getAge() + 1);
             }
         }
@@ -254,7 +254,13 @@ public final class NpcManager {
     }
 
     public Collection<NpcData> allNpcs() {
-        return byId.values();
+        List<NpcData> citizens = new ArrayList<>(byId.size());
+        for (NpcData npc : byId.values()) {
+            if (!npc.isTourist()) {
+                citizens.add(npc);
+            }
+        }
+        return citizens;
     }
 
     public void registerNpc(NpcData npc) {
@@ -363,6 +369,7 @@ public final class NpcManager {
                 rs.getInt(NpcSchema.COL_WORK_Y),
                 rs.getInt(NpcSchema.COL_WORK_Z),
                 rs.getInt(NpcSchema.COL_WORK_TICKS));
+        npc.setRole(NpcRole.parse(rs.getString(NpcSchema.COL_ROLE)));
         npc.setState(NpcState.parse(rs.getString(NpcSchema.COL_STATE)));
         npc.setSubState(NpcSubState.parse(rs.getString(NpcSchema.COL_SUB_STATE)));
         npc.setDetail(NpcDetail.parse(rs.getString(NpcSchema.COL_DETAIL)));

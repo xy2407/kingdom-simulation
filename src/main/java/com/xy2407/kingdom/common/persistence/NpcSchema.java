@@ -63,10 +63,11 @@ public final class NpcSchema implements Migration {
     public static final String COL_SKIN = "skin";
     public static final String COL_WORK_TICKS = "work_ticks";
     public static final String COL_WORK_RECIPE_ID = "work_recipe_id";
+    public static final String COL_ROLE = "role";
 
     @Override
     public int version() {
-        return 19;
+        return 25;
     }
 
     @Override
@@ -174,6 +175,7 @@ public final class NpcSchema implements Migration {
         defs.put(COL_SKIN, "TEXT NOT NULL DEFAULT ''");
         defs.put(COL_WORK_TICKS, "INTEGER NOT NULL DEFAULT 0");
         defs.put(COL_WORK_RECIPE_ID, "TEXT NOT NULL DEFAULT ''");
+        defs.put(COL_ROLE, "TEXT NOT NULL DEFAULT 'CITIZEN'");
         return defs;
     }
 
@@ -186,7 +188,7 @@ public final class NpcSchema implements Migration {
                 COL_DEATH_DAY, COL_UPDATED_AT, COL_DIMENSION, COL_POS_X, COL_POS_Y, COL_POS_Z,
                 COL_HOME_X, COL_HOME_Y, COL_HOME_Z, COL_WORK_X, COL_WORK_Y, COL_WORK_Z,
                 COL_STATE, COL_SUB_STATE, COL_DETAIL, COL_SHIFT, COL_INVENTORY, COL_SKIN,
-                COL_WORK_TICKS, COL_WORK_RECIPE_ID
+                COL_WORK_TICKS, COL_WORK_RECIPE_ID, COL_ROLE
         });
     }
 }

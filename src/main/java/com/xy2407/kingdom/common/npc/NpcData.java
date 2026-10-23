@@ -27,6 +27,7 @@ public final class NpcData {
     private UUID motherId;
     private UUID spouseId;
     private String job = "";
+    private NpcRole role = NpcRole.CITIZEN;
     private String workplaceId;
     private String workRecipeId = "";
     private String homeId;
@@ -211,6 +212,19 @@ public final class NpcData {
     public void setJob(String job) {
         this.job = job;
         markDirty();
+    }
+
+    public NpcRole getRole() {
+        return role;
+    }
+
+    public void setRole(NpcRole role) {
+        this.role = role == null ? NpcRole.CITIZEN : role;
+        markDirty();
+    }
+
+    public boolean isTourist() {
+        return role == NpcRole.TOURIST;
     }
 
     public String getWorkplaceId() {
@@ -588,6 +602,7 @@ public final class NpcData {
         values.put(NpcSchema.COL_MOTHER_ID, motherId != null ? motherId.toString() : null);
         values.put(NpcSchema.COL_SPOUSE_ID, spouseId != null ? spouseId.toString() : null);
         values.put(NpcSchema.COL_JOB, job);
+        values.put(NpcSchema.COL_ROLE, role.name());
         values.put(NpcSchema.COL_WORKPLACE_ID, workplaceId);
         values.put(NpcSchema.COL_WORK_RECIPE_ID, workRecipeId);
         values.put(NpcSchema.COL_HOME_ID, homeId);

@@ -98,7 +98,10 @@ public final class RtsPicker {
     }
 
     public static boolean isSelectable(Entity entity) {
-        return entity instanceof NpcEntity || entity instanceof RtsFakePlayerEntity;
+        if (entity instanceof NpcEntity npc) {
+            return !npc.isTouristEntity();
+        }
+        return entity instanceof RtsFakePlayerEntity;
     }
 
     public static Vec3 pickTargetBlock(double mouseX, double mouseY) {

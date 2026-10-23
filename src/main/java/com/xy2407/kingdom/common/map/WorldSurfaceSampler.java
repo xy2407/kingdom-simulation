@@ -3,9 +3,12 @@ package com.xy2407.kingdom.common.map;
 import com.xy2407.kingdom.common.path.ChunkSnapshot;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.material.MapColor;
@@ -80,11 +83,12 @@ public final class WorldSurfaceSampler {
                 int index = dz * size + dx;
                 cursor.set(worldX, surface, worldZ);
                 BlockState state = level.getBlockState(cursor);
-                if (state.getMapColor(level, cursor) == MapColor.NONE) {
+                MapColor mapColor = state.getMapColor(level, cursor);
+                if (mapColor == MapColor.NONE) {
                     continue;
                 }
                 heights[index] = surface;
-                colors[index] = baseArgb(state.getMapColor(level, cursor));
+                colors[index] = baseArgb(mapColor, tintOf(state, level, cursor, worldX, worldZ));
             }
         }
 
@@ -118,14 +122,41 @@ public final class WorldSurfaceSampler {
                     continue;
                 }
                 heights[index] = surface;
-                colors[index] = baseArgb(mapColor);
+                colors[index] = baseArgb(mapColor, tintOf(state, level, cursor, worldX, worldZ));
             }
         }
         return new SampledChunk(colors, heights);
     }
 
-    // 地貌基色：MapColor 的 NORMAL 档，无任何光照（光照在渲染层按视口分辨率现算）
-    private static int baseArgb(MapColor mapColor) {
+    private static final float TINT_DARKEN = 0.85f;
+
+    private static int tintOf(BlockState state, Level level, BlockPos pos, int worldX, int worldZ) {
+        if (state.is(Blocks.GRASS_BLOCK)) {
+            Holder<Biome> biome = level.getBiome(pos);
+            return tinted(biome.value().getGrassColor(worldX, worldZ));
+        }
+        if (state.getBlock() instanceof LeavesBlock) {
+            Holder<Biome> biome = level.getBiome(pos);
+            return tinted(biome.value().getFoliageColor());
+        }
+        if (!state.getFluidState().isEmpty()) {
+            Holder<Biome> biome = level.getBiome(pos);
+            return tinted(biome.value().getWaterColor());
+        }
+        return 0;
+    }
+
+    private static int tinted(int rgb) {
+        int red = Math.min(255, Math.round(((rgb >>> 16) & 0xFF) * TINT_DARKEN));
+        int green = Math.min(255, Math.round(((rgb >>> 8) & 0xFF) * TINT_DARKEN));
+        int blue = Math.min(255, Math.round((rgb & 0xFF) * TINT_DARKEN));
+        return 0xFF000000 | (red << 16) | (green << 8) | blue;
+    }
+
+    private static int baseArgb(MapColor mapColor, int tint) {
+        if (tint != 0) {
+            return tint;
+        }
         int abgr = MapColor.getColorFromPackedId(mapColor.getPackedId(MapColor.Brightness.NORMAL));
         int red = abgr & 0xFF;
         int green = (abgr >>> 8) & 0xFF;
@@ -133,12 +164,6 @@ public final class WorldSurfaceSampler {
         return 0xFF000000 | (red << 16) | (green << 8) | blue;
     }
 
-    // 道路面的可行走采样（P0 对齐，D1 已定）：判定完全复用寻路快照的谓词语义——
-    // ① 脚下方块 isWalkableFloor（含楼梯/半砖/脚手架，排除栅栏/墙）；
-    // ② 站立位及其上 1 格 isPassable（净空 2，含门/地毯/压力板，排除火与细雪）——
-    //    与 ChunkSnapshot 的 standable 层逐方块等价，保证道路 y 必然是快照可站的层；
-    // ③ 相邻参考高度 ±1（NPC 步高）；列内无满足者返回 NO_WALKABLE（调用方跳过该格且不断线）。
-    // refY 传 NO_WALKABLE 表示无相邻参考（起笔/传送落点）。
     public static int walkableSurfaceY(Level level, int worldX, int worldZ, int refY) {
         int top = Math.min(level.getMaxBuildHeight() - 1,
                 level.getHeight(Heightmap.Types.WORLD_SURFACE, worldX, worldZ));
@@ -156,7 +181,6 @@ public final class WorldSurfaceSampler {
         return NO_WALKABLE;
     }
 
-    // 落脚格判定：站立位上方 2 格净空（上升边与平走一致，不再多加第 3 格）
     private static boolean isStandableFloor(Level level, BlockPos.MutableBlockPos cursor,
                                             int x, int y, int z) {
         if (y < level.getMinBuildHeight() || y + 2 > level.getMaxBuildHeight() - 1) {
@@ -214,7 +238,6 @@ public final class WorldSurfaceSampler {
         return NO_SURFACE;
     }
 
-    // 覆盖在地表上的草类植物不采样（Xaero 同款做法），花朵/树叶/作物照常出图
     private static boolean isGroundPlant(BlockState state) {
         return state.is(Blocks.SHORT_GRASS) || state.is(Blocks.TALL_GRASS)
                 || state.is(Blocks.FERN) || state.is(Blocks.LARGE_FERN)

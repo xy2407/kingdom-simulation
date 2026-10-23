@@ -172,6 +172,7 @@ public final class IndustryPanelScreen extends ApricityScreen {
         on("bp-warehouse", this::openWarehouse);
         on("bp-close", this::onClose);
         on("im-start", this::startMineBrush);
+        on("im-lumber", this::startLumberArea);
         on("in-back", this::closeMineDetail);
         on("in-close", this::closeMineDetail);
         on("in-pause", this::toggleMineStatus);
@@ -587,6 +588,15 @@ public final class IndustryPanelScreen extends ApricityScreen {
         }
         MiningBrushSelector.begin(null);
         PacketDistributor.sendToServer(new MiningPanelRequestPacket());
+    }
+
+    private void startLumberArea() {
+        onClose();
+        if (!RtsModeManager.isActive()) {
+            RtsModeManager.enter();
+        }
+        com.xy2407.kingdom.client.area.AreaSelectionState.begin(
+                com.xy2407.kingdom.common.area.PlotAreaKind.LUMBER);
     }
 
     private void setMineWorkerFilter(String value) {

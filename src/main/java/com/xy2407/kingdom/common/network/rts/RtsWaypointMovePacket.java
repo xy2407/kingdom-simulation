@@ -91,7 +91,9 @@ public record RtsWaypointMovePacket(List<UUID> entityIds, List<Vec3> waypoints) 
                 }
                 Entity entity = RtsSelectionService.findEntity(level, id);
                 if (entity instanceof NpcEntity npc) {
-                    units.add(npc);
+                    if (!npc.isTouristEntity()) {
+                        units.add(npc);
+                    }
                 } else if (entity instanceof RtsFakePlayerEntity fake
                         && player.getUUID().equals(fake.getOwnerUUID())) {
                     fakes.add(fake);

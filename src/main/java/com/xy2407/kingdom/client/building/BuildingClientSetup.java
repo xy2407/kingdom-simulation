@@ -77,6 +77,8 @@ public final class BuildingClientSetup {
         NpcPathDebugHooks.sink = NpcPathDebugRenderer::accept;
         NpcRosterHooks.rosterSink = StructureDebugKeybind::acceptRoster;
         RoadHooks.loadedSink = RoadClientStore::setLoadedChunks;
+        com.xy2407.kingdom.common.network.area.AreaHooks.stateSink =
+                com.xy2407.kingdom.client.area.AreaSelectionState::accept;
     }
 
     @SubscribeEvent

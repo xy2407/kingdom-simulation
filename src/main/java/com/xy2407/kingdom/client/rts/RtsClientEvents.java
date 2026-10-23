@@ -99,6 +99,7 @@ public final class RtsClientEvents {
         }
         RtsModeManager.tickCamera();
         ClientBuildingController.tick();
+        com.xy2407.kingdom.client.area.AreaSelectionState.tick();
     }
 
     private static boolean overAui() {
@@ -137,6 +138,10 @@ public final class RtsClientEvents {
         double[] mouse = RtsModeManager.getGuiScaledMouse();
         switch (event.getButton()) {
             case GLFW.GLFW_MOUSE_BUTTON_LEFT -> {
+                if (com.xy2407.kingdom.client.area.AreaSelectionState.isActive()) {
+                    event.setCanceled(true);
+                    return;
+                }
                 if (RtsModeManager.isRoadMode()) {
                     if (press) {
                         RoadHudLayer.handleClick(mouse[0], mouse[1]);
@@ -178,6 +183,12 @@ public final class RtsClientEvents {
                 event.setCanceled(true);
             }
             case GLFW.GLFW_MOUSE_BUTTON_RIGHT -> {
+                if (com.xy2407.kingdom.client.area.AreaSelectionState.isActive()) {
+                    com.xy2407.kingdom.client.area.AreaSelectionState.onRightButton(
+                            press, mouse[0], mouse[1]);
+                    event.setCanceled(true);
+                    return;
+                }
                 if (RtsModeManager.isRoadMode()) {
                     RtsRoadState.onRightButton(press, mouse[0], mouse[1]);
                     event.setCanceled(true);
@@ -252,6 +263,10 @@ public final class RtsClientEvents {
             return;
         }
         if (event.getAction() != GLFW.GLFW_PRESS) {
+            return;
+        }
+        if (com.xy2407.kingdom.client.area.AreaSelectionState.isActive()) {
+            com.xy2407.kingdom.client.area.AreaSelectionState.onKeyPress(key);
             return;
         }
         if (RtsModeManager.getSubMode() == RtsSubMode.ROAD_TERRITORY) {

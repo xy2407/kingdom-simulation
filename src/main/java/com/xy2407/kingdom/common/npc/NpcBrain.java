@@ -21,6 +21,8 @@ public final class NpcBrain {
     private boolean industryControlled;
     private boolean restaurantControlled;
     private boolean miningControlled;
+    private boolean lumberControlled;
+    private boolean lumberForced;
     private WanderStyle wanderStyle = WanderStyle.RANDOM_WALK;
     private boolean forageDue;
     private int tickCounter = ThreadLocalRandom.current().nextInt(MAIN_LOOP_INTERVAL);
@@ -31,6 +33,10 @@ public final class NpcBrain {
 
     public void tick() {
         tickCounter++;
+        if (owner.isTourist()) {
+            setPlan(NpcState.DAY, NpcSubState.MOVING, NpcDetail.TOURIST);
+            return;
+        }
         if (tickCounter % HUNGER_TICK_INTERVAL == 0) {
             owner.setHunger(owner.getHunger() - 1.0);
         }
@@ -62,6 +68,24 @@ public final class NpcBrain {
                     && NpcSchedule.moveDetail(owner.getShift(), owner.getDayTime()) == NpcDetail.GOING_WORK;
             if (scheduled == NpcSubState.WORKING || goingWork) {
                 setPlan(phase(), NpcSubState.WORKING, NpcDetail.MINING);
+                return;
+            }
+            if (owner.getSubState() == NpcSubState.WORKING) {
+                setPlan(phase(), NpcSubState.MOVING,
+                        NpcSchedule.moveDetail(owner.getShift(), owner.getDayTime()));
+                return;
+            }
+        }
+        if (lumberControlled) {
+            if (lumberForced) {
+                setPlan(phase(), NpcSubState.WORKING, NpcDetail.LOGGING);
+                return;
+            }
+            NpcSubState scheduled = NpcSchedule.subState(owner.getShift(), owner.getDayTime());
+            boolean goingWork = scheduled == NpcSubState.MOVING
+                    && NpcSchedule.moveDetail(owner.getShift(), owner.getDayTime()) == NpcDetail.GOING_WORK;
+            if (scheduled == NpcSubState.WORKING || goingWork) {
+                setPlan(phase(), NpcSubState.WORKING, NpcDetail.LOGGING);
                 return;
             }
             if (owner.getSubState() == NpcSubState.WORKING) {
@@ -110,7 +134,8 @@ public final class NpcBrain {
 
     private void correctDrift() {
         if (rtsControlled || constructionControlled || farmControlled || ranchControlled
-                || industryControlled || restaurantControlled || miningControlled) {
+                || industryControlled || restaurantControlled || miningControlled
+                || lumberControlled) {
             return;
         }
         NpcSubState subState = owner.getSubState();
@@ -149,7 +174,7 @@ public final class NpcBrain {
             subState = NpcSubState.MOVING;
             detail = NpcDetail.GOING_HOME;
         }
-        // 兜底：只要已在目的地，任何时段组合都不允许停留在通勤状态
+
         if (detail == NpcDetail.GOING_HOME && atHome()) {
             subState = NpcSubState.RESTING;
             detail = null;
@@ -338,6 +363,21 @@ public final class NpcBrain {
 
     public void setMiningControlled(boolean miningControlled) {
         this.miningControlled = miningControlled;
+    }
+
+    public boolean isLumberControlled() {
+        return lumberControlled;
+    }
+
+    public void setLumberControlled(boolean lumberControlled) {
+        this.lumberControlled = lumberControlled;
+        if (!lumberControlled) {
+            this.lumberForced = false;
+        }
+    }
+
+    public void setLumberForced(boolean lumberForced) {
+        this.lumberForced = lumberForced;
     }
 
     public void setRestaurantControlled(boolean restaurantControlled) {

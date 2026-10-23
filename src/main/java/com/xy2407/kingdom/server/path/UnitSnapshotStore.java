@@ -176,13 +176,13 @@ public final class UnitSnapshotStore {
     }
 
     public void tick(MinecraftServer server) {
-        List<String> windowKeys = null;
+        boolean scanWindow = false;
         List<String> buildNow = new ArrayList<>(BUILD_PER_TICK);
         List<String> rebuildNow;
         synchronized (this) {
             if (++windowCounter >= WINDOW_SCAN_INTERVAL) {
                 windowCounter = 0;
-                windowKeys = collectWindow(server);
+                scanWindow = true;
             }
             int urgentLimit = Math.max(1, BUILD_PER_TICK * 4 / 5);
             int urgentTaken = 0;
@@ -223,8 +223,8 @@ public final class UnitSnapshotStore {
                 rebuildNow = new ArrayList<>(rebuildNow.subList(0, REBUILD_PER_TICK));
             }
         }
-        if (windowKeys != null) {
-            for (String key : windowKeys) {
+        if (scanWindow) {
+            for (String key : collectWindow(server)) {
                 requestKey(key);
             }
         }
@@ -331,6 +331,7 @@ public final class UnitSnapshotStore {
                 tierCounts[tier]--;
             }
         }
+        dirtyAt.remove(key);
     }
 
     private void evict(int tier) {

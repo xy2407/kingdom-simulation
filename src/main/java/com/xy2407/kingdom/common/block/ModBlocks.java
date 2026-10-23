@@ -36,7 +36,8 @@ public final class ModBlocks {
                     BlockBehaviour.Properties.of()
                             .mapColor(MapColor.METAL)
                             .strength(2.0F, 6.0F)
-                            .sound(SoundType.WOOD));
+                            .sound(SoundType.WOOD)
+                            .noOcclusion());
 
     public static final DeferredItem<BlockItem> CITY_HALL_ITEM =
             ITEMS.register("city_hall",

@@ -130,6 +130,7 @@ public final class RanchPanelScreen extends ApricityScreen {
 
         on("rm-search-clear", () -> setFilter(""));
         on("rm-start", this::toggleRun);
+        on("rm-area", this::startRanchArea);
         on("rc-back", this::closeDetail);
         on("rc-close", this::closeDetail);
         on("rc-clear-workers", this::clearKeepers);
@@ -338,6 +339,15 @@ public final class RanchPanelScreen extends ApricityScreen {
         setShown(detailHead, detail);
         setShown(detailBody, detail);
         setShown(detailFoot, detail);
+    }
+
+    private void startRanchArea() {
+        onClose();
+        if (!com.xy2407.kingdom.client.rts.RtsModeManager.isActive()) {
+            com.xy2407.kingdom.client.rts.RtsModeManager.enter();
+        }
+        com.xy2407.kingdom.client.area.AreaSelectionState.begin(
+                com.xy2407.kingdom.common.area.PlotAreaKind.RANCH);
     }
 
     private void toggleRun() {

@@ -65,6 +65,10 @@ public final class ServerLifecycle {
         MiningPlotManager.INSTANCE.reset();
         NpcMiningService.reset();
         MiningScanService.reset();
+        com.xy2407.kingdom.server.area.PlotAreaManager.INSTANCE.reset();
+        com.xy2407.kingdom.server.tourism.TourismService.INSTANCE.reset();
+        com.xy2407.kingdom.server.lumber.LumberSurveyService.INSTANCE.reset();
+        com.xy2407.kingdom.server.lumber.NpcLumberService.reset();
         MapOverlayCollector.install(event.getServer());
         UnitSnapshotStore.INSTANCE.reset();
         com.xy2407.kingdom.ModMain.LOGGER.info("[快照] 单元落盘压缩={}",

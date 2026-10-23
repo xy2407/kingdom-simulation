@@ -72,6 +72,8 @@ public class NpcEntity extends PathfinderMob {
             SynchedEntityData.defineId(NpcEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Integer> DATA_AGILITY =
             SynchedEntityData.defineId(NpcEntity.class, EntityDataSerializers.INT);
+    private static final EntityDataAccessor<Boolean> DATA_TOURIST =
+            SynchedEntityData.defineId(NpcEntity.class, EntityDataSerializers.BOOLEAN);
 
     private final NpcInventory npcInventory = createInventory();
     private boolean inventoryLoading;
@@ -345,10 +347,7 @@ public class NpcEntity extends PathfinderMob {
                 workSession = null;
             }
         }
-        // 三段式是同步主线程开销，只服务日常通勤；RTS 指令走共享路径/异步 A*，否则千级 NPC 会卡死主线程
         if (future == null && preferRoad) {
-            // 道路路由（P3）：目的地是建筑且两端接入同一连通分量时，三段式同步毫秒级出路径；
-            // 任何一段不成则返回 null 回退原异步快照寻路
             List<NpcPathfinder.Waypoint> roadRoute = RoadRouteService.tryPlan(level, from, stand);
             if (roadRoute != null) {
                 workRepathCooldown = 20;
@@ -1090,6 +1089,27 @@ public class NpcEntity extends PathfinderMob {
         builder.define(DATA_STRENGTH, 0);
         builder.define(DATA_INTELLIGENCE, 0);
         builder.define(DATA_AGILITY, 0);
+        builder.define(DATA_TOURIST, false);
+    }
+
+    public boolean isTouristEntity() {
+        return entityData.get(DATA_TOURIST);
+    }
+
+    @Override
+    public boolean canCollideWith(Entity entity) {
+        if (isTouristEntity()) {
+            return false;
+        }
+        if (entity instanceof NpcEntity other && other.isTouristEntity()) {
+            return false;
+        }
+        return super.canCollideWith(entity);
+    }
+
+    @Override
+    public boolean isPushable() {
+        return !isTouristEntity();
     }
 
     public double getSyncedHunger() {
@@ -1297,6 +1317,9 @@ public class NpcEntity extends PathfinderMob {
         if (!entityData.get(DATA_STATUS).equals(status)) {
             entityData.set(DATA_STATUS, status);
         }
+        if (entityData.get(DATA_TOURIST) != data.isTourist()) {
+            entityData.set(DATA_TOURIST, data.isTourist());
+        }
         if (data.getEntityUuid() == null) {
             data.setEntityUuid(getUUID());
         }
@@ -1336,6 +1359,10 @@ public class NpcEntity extends PathfinderMob {
                 stopSitting();
                 NpcMiningService.tick(this, data);
             }
+            case LOGGING -> {
+                stopSitting();
+                com.xy2407.kingdom.server.lumber.NpcLumberService.tick(this);
+            }
             case COOKING -> {
                 stopSitting();
                 stayAt(data.getWorkX(), data.getWorkY(), data.getWorkZ());
@@ -1346,6 +1373,10 @@ public class NpcEntity extends PathfinderMob {
                 NpcRestaurantService.tickWaiter(this, data);
             }
             case RANCHING -> stopSitting();
+            case TOURIST -> {
+                stopSitting();
+                com.xy2407.kingdom.server.tourism.TourismService.INSTANCE.tickTourist(this, data);
+            }
             case GOING_WORK -> {
                 tickPathTo(new BlockPos(data.getWorkX(), data.getWorkY(), data.getWorkZ()));
             }

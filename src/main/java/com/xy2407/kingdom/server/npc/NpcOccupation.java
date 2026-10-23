@@ -81,6 +81,10 @@ public final class NpcOccupation {
             MiningPlotManager.INSTANCE.update(plot.withWorkerIds(workers));
         }
         NpcMiningService.unlinkWorker(npcId);
+        NpcData lumberWorker = NpcManager.INSTANCE.getNpc(npcId);
+        if (lumberWorker != null) {
+            lumberWorker.getBrain().setLumberControlled(false);
+        }
     }
 
     public static List<UUID> aliveOnly(List<UUID> ids) {

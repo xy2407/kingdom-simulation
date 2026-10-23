@@ -15,12 +15,13 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.phys.AABB;
 
 /**
- * 养殖栏的空间解析：包围盒、可站立点与建筑内容器，全部由建筑登记表推导
+ * 养殖栏的空间解析：包围盒、可站立点与建筑内容器，支持按建筑或按自定义范围查询
  */
 public final class RanchBounds {
 
     private static final int MAX_SCAN = 32768;
-    private static final Map<UUID, List<BlockPos>> POINTS = new ConcurrentHashMap<>();
+
+    private static final Map<String, List<BlockPos>> POINTS = new ConcurrentHashMap<>();
 
     private RanchBounds() {
     }
@@ -45,15 +46,22 @@ public final class RanchBounds {
     }
 
     public static List<BlockPos> standablePoints(ServerLevel level, BuildingRecord building) {
-        List<BlockPos> cached = POINTS.get(building.id());
+        return standablePoints(level, box(building), "b:" + building.id());
+    }
+
+    public static List<BlockPos> standablePoints(ServerLevel level, AABB area, String cacheKey) {
+        String key = cacheKey == null ? "area:" + area.hashCode() : cacheKey;
+        List<BlockPos> cached = POINTS.get(key);
         if (cached != null) {
             return cached;
         }
+        BlockPos low = BlockPos.containing(area.minX, area.minY, area.minZ);
+        BlockPos high = BlockPos.containing(area.maxX - 1.0D, area.maxY - 1.0D, area.maxZ - 1.0D);
         List<BlockPos> points = new ArrayList<>();
         int scanned = 0;
-        for (int y = building.min().getY() + 1; y <= building.max().getY() + 1 && scanned < MAX_SCAN; y++) {
-            for (int x = building.min().getX(); x <= building.max().getX() && scanned < MAX_SCAN; x++) {
-                for (int z = building.min().getZ(); z <= building.max().getZ() && scanned < MAX_SCAN; z++) {
+        for (int y = low.getY(); y <= high.getY() && scanned < MAX_SCAN; y++) {
+            for (int x = low.getX(); x <= high.getX() && scanned < MAX_SCAN; x++) {
+                for (int z = low.getZ(); z <= high.getZ() && scanned < MAX_SCAN; z++) {
                     scanned++;
                     BlockPos pos = new BlockPos(x, y, z);
                     if (!level.isLoaded(pos)) {
@@ -71,16 +79,19 @@ public final class RanchBounds {
             }
         }
         if (points.isEmpty()) {
-            points.add(center(building).above());
+            points.add(BlockPos.containing(area.getCenter()).above());
         }
         List<BlockPos> result = List.copyOf(points);
-        POINTS.put(building.id(), result);
+        POINTS.put(key, result);
         return result;
     }
 
     public static List<Container> containers(ServerLevel level, BuildingRecord building) {
+        return containers(level, box(building));
+    }
+
+    public static List<Container> containers(ServerLevel level, AABB area) {
         List<Container> found = new ArrayList<>();
-        AABB area = box(building);
         for (BlockPos pos : BlockPos.betweenClosed(
                 BlockPos.containing(area.minX, area.minY, area.minZ),
                 BlockPos.containing(area.maxX - 1.0D, area.maxY - 1.0D, area.maxZ - 1.0D))) {
@@ -96,7 +107,11 @@ public final class RanchBounds {
     }
 
     public static void invalidate(UUID buildingId) {
-        POINTS.remove(buildingId);
+        POINTS.remove("b:" + buildingId);
+    }
+
+    public static void invalidate(String cacheKey) {
+        POINTS.remove(cacheKey);
     }
 
     public static void reset() {
