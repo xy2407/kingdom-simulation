@@ -6,6 +6,7 @@ import com.xy2407.kingdom.common.path.SnapshotRepository;
 import com.xy2407.kingdom.server.mining.MiningPlotManager;
 import com.xy2407.kingdom.server.mining.MiningScanService;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
+import com.xy2407.kingdom.server.building.BuildingConstructionService;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
 import com.xy2407.kingdom.server.building.BuildingStorageStore;
 import com.xy2407.kingdom.server.faction.FactionService;
@@ -99,6 +100,7 @@ public final class ServerLifecycle {
         RoadStore.INSTANCE.tick();
         RoadPavingQueue.tick(event.getServer());
         FactionService.tick(event.getServer());
+        BuildingConstructionService.INSTANCE.load(event.getServer());
     }
 
     @SubscribeEvent

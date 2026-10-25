@@ -34,6 +34,8 @@ public final class NpcPathfinder {
 
     public static final int SEGMENT_RANGE = MAX_RANGE;
 
+    public static final int LONG_SEGMENT = 200;
+
     public static final int SEGMENT_VERTICAL = 32;
 
     static final int SEGMENT_RANGE_MIN = 16;
@@ -42,7 +44,7 @@ public final class NpcPathfinder {
 
     static final int SNAP_RANGE = 1;
 
-    static final int MAX_NODES = 72000;
+    public static final int MAX_NODES = 120000;
 
     static final int NEAREST_SAMPLE = 24;
 
@@ -66,7 +68,8 @@ public final class NpcPathfinder {
     private NpcPathfinder() {
     }
 
-    public static List<Waypoint> find(SnapshotRepository repository, ResourceKey<Level> dimension, BlockPos start, BlockPos end) {
+    public static List<Waypoint> find(SnapshotRepository repository, ResourceKey<Level> dimension,
+                                      BlockPos start, BlockPos end) {
         return find(repository, dimension, start, end, PADDING);
     }
 
@@ -143,13 +146,13 @@ public final class NpcPathfinder {
         double dy = end.getY() - start.getY();
         double dz = end.getZ() - start.getZ();
         double horizontal = Math.sqrt(dx * dx + dz * dz);
-        if (horizontal <= SEGMENT_RANGE && Math.abs(dy) <= SEGMENT_VERTICAL) {
+        if (horizontal <= LONG_SEGMENT && Math.abs(dy) <= SEGMENT_VERTICAL) {
             return null;
         }
         double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
         int limit = Math.abs(dy) > SEGMENT_VERTICAL
                 ? Math.min(SEGMENT_VERTICAL, (int) distance)
-                : Math.min(SEGMENT_RANGE, (int) distance);
+                : Math.min(LONG_SEGMENT, (int) distance);
         int[] bounds = bounds(start, end, padding);
         SnapshotView view = SnapshotView.create(repository, dimension, bounds[0], bounds[1], bounds[2], bounds[3]);
         for (int step = limit; step >= SEGMENT_RANGE_MIN; step -= 3) {

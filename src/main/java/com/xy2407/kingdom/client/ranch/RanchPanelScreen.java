@@ -131,9 +131,9 @@ public final class RanchPanelScreen extends ApricityScreen {
         on("rm-search-clear", () -> setFilter(""));
         on("rm-start", this::toggleRun);
         on("rm-area", this::startRanchArea);
+        on("rc-hire", () -> openEmployment(selectedPenId, 4));
         on("rc-back", this::closeDetail);
         on("rc-close", this::closeDetail);
-        on("rc-clear-workers", this::clearKeepers);
         on("rc-worker-search-clear", () -> setWorkerFilter(""));
         on("bp-warehouse", this::openWarehouse);
         on("bp-close", this::onClose);
@@ -341,6 +341,12 @@ public final class RanchPanelScreen extends ApricityScreen {
         setShown(detailFoot, detail);
     }
 
+    private static void openEmployment(UUID penId, int kind) {
+        net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                new com.xy2407.kingdom.common.network.employment.EmploymentOpenRequestPacket(
+                        "", penId == null ? "" : penId.toString(), kind));
+    }
+
     private void startRanchArea() {
         onClose();
         if (!com.xy2407.kingdom.client.rts.RtsModeManager.isActive()) {
@@ -364,13 +370,6 @@ public final class RanchPanelScreen extends ApricityScreen {
             return;
         }
         send(RanchPanelActionPacket.setKeeper(selectedPenId, workerId, shift));
-    }
-
-    private void clearKeepers() {
-        if (selectedPenId == null) {
-            return;
-        }
-        send(RanchPanelActionPacket.clearKeepers(selectedPenId));
     }
 
     private void openWarehouse() {

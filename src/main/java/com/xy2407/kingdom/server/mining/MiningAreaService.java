@@ -64,13 +64,17 @@ public final class MiningAreaService {
             MiningPlotManager.INSTANCE.update(existing.withArea(min, max, surfaceY, normalizedCells));
         } else {
             NpcData worker = nearestCitizen(level, player.blockPosition());
-            List<UUID> workers = worker == null ? List.of() : List.of(worker.getId());
-            if (worker != null) {
-                worker.setWorkplaceId(building.id().toString());
-                worker.setWorkRecipeId("");
-            }
-            MiningPlotManager.INSTANCE.create(building, "矿场", min, max, surfaceY, workers,
+            MiningPlotManager.INSTANCE.create(building, "矿场", min, max, surfaceY, List.of(),
                     DateSystem.totalDay(level), normalizedCells);
+            if (worker != null) {
+                MiningPlot plot = MiningPlotManager.INSTANCE.byBuilding(building.id());
+                if (plot != null) {
+                    com.xy2407.kingdom.server.employment.EmploymentService.INSTANCE.hire(
+                            level.getServer(), worker.getId(),
+                            com.xy2407.kingdom.common.employment.EmploymentTarget.mining(
+                                    building.id(), plot.id()));
+                }
+            }
         }
         player.displayClientMessage(Component.literal("矿坑已划定："
                 + normalizedCells.size() + " 格"

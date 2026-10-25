@@ -7,13 +7,16 @@ import java.util.UUID;
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.building.BuildingType;
+import com.xy2407.kingdom.common.employment.EmploymentKind;
 import com.xy2407.kingdom.common.home.HomeBeds;
+import com.xy2407.kingdom.common.employment.EmploymentResult;
+import com.xy2407.kingdom.common.employment.EmploymentTarget;
 import com.xy2407.kingdom.common.network.building.ResidentActionPacket;
 import com.xy2407.kingdom.common.network.building.ResidentListPacket;
 import com.xy2407.kingdom.common.npc.NpcData;
 import com.xy2407.kingdom.common.npc.NpcManager;
+import com.xy2407.kingdom.server.employment.EmploymentService;
 
-import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -57,33 +60,26 @@ public final class ResidentService {
     }
 
     private static void toggleResident(ServerPlayer player, BuildingRecord building, NpcData npc) {
-        String buildingId = building.id().toString();
-        if (buildingId.equals(npc.getHomeId())) {
-            HomeBeds.unbind(npc);
+        if (building.id().toString().equals(npc.getHomeId())) {
+            EmploymentService.INSTANCE.dismissAssignment(
+                    player.server, npc.getId(), EmploymentKind.RESIDENCE);
             return;
         }
-        if (npc.getHomeId() != null && !npc.getHomeId().isBlank()) {
-            player.displayClientMessage(Component.literal(npc.getName() + " 已住在别处"), true);
-            return;
+        EmploymentResult result = EmploymentService.INSTANCE.hire(player.server, npc.getId(),
+                EmploymentTarget.residence(building.id()));
+        if (!result.success()) {
+            player.displayClientMessage(Component.literal(result.reason()), true);
         }
-        BlockPos bed = HomeBeds.assignFree(player.serverLevel(), building);
-        if (bed == null) {
-            player.displayClientMessage(Component.literal("床位已满，先加床或让住户搬走"), true);
-            return;
-        }
-        npc.setHomeId(buildingId);
-        npc.setHomeX(bed.getX());
-        npc.setHomeY(bed.getY());
-        npc.setHomeZ(bed.getZ());
     }
 
     private static void clearResidents(BuildingRecord building) {
         String buildingId = building.id().toString();
-        for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
+        for (NpcData npc : new ArrayList<>(NpcManager.INSTANCE.allNpcs())) {
             if (npc.isDead() || !buildingId.equals(npc.getHomeId())) {
                 continue;
             }
-            HomeBeds.unbind(npc);
+            EmploymentService.INSTANCE.dismissAssignment(
+                    null, npc.getId(), EmploymentKind.RESIDENCE);
         }
     }
 

@@ -60,12 +60,15 @@ public final class ModMain {
         KingdomPersistence.registerMigration(new RoadSchema());
         KingdomPersistence.registerMigration(new RegionTaskSchema());
         KingdomPersistence.registerMigration(new com.xy2407.kingdom.common.persistence.PlotAreaSchema());
+        KingdomPersistence.registerMigration(
+                new com.xy2407.kingdom.common.persistence.BuildingTaskSchema());
         NeoForge.EVENT_BUS.register(ServerLifecycle.class);
         NeoForge.EVENT_BUS.register(DateServerTick.class);
         NeoForge.EVENT_BUS.register(NpcJoinWorldHandler.class);
         NeoForge.EVENT_BUS.register(NpcServerTick.class);
         ModEntities.ENTITY_TYPES.register(modEventBus);
         ModBlocks.BLOCKS.register(modEventBus);
+        com.xy2407.kingdom.common.block.ModBlockEntities.BLOCK_ENTITIES.register(modEventBus);
         ModBlocks.ITEMS.register(modEventBus);
         ModCreativeTabs.TABS.register(modEventBus);
     }

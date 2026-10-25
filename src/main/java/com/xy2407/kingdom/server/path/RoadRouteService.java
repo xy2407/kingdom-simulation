@@ -27,7 +27,7 @@ public final class RoadRouteService {
 
     private static final int BUILDING_DEPTH = 20;
 
-    private static final double NEAR_DIRECT_SQR = 400.0D;
+    private static final double NEAR_DIRECT_SQR = 1024.0D;
 
     private static final Map<Long, Long> NO_ACCESS_UNTIL = new ConcurrentHashMap<>();
     private static final long NO_ACCESS_TTL_TICKS = 600L;

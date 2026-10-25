@@ -25,7 +25,7 @@ public final class NpcPathDebugBroadcast {
     }
 
     public static void send(ServerLevel level, NpcEntity npc, List<NpcPathfinder.Waypoint> waypoints) {
-        if (waypoints == null || waypoints.isEmpty()) {
+        if (waypoints == null) {
             return;
         }
         AABB area = npc.getBoundingBox().inflate(RADIUS);

@@ -21,7 +21,7 @@ import com.xy2407.kingdom.common.npc.NpcSchedule;
 import com.xy2407.kingdom.common.npc.NpcSubState;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
 import com.xy2407.kingdom.server.building.BuildingStorageMenu;
-import com.xy2407.kingdom.server.npc.NpcOccupation;
+import com.xy2407.kingdom.server.employment.EmploymentService;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
@@ -82,16 +82,21 @@ public final class FarmPanelService {
                 FarmPlot plot = owned(manager, plotId, building);
                 if (plot != null) {
                     UUID workerId = parseUuid(packet.text());
-                    String conflict = null;
-                    if (workerId != null && !plot.workerIds().contains(workerId)) {
-                        NpcData npc = NpcManager.INSTANCE.getNpc(workerId);
-                        conflict = npc == null ? "市民不存在或已死亡"
-                                : NpcOccupation.conflict(npc, plot.buildingId());
-                    }
-                    if (conflict == null) {
-                        manager.update(withToggledWorker(plot, packet.text()));
-                    } else {
-                        player.displayClientMessage(Component.literal(conflict + "，无法安排打理"), true);
+                    if (workerId != null) {
+                        if (plot.workerIds().contains(workerId)) {
+                            com.xy2407.kingdom.server.employment.EmploymentService.INSTANCE
+                                    .dismissAssignment(player.server, workerId,
+                                            com.xy2407.kingdom.common.employment.EmploymentKind.FARM);
+                        } else {
+                            var result = com.xy2407.kingdom.server.employment.EmploymentService.INSTANCE
+                                    .hire(player.server, workerId,
+                                            com.xy2407.kingdom.common.employment.EmploymentTarget
+                                                    .farm(plot.buildingId(), plot.id()));
+                            if (!result.success()) {
+                                player.displayClientMessage(
+                                        Component.literal(result.reason() + "，无法安排打理"), true);
+                            }
+                        }
                     }
                 }
             }
@@ -122,7 +127,7 @@ public final class FarmPanelService {
             plots.add(new FarmPanelStatePacket.Plot(plot.id(), plot.name(), plot.slots(), plot.cropId(),
                     plot.hasArea(), plot.min().getX(), plot.min().getZ(),
                     plot.max().getX(), plot.max().getZ(), plot.min().getY(),
-                    NpcOccupation.aliveOnly(plot.workerIds()),
+                    EmploymentService.aliveOnly(plot.workerIds()),
                     plot.extra()));
         }
         return new FarmPanelStatePacket(true, building.name(), building.farmSlots(),
@@ -176,7 +181,7 @@ public final class FarmPanelService {
     }
 
     private static String workerNote(NpcData npc, UUID buildingId) {
-        String conflict = NpcOccupation.note(npc, buildingId);
+        String conflict = EmploymentService.INSTANCE.conflictAt(npc, buildingId);
         if (!conflict.isEmpty()) {
             return conflict;
         }
@@ -215,24 +220,6 @@ public final class FarmPanelService {
     private static FarmPlot withCrop(FarmPlot plot, String cropId) {
         return new FarmPlot(plot.id(), plot.buildingId(), plot.blueprintName(), plot.name(),
                 plot.slots(), cropId, plot.workerIds(),
-                plot.dimension(), plot.min(), plot.max(), plot.createdDay(), plot.extra());
-    }
-
-    private static FarmPlot withToggledWorker(FarmPlot plot, String rawWorkerId) {
-        List<UUID> workers = new ArrayList<>(plot.workerIds());
-        if (rawWorkerId == null || rawWorkerId.isBlank()) {
-            workers.clear();
-        } else {
-            UUID workerId = parseUuid(rawWorkerId);
-            if (workerId == null) {
-                return plot;
-            }
-            if (!workers.remove(workerId)) {
-                workers.add(workerId);
-            }
-        }
-        return new FarmPlot(plot.id(), plot.buildingId(), plot.blueprintName(), plot.name(),
-                plot.slots(), plot.cropId(), workers,
                 plot.dimension(), plot.min(), plot.max(), plot.createdDay(), plot.extra());
     }
 

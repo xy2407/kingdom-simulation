@@ -143,6 +143,7 @@ public final class FarmPanelScreen extends ApricityScreen {
         detailCancel = document.getElementById("fd-cancel");
 
         on("fm-new", this::startNewPlot);
+        on("fd-hire", () -> openEmployment(selectedPlotId, 3));
         on("fm-close", this::onClose);
         on("fm-search-clear", () -> setFilter(""));
         on("fd-back", this::closeDetail);
@@ -153,7 +154,6 @@ public final class FarmPanelScreen extends ApricityScreen {
         on("fd-warehouse", this::openWarehouse);
         on("fm-confirm-no", this::closeConfirm);
         on("fm-confirm-yes", this::confirmDelete);
-        on("fd-clear-workers", this::clearWorkers);
         on("fd-worker-search-clear", () -> setWorkerFilter(""));
         on("fd-draw", () -> {
             if (draftOpen) {
@@ -172,6 +172,12 @@ public final class FarmPanelScreen extends ApricityScreen {
         showDetail(false);
         apply(latest);
         PacketDistributor.sendToServer(new FarmPanelRequestPacket());
+    }
+
+    private static void openEmployment(UUID plotId, int kind) {
+        PacketDistributor.sendToServer(
+                new com.xy2407.kingdom.common.network.employment.EmploymentOpenRequestPacket(
+                        "", plotId == null ? "" : plotId.toString(), kind));
     }
 
     private void on(String elementId, Runnable action) {
@@ -626,24 +632,6 @@ public final class FarmPanelScreen extends ApricityScreen {
         }
         if (selectedPlotId != null) {
             send(FarmPanelActionPacket.toggleWorker(selectedPlotId, workerId));
-        }
-    }
-
-    private void clearWorkers() {
-        if (draftOpen) {
-            FarmPlotDraft draft = FarmPlotDraft.current();
-            if (draft == null) {
-                return;
-            }
-            FarmPlotDraft next = draft.withWorkers(List.of());
-            FarmPlotDraft.set(next);
-            refreshDraft(next);
-            refreshWorkers(latest, next.workerIds());
-            refreshList(latest);
-            return;
-        }
-        if (selectedPlotId != null) {
-            send(FarmPanelActionPacket.toggleWorker(selectedPlotId, null));
         }
     }
 

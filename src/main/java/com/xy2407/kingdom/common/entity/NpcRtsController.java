@@ -14,8 +14,8 @@ import net.minecraft.core.BlockPos;
  */
 final class NpcRtsController {
 
-    private static final double RTS_ARRIVE_SQR = 4.0D;
-    private static final double CROWD_ARRIVE_SQR = 2.25D;
+    private static final double RTS_ARRIVE_SQR = 0.49D;
+    private static final double CROWD_ARRIVE_SQR = 0.49D;
     private static final double GROUP_HANDOFF_SQR = 9.0D;
     private static final double ARRIVE_HEIGHT = 1.0D;
     private static final int GIVE_UP_TICKS = 600;

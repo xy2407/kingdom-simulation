@@ -136,6 +136,13 @@ public final class BuildingPanelScreen extends ApricityScreen {
         Element close = document.getElementById(ID_CLOSE);
         if (close != null) {
             close.addEventListener("click", event -> onClose());
+        Element hire = document.getElementById("empl-hire");
+        if (hire != null) {
+            hire.addEventListener("click", event -> net.neoforged.neoforge.network.PacketDistributor
+                    .sendToServer(
+                            new com.xy2407.kingdom.common.network.employment
+                                    .EmploymentOpenRequestPacket("", "", 0)));
+        }
         }
         Element main = document.getElementById(MAIN_BUTTONS.getOrDefault(prefix, ""));
         if (main != null) {

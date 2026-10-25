@@ -91,6 +91,7 @@ public record RanchPanelStatePacket(boolean inside, String buildingName, int bui
             buf.writeUtf(worker.name(), 64);
             buf.writeUtf(worker.skin(), 128);
             buf.writeUtf(worker.note(), 16);
+            buf.writeUtf(worker.shift(), 16);
         }
     }
 

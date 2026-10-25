@@ -29,6 +29,7 @@ public final class RoadStore {
     private static final int LOAD_RETRY_DELAY_TICKS = 200;
 
     private final Map<String, Set<Long>> cellsByDimension = new HashMap<>();
+    private final Map<String, Set<Long>> roadChunksByDimension = new HashMap<>();
     private final Map<String, Map<Long, RoadChunkData>> chunksByDimension = new HashMap<>();
     private boolean loaded;
     private int loadRetryCooldown;
@@ -42,6 +43,7 @@ public final class RoadStore {
 
     public void reset() {
         cellsByDimension.clear();
+        roadChunksByDimension.clear();
         chunksByDimension.clear();
         loaded = false;
         loadRetryCooldown = 0;
@@ -64,6 +66,11 @@ public final class RoadStore {
         return loaded;
     }
 
+    public boolean hasRoadInChunk(String dimension, int chunkX, int chunkZ) {
+        Set<Long> chunks = roadChunksByDimension.get(dimension);
+        return chunks != null && chunks.contains(ChunkPos.asLong(chunkX, chunkZ));
+    }
+
     public boolean contains(String dimension, BlockPos pos) {
         Set<Long> cells = cellsByDimension.get(dimension);
         return cells != null && cells.contains(pos.asLong());
@@ -83,6 +90,8 @@ public final class RoadStore {
         int chunkX = pos.getX() >> 4;
         int chunkZ = pos.getZ() >> 4;
         if (added) {
+            roadChunksByDimension.computeIfAbsent(dimension, key -> new HashSet<>())
+                    .add(ChunkPos.asLong(chunkX, chunkZ));
             updateChunkCells(dimension, chunkX, chunkZ, pos.asLong(), owner, day);
         }
         String key = RoadSchema.cellKey(dimension, pos.getX(), pos.getY(), pos.getZ());
@@ -287,6 +296,9 @@ public final class RoadStore {
                 long packed = BlockPos.asLong(Integer.parseInt(row[1]), Integer.parseInt(row[2]),
                         Integer.parseInt(row[3]));
                 cellsByDimension.computeIfAbsent(row[0], key -> new HashSet<>()).add(packed);
+                roadChunksByDimension.computeIfAbsent(row[0], key -> new HashSet<>())
+                        .add(ChunkPos.asLong(
+                                Integer.parseInt(row[1]) >> 4, Integer.parseInt(row[3]) >> 4));
             }
             loadRoadChunks();
             loaded = true;

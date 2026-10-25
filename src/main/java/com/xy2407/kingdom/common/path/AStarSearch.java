@@ -153,9 +153,13 @@ final class AStarSearch {
             return;
         }
         double dh = heightAt(view, x, y, z) - heightAt(view, current.x, current.y, current.z);
-        float g = current.g + (float) PathCostModel.stepCost(dh)
-                + PathCostModel.hazardCost(view.standHazard(x, y, z), view.cactusAdjacent(x, y, z))
-                + (preferRoad && !view.onRoad(x, y, z) ? PathCostModel.ROAD_BIAS : 0.0F);
+        float raw = (float) PathCostModel.stepCost(dh);
+        float step = raw;
+        if (preferRoad && view.onRoad(x, y, z)) {
+            step = PathCostModel.ROAD_FACTOR + (raw - 1.0F);
+        }
+        float g = current.g + step
+                + PathCostModel.hazardCost(view.standHazard(x, y, z), view.cactusAdjacent(x, y, z));
         if (g >= node.g) {
             return;
         }

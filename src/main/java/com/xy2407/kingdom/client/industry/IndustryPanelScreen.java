@@ -167,12 +167,13 @@ public final class IndustryPanelScreen extends ApricityScreen {
         on("im-search-clear", () -> setFilter(""));
         on("ic-back", this::closeDetail);
         on("ic-close", this::closeDetail);
-        on("ic-clear-workers", this::clearWorkers);
         on("ic-worker-search-clear", () -> setWorkerFilter(""));
         on("bp-warehouse", this::openWarehouse);
         on("bp-close", this::onClose);
         on("im-start", this::startMineBrush);
         on("im-lumber", this::startLumberArea);
+        on("ic-hire", () -> openEmployment(null, 0));
+        on("in-hire", () -> openEmployment(selectedMineId, 5));
         on("in-back", this::closeMineDetail);
         on("in-close", this::closeMineDetail);
         on("in-pause", this::toggleMineStatus);
@@ -590,6 +591,12 @@ public final class IndustryPanelScreen extends ApricityScreen {
         PacketDistributor.sendToServer(new MiningPanelRequestPacket());
     }
 
+    private static void openEmployment(UUID plotId, int kind) {
+        net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                new com.xy2407.kingdom.common.network.employment.EmploymentOpenRequestPacket(
+                        "", plotId == null ? "" : plotId.toString(), kind));
+    }
+
     private void startLumberArea() {
         onClose();
         if (!RtsModeManager.isActive()) {
@@ -639,13 +646,6 @@ public final class IndustryPanelScreen extends ApricityScreen {
             return;
         }
         send(IndustryPanelActionPacket.toggleWorker(selectedRecipeId, workerId));
-    }
-
-    private void clearWorkers() {
-        if (selectedRecipeId == null) {
-            return;
-        }
-        send(IndustryPanelActionPacket.clearWorkers(selectedRecipeId));
     }
 
     private void openWarehouse() {

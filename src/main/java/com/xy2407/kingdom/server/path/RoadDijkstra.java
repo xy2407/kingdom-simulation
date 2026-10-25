@@ -16,6 +16,8 @@ final class RoadDijkstra {
     record Crossing(long goal, List<Long> path) {
     }
 
+    private static final int NODE_BUDGET = 12000;
+
     private RoadDijkstra() {
     }
 
@@ -36,7 +38,11 @@ final class RoadDijkstra {
                 goalNodes.add(node);
             }
         }
+        int visited = 0;
         while (!open.isEmpty()) {
+            if (++visited > NODE_BUDGET) {
+                return null;
+            }
             long[] top = open.poll();
             int node = (int) top[0];
             float d = Float.intBitsToFloat((int) top[1]);

@@ -13,6 +13,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
@@ -24,7 +25,6 @@ import net.neoforged.api.distmarker.OnlyIn;
 @OnlyIn(Dist.CLIENT)
 public final class NpcPathDebugRenderer {
 
-    private static final long LIFETIME_NANOS = 6_000_000_000L;
     private static final double BOX_INFLATE = 0.02D;
 
     private static final float[] WALK = {1.0F, 0.35F, 0.35F};
@@ -39,11 +39,14 @@ public final class NpcPathDebugRenderer {
     }
 
     public static void accept(NpcPathDebugPacket packet) {
+        UUID npcId = packet.npcId();
+        TRACES.removeIf(trace -> trace.npcId().equals(npcId));
         if (packet.entries().isEmpty()) {
-            TRACES.clear();
             return;
         }
-        TRACES.add(new Trace(packet.npcId(), packet.entries(), System.nanoTime() + LIFETIME_NANOS));
+        List<NpcPathDebugPacket.Entry> entries = packet.entries();
+        BlockPos target = entries.get(entries.size() - 1).pos();
+        TRACES.add(new Trace(npcId, entries, target));
     }
 
     public static void clear() {
@@ -58,8 +61,13 @@ public final class NpcPathDebugRenderer {
         if (minecraft.level == null) {
             return;
         }
-        long now = System.nanoTime();
-        TRACES.removeIf(trace -> trace.expiresAt() < now);
+        TRACES.removeIf(trace -> {
+            Entity entity = findEntity(minecraft.level, trace.npcId());
+            if (entity == null || !entity.isAlive()) {
+                return true;
+            }
+            return arrived(entity, trace.target());
+        });
         if (TRACES.isEmpty()) {
             return;
         }
@@ -80,6 +88,28 @@ public final class NpcPathDebugRenderer {
         poseStack.popPose();
     }
 
+    private static boolean arrived(Entity entity, BlockPos target) {
+        if (entity == null || target == null) {
+            return false;
+        }
+        double dx = entity.getX() - (target.getX() + 0.5D);
+        double dy = entity.getY() - target.getY();
+        double dz = entity.getZ() - (target.getZ() + 0.5D);
+        return dx * dx + dy * dy + dz * dz <= 0.7D * 0.7D;
+    }
+
+    private static Entity findEntity(net.minecraft.client.multiplayer.ClientLevel level, UUID id) {
+        if (level == null || id == null) {
+            return null;
+        }
+        for (Entity entity : level.entitiesForRendering()) {
+            if (id.equals(entity.getUUID())) {
+                return entity;
+            }
+        }
+        return null;
+    }
+
     private static float[] colorOf(byte move) {
         return switch (move) {
             case 1 -> STEP_UP;
@@ -90,6 +120,6 @@ public final class NpcPathDebugRenderer {
         };
     }
 
-    private record Trace(UUID npcId, List<NpcPathDebugPacket.Entry> entries, long expiresAt) {
+    private record Trace(UUID npcId, List<NpcPathDebugPacket.Entry> entries, BlockPos target) {
     }
 }

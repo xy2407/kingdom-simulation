@@ -2,10 +2,13 @@ package com.xy2407.kingdom.common.building;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
@@ -31,8 +34,10 @@ public final class BuildingTask {
     private final List<Step> sequence;
     private final List<BlockPos> scaffold;
     private final int[] sectionStarts;
-    private final UUID architectId;
-    private final String architectName;
+    private UUID architectId;
+    private String architectName;
+    private final Map<String, Integer> materials;
+    private final BlockPos depositPos;
     private final int level;
     private final int rotation;
     private final int createdDay;
@@ -44,7 +49,10 @@ public final class BuildingTask {
 
     public BuildingTask(UUID id, String blueprintName, ResourceKey<Level> dimension, BlockPos origin,
                         BuildPlan plan, List<Step> sequence, List<BlockPos> scaffold,
-                        UUID architectId, String architectName, int level, int rotation, int createdDay) {
+                        UUID architectId, String architectName, int level, int rotation, int createdDay,
+                        Map<String, Integer> materials, BlockPos depositPos) {
+        this.materials = materials == null ? new LinkedHashMap<>() : new LinkedHashMap<>(materials);
+        this.depositPos = depositPos;
         this.id = id;
         this.blueprintName = blueprintName;
         this.dimension = dimension;
@@ -104,6 +112,43 @@ public final class BuildingTask {
 
     public String architectName() {
         return architectName;
+    }
+
+    public Map<String, Integer> materials() {
+        return materials;
+    }
+
+    public void assignArchitect(UUID npcId, String name) {
+        this.architectId = npcId;
+        this.architectName = name == null ? "" : name;
+    }
+
+    public void setCursor(int value) {
+        this.cursor = Math.max(0, Math.min(value, sequence.size()));
+    }
+
+    public void markConsumed(Step step) {
+        if (step == null || step.kind() != WorkKind.BUILD) {
+            return;
+        }
+        String id = itemIdOf(step.state());
+        Integer left = materials.get(id);
+        if (left == null || left <= 0) {
+            return;
+        }
+        if (left <= 1) {
+            materials.remove(id);
+        } else {
+            materials.put(id, left - 1);
+        }
+    }
+
+    public BlockPos depositPos() {
+        return depositPos;
+    }
+
+    public static String itemIdOf(BlockState state) {
+        return BuiltInRegistries.ITEM.getKey(state.getBlock().asItem()).toString();
     }
 
     public int level() {

@@ -126,8 +126,9 @@ public final class BuilderBoardScreen extends ApricityScreen {
 
     private void bindStatic(Document document) {
         click(document, "bb-close", () -> Minecraft.getInstance().setScreen(null));
-        click(document, "bb-hire", () ->
-                PacketDistributor.sendToServer(new BuilderEmployeePacket(NULL_ID, true)));
+        click(document, "bb-hire", () -> PacketDistributor.sendToServer(
+                new com.xy2407.kingdom.common.network.employment.EmploymentOpenRequestPacket(
+                        "", "", com.xy2407.kingdom.common.employment.EmploymentKind.BUILDER.ordinal())));
         document.addEventListener("mousemove", this::onDocumentMouseMove);
         document.addEventListener("mouseup", this::onDocumentMouseUp);
     }

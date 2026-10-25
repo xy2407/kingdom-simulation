@@ -12,7 +12,9 @@ import com.xy2407.kingdom.common.network.mining.MiningPanelActionPacket;
 import com.xy2407.kingdom.common.network.mining.MiningPanelStatePacket;
 import com.xy2407.kingdom.common.npc.*;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
-import com.xy2407.kingdom.server.npc.NpcOccupation;
+import com.xy2407.kingdom.common.employment.EmploymentKind;
+import com.xy2407.kingdom.common.employment.EmploymentTarget;
+import com.xy2407.kingdom.server.employment.EmploymentService;
 
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -41,7 +43,7 @@ public final class MiningPanelService {
             mines.add(new MiningPanelStatePacket.Mine(plot.id(), plot.name(),
                     plot.min().getX(), plot.min().getZ(), plot.max().getX(), plot.max().getZ(),
                     plot.surfaceY(), plot.currentY(), plot.cursor(), plot.layerSize(),
-                    plot.status(), NpcOccupation.aliveOnly(plot.workerIds())));
+                    plot.status(), EmploymentService.aliveOnly(plot.workerIds())));
         }
         PacketDistributor.sendToPlayer(player, new MiningPanelStatePacket(true,
                 building.name(), List.copyOf(mines), roster(building.id())));
@@ -76,13 +78,10 @@ public final class MiningPanelService {
 
     private static void toggleWorker(ServerPlayer player, MiningPlot plot, UUID workerId) {
         if (workerId == null) {
-            for (UUID id : plot.workerIds()) {
-                NpcData npc = NpcManager.INSTANCE.getNpc(id);
-                if (npc != null && plot.buildingId().toString().equals(npc.getWorkplaceId())) {
-                    npc.setWorkplaceId("");
-                }
+            for (UUID id : new ArrayList<>(plot.workerIds())) {
+                EmploymentService.INSTANCE.dismissAssignment(
+                        player.server, id, EmploymentKind.MINING);
             }
-            MiningPlotManager.INSTANCE.update(plot.withWorkers(List.of()));
             return;
         }
         NpcData npc = NpcManager.INSTANCE.getNpc(workerId);
@@ -91,27 +90,15 @@ public final class MiningPanelService {
             return;
         }
         if (plot.workerIds().contains(workerId)) {
-            List<UUID> next = new ArrayList<>(plot.workerIds());
-            next.remove(workerId);
-            if (plot.buildingId().toString().equals(npc.getWorkplaceId())) {
-                npc.setWorkplaceId("");
-            }
-            NpcMiningService.unlinkWorker(workerId);
-            MiningPlotManager.INSTANCE.update(plot.withWorkers(next));
+            EmploymentService.INSTANCE.dismissAssignment(
+                    player.server, workerId, EmploymentKind.MINING);
             return;
         }
-        String conflict = NpcOccupation.conflict(npc, plot.buildingId());
-        if (conflict != null) {
-            player.displayClientMessage(Component.literal(conflict), true);
-            return;
+        var result = EmploymentService.INSTANCE.hire(player.server, workerId,
+                EmploymentTarget.mining(plot.buildingId(), plot.id()));
+        if (!result.success()) {
+            player.displayClientMessage(Component.literal(result.reason()), true);
         }
-        List<UUID> next = new ArrayList<>(plot.workerIds());
-        next.add(workerId);
-        npc.setWorkplaceId(plot.buildingId().toString());
-        npc.setWorkRecipeId("");
-        NpcMiningService.linkWorker(workerId, plot.id());
-        npc.getBrain().setMiningControlled(true);
-        MiningPlotManager.INSTANCE.update(plot.withWorkers(next));
     }
 
     private static List<MiningPanelStatePacket.WorkerOption> roster(UUID buildingId) {
@@ -127,7 +114,7 @@ public final class MiningPanelService {
     }
 
     private static String workerNote(NpcData npc, UUID buildingId) {
-        String conflict = NpcOccupation.note(npc, buildingId);
+        String conflict = EmploymentService.INSTANCE.conflictAt(npc, buildingId);
         if (!conflict.isEmpty()) {
             return conflict;
         }

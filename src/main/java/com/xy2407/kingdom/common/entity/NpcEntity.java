@@ -44,7 +44,9 @@ import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.FenceGateBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.phys.AABB;
@@ -538,6 +540,7 @@ public class NpcEntity extends PathfinderMob {
             segmentTarget = null;
             segmentStaleTicks = 0;
             segmentBestDistance = Double.MAX_VALUE;
+            workRepathCooldown = 0;
         }
         if (segmentTarget != null) {
             double distance = blockPosition().distSqr(segmentTarget);
@@ -548,14 +551,17 @@ public class NpcEntity extends PathfinderMob {
                 segmentTarget = null;
                 segmentStaleTicks = 0;
                 segmentBestDistance = Double.MAX_VALUE;
+                workRepathCooldown = 0;
             }
         }
         if (segmentTarget != null) {
             return segmentTarget;
         }
         BlockPos here = blockPosition();
-        if (here.distSqr(stand) <= (double) NpcPathfinder.SEGMENT_RANGE * NpcPathfinder.SEGMENT_RANGE
-                && Math.abs(here.getY() - stand.getY()) <= NpcPathfinder.SEGMENT_VERTICAL) {
+        double spanX = stand.getX() - here.getX();
+        double spanZ = stand.getZ() - here.getZ();
+        if (spanX * spanX + spanZ * spanZ
+                <= (double) NpcPathfinder.LONG_SEGMENT * NpcPathfinder.LONG_SEGMENT) {
             return stand;
         }
         if (!(level() instanceof ServerLevel serverLevel)) {
@@ -642,12 +648,26 @@ public class NpcEntity extends PathfinderMob {
             return;
         }
         resyncFollowIndex();
+        if (tickCount % 20 == 0) {
+            BlockPos here = blockPosition();
+            BlockPos next = followIndex < followPath.size()
+                    ? followPath.get(followIndex).pos() : here;
+            com.xy2407.kingdom.ModMain.LOGGER.info(
+                    "[路径] {} idx={}/{} pos={} next={} stuck={} slide={}",
+                    getName().getString(), followIndex, followPath.size(),
+                    here.toShortString(), next.toShortString(), workStuckTicks, slideTicks);
+        }
         while (followIndex < followPath.size()) {
             NpcPathfinder.Waypoint waypoint = followPath.get(followIndex);
             BlockPos pos = waypoint.pos();
             if (passedWaypoint(followIndex)) {
                 followIndex++;
                 continue;
+            }
+            boolean ladderStart = isClimbCell(pos) && (followIndex == 0
+                    || !isClimbCell(followPath.get(followIndex - 1).pos()));
+            if (ladderStart) {
+                teleportOnLadder(pos);
             }
             double dx = getX() - (pos.getX() + 0.5D);
             double dz = getZ() - (pos.getZ() + 0.5D);
@@ -658,8 +678,9 @@ public class NpcEntity extends PathfinderMob {
             };
             if (dx * dx + dz * dz <= arrive * arrive
                     && Math.abs(Math.floor(getY() + 0.5D) - pos.getY()) < 1.0D) {
-                if (waypoint.move() == NpcPathfinder.Waypoint.Move.CLIMB
-                        && followIndex + 1 < followPath.size()) {
+                boolean ladderEnd = isClimbCell(pos) && followIndex + 1 < followPath.size()
+                        && !isClimbCell(followPath.get(followIndex + 1).pos());
+                if (ladderEnd) {
                     teleportOffLadder(pos, followPath.get(followIndex + 1).pos());
                 }
                 followIndex++;
@@ -667,6 +688,7 @@ public class NpcEntity extends PathfinderMob {
             }
             applyVertical(waypoint, climbDelta(followIndex));
             tryOpenDoor(pos);
+            autoOpenPassage(pos);
             double wantedY = waypoint.move() == NpcPathfinder.Waypoint.Move.CLIMB
                     ? getY()
                     : pos.getY();
@@ -744,11 +766,54 @@ public class NpcEntity extends PathfinderMob {
         }
     }
 
+    private void autoOpenPassage(BlockPos waypoint) {
+        double movedX = getX() - xo;
+        double movedZ = getZ() - zo;
+        boolean blocked = horizontalCollision
+                && movedX * movedX + movedZ * movedZ < 1.0E-4D;
+        if (!blocked && tickCount % 20 != 0) {
+            return;
+        }
+        BlockPos base = blockPosition();
+        int stepX = Integer.signum(waypoint.getX() - base.getX());
+        int stepZ = Integer.signum(waypoint.getZ() - base.getZ());
+        openColumn(base);
+        if (stepX != 0) {
+            openColumn(base.offset(stepX, 0, 0));
+            openColumn(base.offset(stepX * 2, 0, 0));
+        }
+        if (stepZ != 0) {
+            openColumn(base.offset(0, 0, stepZ));
+            openColumn(base.offset(0, 0, stepZ * 2));
+        }
+        if (stepX != 0 && stepZ != 0) {
+            openColumn(base.offset(stepX, 0, stepZ));
+        }
+    }
+
+    private void openColumn(BlockPos base) {
+        tryOpenDoor(base);
+        tryOpenDoor(base.above());
+    }
+
     private void tryOpenDoor(BlockPos pos) {
         if (!(level() instanceof ServerLevel serverLevel)) {
             return;
         }
         BlockState state = serverLevel.getBlockState(pos);
+        if (state.is(Blocks.IRON_DOOR)) {
+            return;
+        }
+        if (state.getBlock() instanceof FenceGateBlock) {
+            if (state.getValue(FenceGateBlock.OPEN)) {
+                return;
+            }
+            serverLevel.setBlock(pos, state.setValue(FenceGateBlock.OPEN, Boolean.TRUE),
+                    Block.UPDATE_ALL);
+            serverLevel.playSound(null, pos, SoundEvents.FENCE_GATE_OPEN, SoundSource.BLOCKS,
+                    1.0F, 1.0F);
+            return;
+        }
         if (!(state.getBlock() instanceof DoorBlock)
                 || state.getValue(DoorBlock.OPEN)
                 || state.getValue(DoorBlock.POWERED)) {
@@ -778,15 +843,30 @@ public class NpcEntity extends PathfinderMob {
         vertical.climbMove(climbDirection);
     }
 
+    private void teleportOnLadder(BlockPos ladderCell) {
+        if (vertical.onClimbable()) {
+            return;
+        }
+        if (blockPosition().distSqr(ladderCell) > 4.0D) {
+            return;
+        }
+        if (!isClimbCell(ladderCell)) {
+            return;
+        }
+        teleportTo(ladderCell.getX() + 0.5D, ladderCell.getY(), ladderCell.getZ() + 0.5D);
+        setDeltaMovement(Vec3.ZERO);
+        vertical.resetCooldown();
+        fallDistance = 0.0F;
+    }
+
     private void teleportOffLadder(BlockPos current, BlockPos next) {
         if (isClimbCell(next)) {
             return;
         }
-        BlockPos target = adjacentStep(current, next);
-        if (target == null || !canOccupy(target)) {
+        if (current.distSqr(next) > 9.0D) {
             return;
         }
-        teleportTo(target.getX() + 0.5D, target.getY(), target.getZ() + 0.5D);
+        teleportTo(next.getX() + 0.5D, next.getY(), next.getZ() + 0.5D);
         setDeltaMovement(Vec3.ZERO);
         vertical.resetCooldown();
         fallDistance = 0.0F;

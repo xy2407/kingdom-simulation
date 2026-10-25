@@ -16,7 +16,9 @@ import com.xy2407.kingdom.common.npc.NpcManager;
 import com.xy2407.kingdom.common.npc.NpcSchedule;
 import com.xy2407.kingdom.common.npc.NpcSubState;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
-import com.xy2407.kingdom.server.npc.NpcOccupation;
+import com.xy2407.kingdom.common.employment.EmploymentKind;
+import com.xy2407.kingdom.common.employment.EmploymentTarget;
+import com.xy2407.kingdom.server.employment.EmploymentService;
 
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
@@ -66,7 +68,7 @@ public final class IndustryPanelService {
                 if (npc != null && !npc.isDead()) {
                     boolean sameSlot = building.id().toString().equals(npc.getWorkplaceId())
                             && recipeKey.equals(npc.getWorkRecipeId());
-                    String conflict = sameSlot ? null : NpcOccupation.conflict(npc, building.id());
+                    String conflict = sameSlot ? null : EmploymentService.INSTANCE.conflictAt(npc, building.id());
                     if (conflict == null) {
                         toggleWorker(building, recipeKey, npc);
                     } else {
@@ -83,16 +85,14 @@ public final class IndustryPanelService {
     }
 
     private static void toggleWorker(BuildingRecord building, String recipeKey, NpcData npc) {
-        String buildingId = building.id().toString();
-        boolean sameSlot = buildingId.equals(npc.getWorkplaceId())
+        boolean sameSlot = building.id().toString().equals(npc.getWorkplaceId())
                 && recipeKey.equals(npc.getWorkRecipeId());
         if (sameSlot) {
-            npc.setWorkRecipeId("");
-            npc.setWorkplaceId(null);
+            EmploymentService.INSTANCE.dismissAssignment(null, npc.getId(), EmploymentKind.BUILDING);
             return;
         }
-        npc.setWorkplaceId(buildingId);
-        npc.setWorkRecipeId(recipeKey);
+        EmploymentService.INSTANCE.hire(null, npc.getId(),
+                EmploymentTarget.building(building.id(), recipeKey, npc.getShift()));
     }
 
     private static void clearWorkers(BuildingRecord building, String recipeKey) {
@@ -102,8 +102,7 @@ public final class IndustryPanelService {
                 continue;
             }
             if (buildingId.equals(npc.getWorkplaceId()) && recipeKey.equals(npc.getWorkRecipeId())) {
-                npc.setWorkRecipeId("");
-                npc.setWorkplaceId(null);
+                EmploymentService.INSTANCE.dismissAssignment(null, npc.getId(), EmploymentKind.BUILDING);
             }
         }
     }
@@ -150,7 +149,7 @@ public final class IndustryPanelService {
     }
 
     private static String workerNote(NpcData npc, UUID buildingId) {
-        String conflict = NpcOccupation.note(npc, buildingId);
+        String conflict = EmploymentService.INSTANCE.conflictAt(npc, buildingId);
         if (!conflict.isEmpty()) {
             return conflict;
         }

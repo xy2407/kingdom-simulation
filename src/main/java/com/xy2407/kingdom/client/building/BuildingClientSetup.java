@@ -79,6 +79,8 @@ public final class BuildingClientSetup {
         RoadHooks.loadedSink = RoadClientStore::setLoadedChunks;
         com.xy2407.kingdom.common.network.area.AreaHooks.stateSink =
                 com.xy2407.kingdom.client.area.AreaSelectionState::accept;
+        com.xy2407.kingdom.common.network.employment.EmploymentHooks.openSink =
+                com.xy2407.kingdom.client.employment.EmploymentScreen::open;
     }
 
     @SubscribeEvent

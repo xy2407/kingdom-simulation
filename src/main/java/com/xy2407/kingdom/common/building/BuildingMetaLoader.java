@@ -56,6 +56,7 @@ public final class BuildingMetaLoader {
                 stringList(root, "tags"),
                 integer(root, "level", 1),
                 integer(root, "jobs", 0),
+                hire(root),
                 Math.max(0, integer(root, "farm_slots", 0)),
                 Math.max(0, integer(root, "storage_slots", 0)),
                 crops(root),
@@ -69,6 +70,26 @@ public final class BuildingMetaLoader {
                 IndustryKind.parse(string(root, "industry_kind",
                         string(root, "industryKind", null)))
         );
+    }
+
+    private static List<Integer> hire(JsonObject root) {
+        JsonElement element = root.get("hire");
+        if (element == null || element.isJsonNull()) {
+            return List.of();
+        }
+        List<Integer> result = new ArrayList<>();
+        if (element.isJsonArray()) {
+            for (JsonElement item : element.getAsJsonArray()) {
+                if (item.isJsonPrimitive()) {
+                    result.add(item.getAsInt());
+                }
+            }
+            return result;
+        }
+        if (element.isJsonPrimitive()) {
+            result.add(element.getAsInt());
+        }
+        return result;
     }
 
     private static List<CropSpec> crops(JsonObject root) {

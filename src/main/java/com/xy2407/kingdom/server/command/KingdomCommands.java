@@ -36,7 +36,7 @@ import com.xy2407.kingdom.common.ranch.RanchPen;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
 import com.xy2407.kingdom.server.faction.MoneyService;
 import com.xy2407.kingdom.server.mining.MiningPlotManager;
-import com.xy2407.kingdom.server.npc.NpcOccupation;
+import com.xy2407.kingdom.server.employment.EmploymentService;
 import com.xy2407.kingdom.server.path.UnitSnapshotStore;
 import com.xy2407.kingdom.server.road.RoadStore;
 import com.xy2407.kingdom.server.ranch.RanchPenManager;
@@ -96,6 +96,7 @@ public final class KingdomCommands {
                                         .executes(ctx -> moveTrace(ctx, null))
                                         .then(Commands.argument("pos", Vec3Argument.vec3())
                                                 .executes(ctx -> moveTrace(ctx, Vec3Argument.getVec3(ctx, "pos")))))
+
                                 .then(Commands.literal("highmove")
                                         .then(Commands.literal("clear")
                                                 .then(Commands.argument("pos", Vec3Argument.vec3())
@@ -106,6 +107,11 @@ public final class KingdomCommands {
                                                         .executes(ctx -> highMoveOver(ctx, Vec3Argument.getVec3(ctx, "pos"))))))
                                 .then(Commands.literal("lumber")
                                         .executes(KingdomCommands::lumberTest))
+                                .then(Commands.literal("buildrequire")
+                                        .then(Commands.literal("true")
+                                                .executes(ctx -> buildRequire(ctx, true)))
+                                        .then(Commands.literal("false")
+                                                .executes(ctx -> buildRequire(ctx, false))))
                         .then(Commands.literal("place")
                                 .then(Commands.literal("structures")
                                         .then(Commands.argument("name", StringArgumentType.string())
@@ -158,8 +164,9 @@ public final class KingdomCommands {
         NpcData worker = nearestCitizen(player);
         List<UUID> workers = worker == null ? List.of() : List.of(worker.getId());
         if (worker != null) {
-            worker.setWorkplaceId(building.id().toString());
-            worker.setWorkRecipeId("");
+            EmploymentService.INSTANCE.hire(ctx.getSource().getServer(), worker.getId(),
+                    com.xy2407.kingdom.common.employment.EmploymentTarget.building(
+                            building.id(), "", worker.getShift()));
         }
         int spanX = max.getX() - min.getX() + 1;
         int spanZ = max.getZ() - min.getZ() + 1;
@@ -412,13 +419,15 @@ public final class KingdomCommands {
             source.sendFailure(Component.literal("这个维度还没有市民，先用 /kingdom npc spawn 生成"));
             return 0;
         }
-        String conflict = NpcOccupation.conflict(nearest, building.id());
+        String conflict = EmploymentService.INSTANCE.conflictAt(nearest, building.id());
         if (conflict != null) {
             source.sendFailure(Component.literal(nearest.getName() + " " + conflict + "，无法指派"));
             return 0;
         }
         for (RanchPen pen : pens) {
-            RanchPenManager.INSTANCE.update(pen.withKeeperIds(List.of(nearest.getId())));
+            EmploymentService.INSTANCE.hire(source.getServer(), nearest.getId(),
+                    com.xy2407.kingdom.common.employment.EmploymentTarget.ranch(
+                            pen.buildingId(), pen.id()));
         }
         source.sendSuccess(() -> Component.literal("已指派 " + nearest.getName() + " 担任 "
                 + pens.size() + " 栏的饲养员"), true);
@@ -490,6 +499,14 @@ public final class KingdomCommands {
                         + "　已探索 " + explored + "/" + total
                         + "　耗时 " + elapsedMs + "ms"), false);
         return explored;
+    }
+
+    private static int buildRequire(CommandContext<CommandSourceStack> ctx, boolean value) {
+        com.xy2407.kingdom.common.building.BuildRequirements.setRequired(value);
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "建造材料需求已" + (value ? "开启" : "关闭")
+                        + (value ? "：开工与施工需要备齐方块材料" : "：恢复免料建造")), true);
+        return 1;
     }
 
     private static int lumberTest(CommandContext<CommandSourceStack> ctx) {
@@ -649,8 +666,11 @@ public final class KingdomCommands {
             return 0;
         }
 
+        long startedAt = System.nanoTime();
         NpcPathfinder.DebugTrace trace = NpcPathfinder.trace(repository, level,
                 npc.blockPosition(), requested, NpcPathfinder.paddingOf(0));
+        long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000L;
+        source.sendSuccess(() -> Component.literal("A* 耗时 " + elapsedMs + "ms（同步计算）"), false);
 
         for (String line : describeTrace(npc, trace, level)) {
             source.sendSuccess(() -> Component.literal(line), false);
@@ -725,13 +745,15 @@ public final class KingdomCommands {
                 + "，差 " + (trace.snappedEnd() - trace.requested().getY()) + "）");
         lines.add("搜索范围 X[" + trace.minX() + ".." + trace.maxX()
                 + "] Z[" + trace.minZ() + ".." + trace.maxZ() + "]");
-        lines.add("展开节点=" + trace.visited() + "／上限 8192　航点=" + trace.waypoints().size());
+        lines.add("展开节点=" + trace.visited() + "／上限 " + NpcPathfinder.MAX_NODES
+                + "　航点=" + trace.waypoints().size());
         lines.add("起点可达高度 y[" + trace.reachMinY() + ".." + trace.reachMaxY()
                 + "]　目标 y=" + trace.snappedEnd());
 
         if (trace.waypoints().isEmpty()) {
             if (trace.exhausted()) {
-                lines.add("失败：8192 个节点用尽仍没搜到 —— 路可能存在，是搜索空间太大没搜完。");
+                lines.add("失败：" + NpcPathfinder.MAX_NODES
+                        + " 个节点用尽仍没搜到 —— 路可能存在，是搜索空间太大没搜完。");
             } else {
                 lines.add("失败：可达范围内不存在通往目标的落脚格。");
             }

@@ -15,7 +15,8 @@ import com.xy2407.kingdom.common.npc.NpcShift;
 import com.xy2407.kingdom.common.npc.NpcSubState;
 import com.xy2407.kingdom.common.ranch.RanchPen;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
-import com.xy2407.kingdom.server.npc.NpcOccupation;
+import com.xy2407.kingdom.common.employment.EmploymentKind;
+import com.xy2407.kingdom.server.employment.EmploymentService;
 
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
@@ -62,49 +63,38 @@ public final class RanchPanelService {
                     NpcData npc = NpcManager.INSTANCE.getNpc(workerId);
                     if (npc != null) {
                         boolean hired = pen.keeperIds().contains(workerId);
-                        String conflict = hired ? null : NpcOccupation.conflict(npc, pen.buildingId());
-                        if (conflict == null) {
-                            applyKeeper(pen, npc, shift);
+                        if (hired && npc.getShift() == shift) {
+                            com.xy2407.kingdom.server.employment.EmploymentService.INSTANCE
+                                    .dismissAssignment(player.server, workerId,
+                                            com.xy2407.kingdom.common.employment.EmploymentKind.RANCH);
                         } else {
-                            player.displayClientMessage(
-                                    Component.literal(npc.getName() + " " + conflict + "，无法安排看护"), true);
+                            var result = com.xy2407.kingdom.server.employment.EmploymentService.INSTANCE
+                                    .hire(player.server, workerId,
+                                            com.xy2407.kingdom.common.employment.EmploymentTarget
+                                                    .ranch(pen.buildingId(), pen.id()));
+                            if (result.success()) {
+                                npc.setShift(shift);
+                            } else {
+                                player.displayClientMessage(
+                                        Component.literal(npc.getName() + " " + result.reason()
+                                                + "，无法安排看护"), true);
+                            }
                         }
                     }
                 }
             }
             case RanchPanelActionPacket.ACTION_CLEAR_KEEPERS -> {
                 if (pen != null) {
-                    releaseKeepers(pen.keeperIds());
-                    RanchPenManager.INSTANCE.update(pen.withKeeperIds(List.of()));
+                    for (UUID keeper : new ArrayList<>(pen.keeperIds())) {
+                        EmploymentService.INSTANCE.dismissAssignment(
+                                player.server, keeper, EmploymentKind.RANCH);
+                    }
                 }
             }
             default -> {
             }
         }
         respond(player);
-    }
-
-    private static void applyKeeper(RanchPen pen, NpcData npc, NpcShift shift) {
-        UUID workerId = npc.getId();
-        boolean hired = pen.keeperIds().contains(workerId);
-        if (hired && npc.getShift() == shift) {
-            RanchPenManager.INSTANCE.update(pen.withKeeperIds(without(pen.keeperIds(), workerId)));
-            npc.setShift(NpcShift.DAY_SHIFT);
-            return;
-        }
-        if (!hired) {
-            RanchPenManager.INSTANCE.update(pen.withKeeperIds(with(pen.keeperIds(), workerId)));
-        }
-        npc.setShift(shift);
-    }
-
-    private static void releaseKeepers(List<UUID> keepers) {
-        for (UUID keeper : keepers) {
-            NpcData npc = NpcManager.INSTANCE.getNpc(keeper);
-            if (npc != null) {
-                npc.setShift(NpcShift.DAY_SHIFT);
-            }
-        }
     }
 
     private static void toggleRun(BuildingRecord building, RanchPen pen) {
@@ -115,20 +105,6 @@ public final class RanchPanelService {
                 RanchPenManager.INSTANCE.update(other.withRunning(value));
             }
         }
-    }
-
-    private static List<UUID> with(List<UUID> keepers, UUID workerId) {
-        List<UUID> result = new ArrayList<>(keepers);
-        if (!result.contains(workerId)) {
-            result.add(workerId);
-        }
-        return result;
-    }
-
-    private static List<UUID> without(List<UUID> keepers, UUID workerId) {
-        List<UUID> result = new ArrayList<>(keepers);
-        result.remove(workerId);
-        return result;
     }
 
     private static RanchPanelStatePacket snapshot(ServerPlayer player, BuildingRecord building) {
@@ -146,7 +122,7 @@ public final class RanchPanelService {
             animals.add(new RanchPanelStatePacket.Animal(pen == null ? null : pen.id(), spec.id(),
                     spec.name(), spec.entity(), spec.feed(), spec.output(), spec.mode(), statusLabel(pen),
                     spec.limit(), total, adults, pen != null && pen.running(),
-                    NpcOccupation.aliveOnly(pen == null ? List.of() : pen.keeperIds())));
+                    EmploymentService.aliveOnly(pen == null ? List.of() : pen.keeperIds())));
         }
         return new RanchPanelStatePacket(true, building.name(), building.level(), positionText(building),
                 animals, workerOptions(building.id()));
@@ -165,7 +141,7 @@ public final class RanchPanelService {
     }
 
     private static String workerNote(NpcData npc, UUID buildingId) {
-        String conflict = NpcOccupation.note(npc, buildingId);
+        String conflict = EmploymentService.INSTANCE.conflictAt(npc, buildingId);
         if (!conflict.isEmpty()) {
             return conflict;
         }

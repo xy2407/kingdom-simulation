@@ -55,6 +55,10 @@ public final class BuilderBoardService {
                 npcs.add(new BuilderBoardDataPacket.NpcRef(architect.getId(),
                         architect.getName(), architect.getSkin()));
             }
+            List<BuilderBoardDataPacket.MatEntry> materials = new ArrayList<>();
+            for (var entry : snapshot.materials().entrySet()) {
+                materials.add(new BuilderBoardDataPacket.MatEntry(entry.getKey(), entry.getValue()));
+            }
             list.add(new BuilderBoardDataPacket.TaskEntry(snapshot.id(),
                     BuilderBoardDataPacket.KIND_BUILDING, snapshot.blueprintName(),
                     snapshot.dimension(), snapshot.origin().getX(), snapshot.origin().getY(),
@@ -62,7 +66,7 @@ public final class BuilderBoardService {
                     snapshot.origin().getY() + snapshot.size().getY() - 1,
                     snapshot.origin().getZ() + snapshot.size().getZ() - 1,
                     snapshot.paused() ? "PAUSED" : "RUNNING", snapshot.cursor(),
-                    snapshot.total(), npcs, List.of()));
+                    snapshot.total(), npcs, materials));
         }
         return list;
     }
@@ -108,29 +112,23 @@ public final class BuilderBoardService {
             RegionTaskService.INSTANCE.applyAssign(player, taskId, npcId, packet.add());
             return;
         }
-        feedback(player, "建筑施工的工人由系统指派，不能手动调整");
+        if (!packet.add()) {
+            BuildingConstructionService.INSTANCE.unassign(taskId);
+            feedback(player, "已撤下该建筑的建筑工");
+            return;
+        }
+        String error = BuildingConstructionService.INSTANCE.assign(taskId, npcId);
+        if (error != null) {
+            feedback(player, error);
+        }
     }
 
     public static void applyEmployee(ServerPlayer player, BuilderEmployeePacket packet) {
         UUID npcId = packet.npcId();
-        if (packet.hire()) {
-            UUID candidate = npcId;
-            if (candidate == null || candidate.equals(new UUID(0L, 0L))
-                    || !RegionTaskService.INSTANCE.isEmployed(candidate)
-                    && !isValidNpc(candidate)) {
-                candidate = RegionTaskService.INSTANCE.pickHireCandidate(player.serverLevel());
-            }
-            if (candidate == null || candidate.equals(new UUID(0L, 0L))) {
-                feedback(player, "没有可雇佣的空闲市民");
-                return;
-            }
-            RegionTaskService.INSTANCE.applyEmployee(player, candidate, true);
-        } else {
-            if (npcId == null || npcId.equals(new UUID(0L, 0L))) {
-                return;
-            }
-            RegionTaskService.INSTANCE.applyEmployee(player, npcId, false);
+        if (packet.hire() || npcId == null || npcId.equals(new UUID(0L, 0L))) {
+            return;
         }
+        RegionTaskService.INSTANCE.applyEmployee(player, npcId, false);
     }
 
     private static boolean isRegionTask(UUID taskId) {

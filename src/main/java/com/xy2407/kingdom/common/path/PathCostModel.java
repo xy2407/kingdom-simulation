@@ -11,7 +11,7 @@ public final class PathCostModel {
     public static final int MAX_STEP_UP = 1;
     public static final int MAX_DROP = 4;
     public static final double STEP_THRESHOLD = 0.6D;
-    public static final float MAX_PATH_COST = 300.0F;
+    public static final float MAX_PATH_COST = 700.0F;
 
     public static final float HAZARD_WATER = 4.0F;
     public static final float HAZARD_LAVA = 200.0F;
@@ -19,7 +19,7 @@ public final class PathCostModel {
     public static final float HAZARD_POWDER = 150.0F;
     public static final float HAZARD_CACTUS = 100.0F;
 
-    public static final float ROAD_BIAS = 0.2F;
+    public static final float ROAD_FACTOR = 0.2F;
 
     private PathCostModel() {
     }

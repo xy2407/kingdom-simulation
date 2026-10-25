@@ -6,7 +6,8 @@ import java.util.List;
  * 建筑元数据：与 nbt 同名的 json 里声明的那部分信息（类型、等级、岗位、各类配额与清单）。
  */
 public record BuildingMeta(String id, String name, BuildingType type,
-                           List<String> tags, int level, int jobs, int farmSlots, int storageSlots,
+                           List<String> tags, int level, int jobs, List<Integer> hire,
+                           int farmSlots, int storageSlots,
                            List<CropSpec> crops,
                            List<AnimalSpec> animals, List<RecipeSpec> recipes,
                            String subtype, List<MenuSpec> menu,
@@ -17,6 +18,7 @@ public record BuildingMeta(String id, String name, BuildingType type,
     public static final String SUBTYPE_SHOP = "shop";
 
     public BuildingMeta {
+        hire = hire == null ? List.of() : List.copyOf(hire);
         tags = tags == null ? List.of() : List.copyOf(tags);
         crops = crops == null ? List.of() : List.copyOf(crops);
         animals = animals == null ? List.of() : List.copyOf(animals);
@@ -34,8 +36,16 @@ public record BuildingMeta(String id, String name, BuildingType type,
     }
 
     public static BuildingMeta fallback(String id, BuildingType type) {
-        return new BuildingMeta(id, shortName(id), type, List.of(), 1, 0, 0, 0, List.of(),
+        return new BuildingMeta(id, shortName(id), type, List.of(), 1, 0, List.of(), 0, 0, List.of(),
                 List.of(), List.of(), "", List.of(), List.of(), 0, "", null);
+    }
+
+    public int hireLimit() {
+        if (hire.isEmpty()) {
+            return Math.max(0, jobs);
+        }
+        int index = Math.max(0, Math.min(hire.size() - 1, level - 1));
+        return Math.max(0, hire.get(index));
     }
 
     public static String shortName(String id) {

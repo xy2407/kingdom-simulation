@@ -22,7 +22,7 @@ import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.persistence.RegionTaskSchema;
 import com.xy2407.kingdom.common.task.RegionTask;
 import com.xy2407.kingdom.common.entity.NpcEntity;
-import com.xy2407.kingdom.server.npc.NpcOccupation;
+import com.xy2407.kingdom.server.employment.EmploymentService;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -311,7 +311,7 @@ public final class RegionTaskService {
             if (isEmployed(npcId)) {
                 return;
             }
-            String conflict = NpcOccupation.conflict(npc, null);
+            String conflict = EmploymentService.INSTANCE.conflictAt(npc, null);
             if (conflict != null) {
                 feedback(player, npc.getName() + " " + conflict + "，不能同时加入建筑工队");
                 return;
@@ -328,6 +328,27 @@ public final class RegionTaskService {
         BuilderBoardService.broadcastAll(player.server);
     }
 
+    public boolean hireBySystem(UUID npcId) {
+        NpcData npc = NpcManager.INSTANCE.getNpc(npcId);
+        if (npc == null || npc.isDead()) {
+            return false;
+        }
+        if (isEmployed(npcId)) {
+            return true;
+        }
+        employees.put(npcId, new Employee(npcId, npc.getName(), npc.getSkin(), 0));
+        persistEmployee(npcId, true);
+        return true;
+    }
+
+    public void dismissBySystem(UUID npcId) {
+        if (npcId == null || !isEmployed(npcId)) {
+            return;
+        }
+        detachEmployee(npcId);
+        persistEmployee(npcId, false);
+    }
+
     private void detachEmployee(UUID npcId) {
         for (RegionTask task : List.copyOf(tasks.values())) {
             if (task.contains(npcId)) {
@@ -339,9 +360,6 @@ public final class RegionTaskService {
         employees.remove(npcId);
     }
 
-    /**
-     * 市民被移除（死亡或驱逐）时由移除路径直接调用：解除雇佣并删除 builder_employee 记录
-     */
     public void onCitizenRemoved(UUID npcId) {
         if (npcId == null) {
             return;
@@ -352,7 +370,7 @@ public final class RegionTaskService {
             employees.remove(npcId);
         }
         persistEmployee(npcId, false);
-        NpcOccupation.detachWork(npcId);
+        EmploymentService.INSTANCE.dismiss(null, npcId);
     }
 
     public UUID pickHireCandidate(ServerLevel level) {

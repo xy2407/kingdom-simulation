@@ -10,6 +10,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 import com.xy2407.kingdom.server.path.UnitSnapshotStore;
 
@@ -104,6 +105,14 @@ public final class SnapshotRepository {
     }
 
     public void releaseSearch() {
+    }
+
+    public <T> Future<T> submit(Supplier<T> task) {
+        ExecutorService current = executor;
+        if (task == null || current == null || current.isShutdown() || !tryAcquireSearch()) {
+            return null;
+        }
+        return current.submit(task::get);
     }
 
     public void requestUnits(ResourceKey<Level> dimension, BlockPos start, BlockPos end, int padding) {

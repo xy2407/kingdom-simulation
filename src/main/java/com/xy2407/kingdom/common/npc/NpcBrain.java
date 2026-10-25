@@ -229,7 +229,7 @@ public final class NpcBrain {
         double dx = owner.getX() - (owner.getWorkX() + 0.5D);
         double dz = owner.getZ() - (owner.getWorkZ() + 0.5D);
         double dy = Math.abs(owner.getY() - owner.getWorkY());
-        return dx * dx + dz * dz <= 4.0D && dy <= 2.0D;
+        return dx * dx + dz * dz <= 0.25D && dy <= 2.0D;
     }
 
     private boolean atHome() {
@@ -242,7 +242,7 @@ public final class NpcBrain {
         double dx = owner.getX() - (owner.getHomeX() + 0.5D);
         double dz = owner.getZ() - (owner.getHomeZ() + 0.5D);
         double dy = Math.abs(owner.getY() - owner.getHomeY());
-        return dx * dx + dz * dz <= 4.0D && dy <= 2.0D;
+        return dx * dx + dz * dz <= 0.25D && dy <= 2.0D;
     }
 
     private boolean hasHome() {
