@@ -1,9 +1,0 @@
-{
-  "name": "仓库",
-  "type": "STORAGE",
-  "tags": ["example", "storage"],
-  "level": 1,
-  "jobs": 1,
-  "storage_slots": 54,
-  "menu": []
-}

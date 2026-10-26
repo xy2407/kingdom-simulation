@@ -37,6 +37,8 @@ public final class BuildingPayloadRegistration {
                 RestaurantMenuRequestPacket.STREAM_CODEC, RestaurantMenuRequestPacket::handle);
         registrar.playToClient(RestaurantMenuPacket.TYPE,
                 RestaurantMenuPacket.STREAM_CODEC, RestaurantMenuPacket::handle);
+        registrar.playToServer(RestaurantLayoutRequestPacket.TYPE,
+                RestaurantLayoutRequestPacket.STREAM_CODEC, RestaurantLayoutRequestPacket::handle);
         registrar.playToServer(BuildingSyncRequestPacket.TYPE,
                 BuildingSyncRequestPacket.STREAM_CODEC, BuildingSyncRequestPacket::handle);
         registrar.playToClient(BuildingSyncPacket.TYPE,

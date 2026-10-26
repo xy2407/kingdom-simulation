@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.xy2407.kingdom.common.building.BuildingWork;
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.entity.ModEntities;
@@ -203,7 +204,7 @@ public final class TourismService {
                     tourist.shopTarget = standInside(level, shop);
                     if (tourist.shopTarget != null) {
                         BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(shop);
-                        tourist.shopDining = meta != null && meta.isRestaurant();
+                        tourist.shopDining = meta != null && meta.isWork(BuildingWork.RESTAURANT);
                         npc.setFarmTarget(tourist.shopTarget);
                     }
                 }
@@ -300,7 +301,7 @@ public final class TourismService {
                 continue;
             }
             BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(building);
-            if (meta == null || (!meta.isShop() && !meta.isRestaurant())) {
+            if (meta == null || (!meta.isWork(BuildingWork.SHOP) && !meta.isWork(BuildingWork.RESTAURANT))) {
                 continue;
             }
             double dx = npc.getX() - building.min().getX();

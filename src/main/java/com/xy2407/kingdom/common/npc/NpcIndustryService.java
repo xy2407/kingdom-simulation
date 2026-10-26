@@ -6,9 +6,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.xy2407.kingdom.common.building.BuildingWork;
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingRecord;
-import com.xy2407.kingdom.common.building.IndustryKind;
 import com.xy2407.kingdom.common.building.BuildingType;
 import com.xy2407.kingdom.common.building.ItemCount;
 import com.xy2407.kingdom.common.building.RecipeSpec;
@@ -106,7 +106,7 @@ public final class NpcIndustryService {
 
     private static boolean isMiningKind(BuildingRecord building) {
         BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(building);
-        return meta != null && meta.industryKind() == IndustryKind.MINING;
+        return meta != null && meta.isWork(BuildingWork.MINE);
     }
 
     private static void handOver(BuildingRecord building, List<NpcData> crew) {
@@ -169,7 +169,7 @@ public final class NpcIndustryService {
 
     private static boolean isIndustry(BuildingRecord building) {
         BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(building);
-        return meta != null && meta.type() == BuildingType.INDUSTRY;
+        return meta != null && meta.isType(BuildingType.INDUSTRY);
     }
 
     private static boolean isInside(BuildingRecord building, NpcData npc) {

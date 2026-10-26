@@ -7,6 +7,7 @@ import com.xy2407.kingdom.common.network.building.BuildingPanelRequestPacket;
 import com.xy2407.kingdom.common.network.building.BuildingPanelStatePacket;
 import com.xy2407.kingdom.common.network.building.ResidentListPacket;
 import com.xy2407.kingdom.common.network.building.RestaurantMenuPacket;
+import com.xy2407.kingdom.common.network.shop.ShopPanelStatePacket;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
@@ -68,6 +69,12 @@ public final class BuildingPanelClient {
     public static void acceptRestaurantMenu(RestaurantMenuPacket packet) {
         if (Minecraft.getInstance().screen instanceof BuildingPanelScreen screen) {
             screen.applyRestaurantMenu(packet);
+        }
+    }
+
+    public static void acceptShop(ShopPanelStatePacket packet) {
+        if (Minecraft.getInstance().screen instanceof BuildingPanelScreen screen) {
+            screen.applyShop(packet);
         }
     }
 }

@@ -1,0 +1,10 @@
+﻿{
+  "buildname": "city_hall",
+  "type": "OTHER",
+  "work": "CITY_HALL",
+  "file": "other/city_hall",
+  "name": "市政厅",
+  "tags": ["government", "town"],
+  "level": 1,
+  "jobs": 0
+}

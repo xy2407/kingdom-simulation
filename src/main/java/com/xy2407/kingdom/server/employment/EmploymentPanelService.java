@@ -4,10 +4,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import com.xy2407.kingdom.common.building.BuildingWork;
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.building.BuildingType;
-import com.xy2407.kingdom.common.building.IndustryKind;
 import com.xy2407.kingdom.common.employment.EmploymentKind;
 import com.xy2407.kingdom.common.employment.EmploymentResult;
 import com.xy2407.kingdom.common.employment.EmploymentTarget;
@@ -272,20 +272,20 @@ public final class EmploymentPanelService {
         if (meta == null) {
             return requested;
         }
-        if (meta.type() == BuildingType.AGRICULTURE) {
+        if (meta.isType(BuildingType.AGRICULTURE)) {
             return EmploymentKind.FARM;
         }
-        if (meta.type() == BuildingType.LIVESTOCK) {
+        if (meta.isType(BuildingType.LIVESTOCK)) {
             return EmploymentKind.RANCH;
         }
-        if (meta.type() == BuildingType.RESIDENTIAL) {
+        if (meta.isType(BuildingType.RESIDENTIAL)) {
             return EmploymentKind.RESIDENCE;
         }
-        if (meta.type() == BuildingType.INDUSTRY) {
-            if (meta.industryKind() == IndustryKind.LUMBER) {
+        if (meta.isType(BuildingType.INDUSTRY)) {
+            if (meta.isWork(BuildingWork.LUMBER)) {
                 return EmploymentKind.LUMBER;
             }
-            if (meta.industryKind() == IndustryKind.MINING) {
+            if (meta.isWork(BuildingWork.MINE)) {
                 return EmploymentKind.MINING;
             }
             return EmploymentKind.BUILDING;

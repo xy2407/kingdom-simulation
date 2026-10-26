@@ -1,0 +1,11 @@
+﻿{
+  "buildname": "jianzhu",
+  "type": "OTHER",
+  "work": "BUILDER_HUT",
+  "file": "other/jianzhu",
+  "name": "建筑工小屋",
+  "tags": ["builder", "workforce"],
+  "level": 1,
+  "jobs": 0,
+  "storage_slots": 27
+}

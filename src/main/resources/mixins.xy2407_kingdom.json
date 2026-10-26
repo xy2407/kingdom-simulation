@@ -6,7 +6,8 @@
   "mixins": [
     "FarmBlockMoistureMixin",
     "BedBlockMixin",
-    "LevelChunkMixin"
+    "LevelChunkMixin",
+    "FurnaceBowlRecipeMixin"
   ],
   "client": [
     "MaskStencilSuppressMixin",

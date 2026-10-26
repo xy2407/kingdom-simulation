@@ -1,7 +1,10 @@
 package com.xy2407.kingdom.common.network.building;
 
+import com.xy2407.kingdom.common.building.BuildingType;
+import com.xy2407.kingdom.common.building.BuildingWork;
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingRecord;
+import com.xy2407.kingdom.common.network.builder.BuilderOpenPacket;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
 
 import net.minecraft.server.level.ServerPlayer;
@@ -25,8 +28,13 @@ public final class BuildingPanelService {
             PacketDistributor.sendToPlayer(player, BuildingPanelStatePacket.outside());
             return;
         }
+        BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(hit);
+        if (meta != null && meta.isWork(BuildingWork.BUILDER_HUT)) {
+            PacketDistributor.sendToPlayer(player, new BuilderOpenPacket());
+            return;
+        }
         PacketDistributor.sendToPlayer(player, new BuildingPanelStatePacket(
-                hit.name(), hit.level(), hit.farmSlots(), pageOf(BuildingRegistry.INSTANCE.metaOf(hit)),
+                hit.name(), hit.level(), hit.farmSlots(), pageOf(meta),
                 hit.min().getX() + ", " + hit.min().getY() + ", " + hit.min().getZ()));
     }
 
@@ -34,17 +42,28 @@ public final class BuildingPanelService {
         if (meta == null || meta.type() == null) {
             return "";
         }
-        return switch (meta.type()) {
-            case AGRICULTURE -> "buildings/farm.html";
-            case INDUSTRY -> "buildings/industry.html";
-            case LIVESTOCK -> "buildings/ranch.html";
-            case COMMERCIAL -> meta.isShop()
-                    ? "buildings/shop.html"
-                    : meta.isRestaurant() ? "buildings/restaurant.html" : "";
-            case MILITARY -> "buildings/military.html";
-            case RESIDENTIAL -> "buildings/residential.html";
-            case STORAGE -> "buildings/warehouse.html";
-            default -> "";
-        };
+        if (meta.isType(BuildingType.AGRICULTURE)) {
+            return "buildings/farm.html";
+        }
+        if (meta.isType(BuildingType.LIVESTOCK)) {
+            return "buildings/ranch.html";
+        }
+        if (meta.isType(BuildingType.RESIDENTIAL)) {
+            return "buildings/residential.html";
+        }
+        if (meta.isType(BuildingType.MILITARY)) {
+            return "buildings/military.html";
+        }
+        if (meta.isType(BuildingType.INDUSTRY)) {
+            return "buildings/industry.html";
+        }
+        if (meta.isType(BuildingType.COMMERCIAL)) {
+            return meta.isWork(BuildingWork.SHOP)
+                    ? "buildings/shop.html" : "buildings/restaurant.html";
+        }
+        if (meta.isWork(BuildingWork.WAREHOUSE)) {
+            return "buildings/warehouse.html";
+        }
+        return "";
     }
 }

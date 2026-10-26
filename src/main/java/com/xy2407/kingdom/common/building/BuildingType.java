@@ -3,7 +3,7 @@ package com.xy2407.kingdom.common.building;
 import java.util.Locale;
 
 /**
- * 建筑类型：七个类型各对应 structures 下的一个子目录，与蓝图 json 的 type 字段互为兜底。
+ * 建筑大类：八个分类各对应 structures 下的一个子目录，决定建造分组与统计口径。
  */
 public enum BuildingType {
 
@@ -13,7 +13,8 @@ public enum BuildingType {
     INDUSTRY("工业", "industry", "industrial", "factory", "workshop"),
     COMMERCIAL("商业", "commercial", "commerce", "shop", "market", "store"),
     MILITARY("军事", "military", "army", "barracks", "defense"),
-    STORAGE("仓库", "storage", "warehouse", "depot", "logistics");
+    OTHER("其它", "other", "misc", "utility", "common"),
+    DECORATION("装饰", "decoration", "decor", "ornament");
 
     private final String label;
     private final String[] aliases;

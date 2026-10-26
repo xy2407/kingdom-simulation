@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import com.xy2407.kingdom.common.building.BuildingWork;
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.building.BuildingType;
@@ -11,9 +12,11 @@ import com.xy2407.kingdom.common.building.ItemCount;
 import com.xy2407.kingdom.common.building.ItemSpecs;
 import com.xy2407.kingdom.common.building.MenuSpec;
 import com.xy2407.kingdom.common.network.building.RestaurantMenuPacket;
-import com.xy2407.kingdom.common.npc.NpcData;
-import com.xy2407.kingdom.common.npc.NpcManager;
+import com.xy2407.kingdom.common.npc.NpcRestaurantService;
+import com.xy2407.kingdom.common.restaurant.RestaurantFurniture;
+import com.xy2407.kingdom.server.restaurant.RestaurantSeatStore;
 
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.items.IItemHandler;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -25,6 +28,23 @@ import net.neoforged.neoforge.network.PacketDistributor;
 public final class RestaurantPanelService {
 
     private RestaurantPanelService() {
+    }
+
+    public static void reopen(ServerPlayer player) {
+        BuildingRecord building = restaurantOf(player);
+        if (building == null) {
+            return;
+        }
+        if (!RestaurantFurniture.enabled()) {
+            player.displayClientMessage(Component.literal(
+                    "餐厅家具方块 id 尚未配置，暂时无法布置座位"), true);
+            return;
+        }
+        int seats = RestaurantSeatStore.INSTANCE.rescan(player.getServer(), building);
+        player.displayClientMessage(Component.literal(seats > 0
+                ? "餐厅已开业：登记 " + seats + " 个座位"
+                : "餐厅开业失败：范围内没有识别到椅子与桌子"), true);
+        sendMenu(player);
     }
 
     public static void sendMenu(ServerPlayer player) {
@@ -45,8 +65,9 @@ public final class RestaurantPanelService {
                     dish.output().item(), dish.output().count(), dish.price(),
                     describeInputs(dish.inputs()), ready));
         }
+        NpcRestaurantService.Roles roles = NpcRestaurantService.rolesOf(building.id());
         PacketDistributor.sendToPlayer(player,
-                new RestaurantMenuPacket(chefCountOf(building.id()), dishes));
+                new RestaurantMenuPacket(roles.chefId() == null ? 0 : 1, roles.waiters(), dishes));
     }
 
     private static String describeInputs(List<ItemCount> inputs) {
@@ -73,23 +94,12 @@ public final class RestaurantPanelService {
         return slash >= 0 ? text.substring(slash + 1) : text;
     }
 
-    private static int chefCountOf(UUID buildingId) {
-        String id = buildingId.toString();
-        int count = 0;
-        for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
-            if (!npc.isDead() && id.equals(npc.getWorkplaceId())) {
-                count++;
-            }
-        }
-        return count;
-    }
-
     private static BuildingRecord restaurantOf(ServerPlayer player) {
         BuildingRecord building = BuildingRegistry.INSTANCE.locate(player);
         if (building == null) {
             return null;
         }
         BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(building);
-        return meta != null && meta.type() == BuildingType.COMMERCIAL && meta.isRestaurant() ? building : null;
+        return meta != null && meta.isWork(BuildingWork.RESTAURANT) ? building : null;
     }
 }

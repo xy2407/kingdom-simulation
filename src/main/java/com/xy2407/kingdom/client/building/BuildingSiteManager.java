@@ -9,6 +9,7 @@ import java.util.UUID;
 import com.xy2407.kingdom.client.structure.StructureLoader;
 import com.xy2407.kingdom.client.structure.StructureMesh;
 import com.xy2407.kingdom.client.structure.StructureMesher;
+import com.xy2407.kingdom.common.building.BuildingMetaLoader;
 import com.xy2407.kingdom.common.building.BuildingBlueprints;
 import com.xy2407.kingdom.common.network.building.BuildingSitePacket;
 import com.xy2407.kingdom.common.structure.StructureModel;
@@ -49,7 +50,7 @@ public final class BuildingSiteManager {
             return;
         }
         release(SITES.remove(packet.taskId()));
-        StructureModel model = StructureLoader.loadFile(BuildingBlueprints.fileOf(name));
+        StructureModel model = StructureLoader.loadFile(BuildingMetaLoader.blueprintFile(name));
         if (model == null || model.blocks().isEmpty()) {
             return;
         }

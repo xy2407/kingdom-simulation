@@ -6,6 +6,7 @@ import com.sighs.apricityui.element.Input;
 import com.sighs.apricityui.init.Document;
 import com.sighs.apricityui.init.Element;
 import com.xy2407.kingdom.ModMain;
+import com.xy2407.kingdom.common.building.BuildingWork;
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingType;
 import com.xy2407.kingdom.client.aui.AuiLazyList;
@@ -85,7 +86,7 @@ public final class StructureDebugKeybind {
             BuildingType.COMMERCIAL.folder(),
             BuildingType.INDUSTRY.folder(),
             BuildingType.MILITARY.folder(),
-            BuildingType.STORAGE.folder(),
+            BuildingType.DECORATION.folder(),
             OTHER_KEY
     };
 
@@ -921,7 +922,7 @@ public final class StructureDebugKeybind {
         appendTipRow(html, "建筑", meta.name());
         appendTipRow(html, "分类", bandLabel(folderOf(entry)));
         appendTipRow(html, "等级", String.valueOf(meta.level()));
-        if (entry.meta().type() == BuildingType.RESIDENTIAL) {
+        if (entry.meta().isType(BuildingType.RESIDENTIAL)) {
             appendTipRow(html, "床位", String.valueOf(entry.beds()));
         } else {
             appendTipRow(html, "岗位", String.valueOf(meta.jobs()));

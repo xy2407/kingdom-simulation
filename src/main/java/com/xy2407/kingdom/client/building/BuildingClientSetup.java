@@ -21,6 +21,7 @@ import com.xy2407.kingdom.common.network.building.BuildingPanelHooks;
 import com.xy2407.kingdom.common.network.building.BuildingSiteHooks;
 import com.xy2407.kingdom.common.network.building.ResidentHooks;
 import com.xy2407.kingdom.common.network.building.RestaurantHooks;
+import com.xy2407.kingdom.common.network.shop.ShopPanelHooks;
 import com.xy2407.kingdom.common.network.builder.BuilderHooks;
 import com.xy2407.kingdom.common.network.cityhall.CityHallHooks;
 import com.xy2407.kingdom.common.network.mapoverlay.MapOverlayHooks;
@@ -66,6 +67,7 @@ public final class BuildingClientSetup {
         BuilderHooks.dataSink = BuilderBoardScreen::accept;
         ResidentHooks.listSink = BuildingPanelClient::acceptResidents;
         RestaurantHooks.menuSink = BuildingPanelClient::acceptRestaurantMenu;
+        ShopPanelHooks.stateSink = BuildingPanelClient::acceptShop;
         BuildingMoveHooks.syncSink = ClientBuildingStore::accept;
         IndustryPanelHooks.stateSink = IndustryPanelScreen::accept;
         MiningPanelHooks.setStateSink(IndustryPanelScreen::acceptMines);

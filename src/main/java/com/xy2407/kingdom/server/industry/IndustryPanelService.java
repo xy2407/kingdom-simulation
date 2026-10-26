@@ -219,6 +219,6 @@ public final class IndustryPanelService {
         if (meta == null) {
             return null;
         }
-        return meta.type() == BuildingType.INDUSTRY || !meta.recipes().isEmpty() ? building : null;
+        return meta.isType(BuildingType.INDUSTRY) || !meta.recipes().isEmpty() ? building : null;
     }
 }

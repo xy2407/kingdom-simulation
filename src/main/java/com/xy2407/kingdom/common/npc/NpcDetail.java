@@ -14,6 +14,7 @@ public enum NpcDetail {
     PRODUCING(NpcSubState.WORKING),
     MINING(NpcSubState.WORKING),
     SERVING(NpcSubState.WORKING),
+    SELLING(NpcSubState.WORKING),
     LOGGING(NpcSubState.WORKING),
     TOURIST(NpcSubState.MOVING),
     COOKING(NpcSubState.WORKING),
@@ -49,6 +50,7 @@ public enum NpcDetail {
             case PRODUCING -> "生产中";
             case MINING -> "采矿中";
             case SERVING -> "上菜中";
+            case SELLING -> "营业中";
             case LOGGING -> "伐木中";
             case TOURIST -> "游客";
             case COOKING -> "做菜中";

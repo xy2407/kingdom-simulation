@@ -11,6 +11,9 @@ import java.util.Map;
 import java.util.UUID;
 
 import com.xy2407.kingdom.ModMain;
+import com.xy2407.kingdom.common.building.BuildingMeta;
+import com.xy2407.kingdom.common.building.BuildingRecord;
+import com.xy2407.kingdom.common.building.BuildingWork;
 import com.xy2407.kingdom.common.date.DateSystem;
 import com.xy2407.kingdom.common.map.WorldSurfaceSampler;
 import com.xy2407.kingdom.common.network.builder.BuilderBoardDataPacket;
@@ -22,6 +25,7 @@ import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.persistence.RegionTaskSchema;
 import com.xy2407.kingdom.common.task.RegionTask;
 import com.xy2407.kingdom.common.entity.NpcEntity;
+import com.xy2407.kingdom.server.building.BuildingRegistry;
 import com.xy2407.kingdom.server.employment.EmploymentService;
 
 import net.minecraft.core.BlockPos;
@@ -57,6 +61,8 @@ public final class RegionTaskService {
     private final Map<UUID, RegionTask> tasks = new LinkedHashMap<>();
     private final Map<UUID, Employee> employees = new LinkedHashMap<>();
     private final Map<UUID, Integer> swingTimers = new HashMap<>();
+    private final Map<UUID, List<BlockPos>> hutStands = new HashMap<>();
+    private final Map<UUID, UUID> hutChoice = new HashMap<>();
 
     private boolean loaded;
     private int loadRetryCooldown;
@@ -69,6 +75,8 @@ public final class RegionTaskService {
         tasks.clear();
         employees.clear();
         swingTimers.clear();
+        hutStands.clear();
+        hutChoice.clear();
         loaded = false;
         loadRetryCooldown = 0;
         tickCounter = 0;
@@ -91,6 +99,7 @@ public final class RegionTaskService {
             }
             tickTask(server, task, swingDue);
         }
+        tickIdleBuilders(server);
     }
 
     public boolean isLoaded() {
@@ -318,6 +327,7 @@ public final class RegionTaskService {
             }
             employees.put(npcId, new Employee(npcId, npc.getName(), npc.getSkin(),
                     DateSystem.totalDay(player.serverLevel())));
+            npc.getBrain().setConstructionControlled(true);
         } else {
             if (!isEmployed(npcId)) {
                 return;
@@ -337,6 +347,7 @@ public final class RegionTaskService {
             return true;
         }
         employees.put(npcId, new Employee(npcId, npc.getName(), npc.getSkin(), 0));
+        npc.getBrain().setConstructionControlled(true);
         persistEmployee(npcId, true);
         return true;
     }
@@ -356,8 +367,9 @@ public final class RegionTaskService {
                 persist(task);
             }
         }
-        release(npcId, null);
         employees.remove(npcId);
+        hutChoice.remove(npcId);
+        release(npcId, null);
     }
 
     public void onCitizenRemoved(UUID npcId) {
@@ -473,6 +485,134 @@ public final class RegionTaskService {
         }
     }
 
+    private void tickIdleBuilders(MinecraftServer server) {
+        if (employees.isEmpty()) {
+            return;
+        }
+        for (Employee employee : List.copyOf(employees.values())) {
+            UUID npcId = employee.id();
+            if (isBusy(npcId)) {
+                continue;
+            }
+            NpcData npc = NpcManager.INSTANCE.getNpc(npcId);
+            if (npc == null || npc.isDead() || npc.getBrain().isStarving()) {
+                continue;
+            }
+            if (!npc.getBrain().isConstructionControlled()) {
+                npc.getBrain().setConstructionControlled(true);
+            }
+            ServerLevel level = levelOf(server, npc.getDimension());
+            if (level == null) {
+                continue;
+            }
+            NpcEntity entity = findEntity(level, npc);
+            if (entity == null) {
+                continue;
+            }
+            BlockPos stand = idleStand(level, npc, entity);
+            if (stand != null) {
+                entity.tickConstructionPath(stand);
+            }
+        }
+    }
+
+    private boolean isBusy(UUID npcId) {
+        for (RegionTask task : tasks.values()) {
+            if (task.status() == RegionTask.Status.RUNNING && task.contains(npcId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private BlockPos idleStand(ServerLevel level, NpcData npc, NpcEntity entity) {
+        BuildingRecord hut = hutOf(level, npc, entity);
+        if (hut == null) {
+            return null;
+        }
+        List<BlockPos> stands = hutStands.computeIfAbsent(hut.id(),
+                key -> standsInside(level, hut));
+        if (stands.isEmpty()) {
+            return null;
+        }
+        return stands.get(Math.floorMod(npc.getId().hashCode(), stands.size()));
+    }
+
+    private BuildingRecord hutOf(ServerLevel level, NpcData npc, NpcEntity entity) {
+        UUID chosen = hutChoice.get(npc.getId());
+        if (chosen != null) {
+            BuildingRecord cached = BuildingRegistry.INSTANCE.byId(chosen);
+            if (cached != null) {
+                return cached;
+            }
+            hutChoice.remove(npc.getId());
+        }
+        BuildingRecord hut = nearestHut(level, entity);
+        if (hut != null) {
+            hutChoice.put(npc.getId(), hut.id());
+        }
+        return hut;
+    }
+
+    private static BuildingRecord nearestHut(ServerLevel level, NpcEntity entity) {
+        String dimension = level.dimension().location().toString();
+        BuildingRecord best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (BuildingRecord record : BuildingRegistry.INSTANCE.all()) {
+            if (!dimension.equals(record.dimension())) {
+                continue;
+            }
+            BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(record);
+            if (meta == null || !meta.isWork(BuildingWork.BUILDER_HUT)) {
+                continue;
+            }
+            double dx = entity.getX() - (record.min().getX() + record.max().getX()) * 0.5D;
+            double dz = entity.getZ() - (record.min().getZ() + record.max().getZ()) * 0.5D;
+            double distance = dx * dx + dz * dz;
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = record;
+            }
+        }
+        return best;
+    }
+
+    private static List<BlockPos> standsInside(ServerLevel level, BuildingRecord hut) {
+        List<BlockPos> stands = new ArrayList<>();
+        int cx = (hut.min().getX() + hut.max().getX()) / 2;
+        int cz = (hut.min().getZ() + hut.max().getZ()) / 2;
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                int x = cx + dx;
+                int z = cz + dz;
+                if (x < hut.min().getX() || x > hut.max().getX()
+                        || z < hut.min().getZ() || z > hut.max().getZ()) {
+                    continue;
+                }
+                BlockPos stand = findFloor(level, hut, x, z);
+                if (stand != null) {
+                    stands.add(stand);
+                }
+            }
+        }
+        return stands;
+    }
+
+    private static BlockPos findFloor(ServerLevel level, BuildingRecord hut, int x, int z) {
+        for (int y = hut.min().getY(); y <= hut.max().getY(); y++) {
+            BlockPos pos = new BlockPos(x, y, z);
+            if (!level.isLoaded(pos)) {
+                return null;
+            }
+            if (level.getBlockState(pos).isAir()
+                    && level.getBlockState(pos.above()).isAir()
+                    && !level.getBlockState(pos.below()).isAir()) {
+                return pos;
+            }
+        }
+        return null;
+    }
+
     private List<BlockPos> standsOf(RegionTask task) {
         List<BlockPos> stands = new ArrayList<>();
         int minX = task.min().getX() - 1;
@@ -515,7 +655,7 @@ public final class RegionTaskService {
         }
         NpcData npc = NpcManager.INSTANCE.getNpc(npcId);
         if (npc != null) {
-            npc.getBrain().setConstructionControlled(false);
+            npc.getBrain().setConstructionControlled(isEmployed(npcId));
         }
     }
 

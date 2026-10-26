@@ -1,6 +1,7 @@
 {
   "block.xy2407_kingdom.city_hall": "City Hall Desk",
   "block.xy2407_kingdom.builder_block": "Builder Block",
+  "block.xy2407_kingdom.shop_shelf": "Shop Shelf",
   "itemGroup.xy2407_kingdom.main": "kingdom simulation",
   "key.categories.xy2407_kingdom": "kingdom simulation",
   "key.xy2407_kingdom.world_map": "Open World Map"

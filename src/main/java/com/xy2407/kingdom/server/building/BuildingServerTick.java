@@ -3,9 +3,12 @@ package com.xy2407.kingdom.server.building;
 import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.common.npc.NpcIndustryService;
 import com.xy2407.kingdom.common.npc.NpcRestaurantService;
+import com.xy2407.kingdom.common.npc.NpcShopService;
 import com.xy2407.kingdom.server.farm.FarmPlotManager;
 import com.xy2407.kingdom.server.ranch.RanchPenManager;
 import com.xy2407.kingdom.server.restaurant.RestaurantOrderStore;
+import com.xy2407.kingdom.server.restaurant.RestaurantSeatStore;
+import com.xy2407.kingdom.server.shop.ShopStore;
 import com.xy2407.kingdom.server.task.RegionTaskService;
 
 import net.minecraft.server.MinecraftServer;
@@ -35,9 +38,12 @@ public final class BuildingServerTick {
         FarmPlotManager.INSTANCE.tick(event.getServer());
         RanchPenManager.INSTANCE.tick(event.getServer());
         RestaurantOrderStore.INSTANCE.tick(event.getServer());
+        RestaurantSeatStore.INSTANCE.tick(event.getServer());
+        ShopStore.INSTANCE.tick(event.getServer());
         if (++industryAssignCounter % INDUSTRY_ASSIGN_INTERVAL_TICKS == 0) {
             NpcIndustryService.assignWorkers(event.getServer());
             NpcRestaurantService.assignWorkers(event.getServer());
+            NpcShopService.assignWorkers(event.getServer());
         }
     }
 

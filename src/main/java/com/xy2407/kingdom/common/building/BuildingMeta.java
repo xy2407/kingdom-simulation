@@ -3,21 +3,23 @@ package com.xy2407.kingdom.common.building;
 import java.util.List;
 
 /**
- * 建筑元数据：与 nbt 同名的 json 里声明的那部分信息（类型、等级、岗位、各类配额与清单）。
+ * 建筑元数据：蓝图定义里声明的分类、工种、等级、岗位与各类配额清单。
  */
-public record BuildingMeta(String id, String name, BuildingType type,
+public record BuildingMeta(String id, String buildName, String file, String name, BuildingType type,
+                           BuildingWork work,
                            List<String> tags, int level, int jobs, List<Integer> hire,
                            int farmSlots, int storageSlots,
                            List<CropSpec> crops,
                            List<AnimalSpec> animals, List<RecipeSpec> recipes,
-                           String subtype, List<MenuSpec> menu,
-                           List<TroopSpec> troops, int patrolRadius, String nation,
-                           IndustryKind industryKind) {
-
-    public static final String SUBTYPE_RESTAURANT = "restaurant";
-    public static final String SUBTYPE_SHOP = "shop";
+                           List<MenuSpec> menu,
+                           List<TroopSpec> troops, int patrolRadius, String nation) {
 
     public BuildingMeta {
+        buildName = buildName == null || buildName.isBlank() ? id : buildName;
+        file = file == null || file.isBlank() ? buildName : file;
+        if (type == null && work != null) {
+            type = work.type();
+        }
         hire = hire == null ? List.of() : List.copyOf(hire);
         tags = tags == null ? List.of() : List.copyOf(tags);
         crops = crops == null ? List.of() : List.copyOf(crops);
@@ -27,17 +29,21 @@ public record BuildingMeta(String id, String name, BuildingType type,
         troops = troops == null ? List.of() : List.copyOf(troops);
     }
 
-    public boolean isRestaurant() {
-        return SUBTYPE_RESTAURANT.equalsIgnoreCase(subtype);
+    public boolean isWork(BuildingWork candidate) {
+        return work != null && work == candidate;
     }
 
-    public boolean isShop() {
-        return SUBTYPE_SHOP.equalsIgnoreCase(subtype);
+    public boolean isType(BuildingType candidate) {
+        return type != null && type == candidate;
+    }
+
+    public boolean defined() {
+        return type != null;
     }
 
     public static BuildingMeta fallback(String id, BuildingType type) {
-        return new BuildingMeta(id, shortName(id), type, List.of(), 1, 0, List.of(), 0, 0, List.of(),
-                List.of(), List.of(), "", List.of(), List.of(), 0, "", null);
+        return new BuildingMeta(id, id, id, shortName(id), type, null, List.of(), 1, 0,
+                List.of(), 0, 0, List.of(), List.of(), List.of(), List.of(), List.of(), 0, "");
     }
 
     public int hireLimit() {
@@ -60,7 +66,7 @@ public record BuildingMeta(String id, String name, BuildingType type,
         return type == null ? "未分类" : type.label();
     }
 
-    public String industryKindLabel() {
-        return industryKind == null ? "未分类" : industryKind.label();
+    public String workLabel() {
+        return work == null ? "未分类" : work.label();
     }
 }

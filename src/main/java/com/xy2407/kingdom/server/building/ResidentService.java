@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import com.xy2407.kingdom.common.building.BuildingWork;
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.building.BuildingType;
@@ -120,6 +121,6 @@ public final class ResidentService {
             return null;
         }
         BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(building);
-        return meta != null && meta.type() == BuildingType.RESIDENTIAL ? building : null;
+        return meta != null && meta.isType(BuildingType.RESIDENTIAL) ? building : null;
     }
 }

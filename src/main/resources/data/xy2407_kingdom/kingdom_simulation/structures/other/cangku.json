@@ -1,0 +1,12 @@
+﻿{
+  "buildname": "cangku",
+  "type": "OTHER",
+  "work": "WAREHOUSE",
+  "file": "other/cangku",
+  "name": "仓库",
+  "tags": ["storage", "warehouse", "depot"],
+  "level": 1,
+  "jobs": 2,
+  "hire": [2, 4, 8],
+  "storage_slots": 54
+}

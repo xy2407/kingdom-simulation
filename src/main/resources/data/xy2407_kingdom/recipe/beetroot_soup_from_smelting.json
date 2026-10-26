@@ -1,0 +1,8 @@
+﻿{
+  "type": "minecraft:smelting",
+  "category": "food",
+  "ingredient": { "item": "minecraft:beetroot" },
+  "result": { "id": "minecraft:beetroot_soup", "count": 1 },
+  "experience": 0.35,
+  "cookingtime": 90
+}

@@ -28,6 +28,8 @@ import com.xy2407.kingdom.server.mapoverlay.MapOverlayCollector;
 import com.xy2407.kingdom.server.ranch.RanchPenManager;
 import com.xy2407.kingdom.server.ranch.RanchWorkService;
 import com.xy2407.kingdom.server.restaurant.RestaurantOrderStore;
+import com.xy2407.kingdom.server.restaurant.RestaurantSeatStore;
+import com.xy2407.kingdom.server.shop.ShopStore;
 
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
@@ -49,6 +51,8 @@ public final class ServerLifecycle {
         RanchPenManager.INSTANCE.reset();
         RanchWorkService.reset();
         RestaurantOrderStore.INSTANCE.reset();
+        RestaurantSeatStore.INSTANCE.reset();
+        ShopStore.INSTANCE.reset();
         com.xy2407.kingdom.server.task.RegionTaskService.INSTANCE.reset();
         NationRegistry.INSTANCE.reset();
         TerritoryRegistry.INSTANCE.reset();

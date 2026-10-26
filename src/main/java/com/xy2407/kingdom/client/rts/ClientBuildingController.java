@@ -5,6 +5,7 @@ import java.util.UUID;
 import com.xy2407.kingdom.client.structure.StructureLoader;
 import com.xy2407.kingdom.client.structure.StructureMesh;
 import com.xy2407.kingdom.client.structure.StructureMesher;
+import com.xy2407.kingdom.common.building.BuildingMetaLoader;
 import com.xy2407.kingdom.common.building.BuildingBlueprints;
 import com.xy2407.kingdom.common.network.building.BuildingMovePacket;
 import com.xy2407.kingdom.common.structure.StructureModel;
@@ -97,7 +98,7 @@ public final class ClientBuildingController {
         if (entry == null) {
             return false;
         }
-        StructureModel loaded = StructureLoader.loadFile(BuildingBlueprints.fileOf(entry.name()));
+        StructureModel loaded = StructureLoader.loadFile(BuildingMetaLoader.blueprintFile(entry.name()));
         if (loaded == null || loaded.blocks().isEmpty()) {
             return false;
         }

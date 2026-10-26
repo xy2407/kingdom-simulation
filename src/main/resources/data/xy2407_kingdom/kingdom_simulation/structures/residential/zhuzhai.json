@@ -1,0 +1,11 @@
+﻿{
+  "buildname": "zhuzhai",
+  "type": "RESIDENTIAL",
+  "work": "RESIDENCE",
+  "file": "residential/zhuzhai",
+  "name": "住宅",
+  "tags": ["house", "home"],
+  "level": 1,
+  "jobs": 0,
+  "storage_slots": 9
+}

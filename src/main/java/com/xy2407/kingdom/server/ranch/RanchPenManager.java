@@ -116,8 +116,10 @@ public final class RanchPenManager {
         if (blueprintName == null || blueprintName.isBlank()) {
             return List.of();
         }
-        return SPEC_CACHE.computeIfAbsent(blueprintName, name ->
-                BuildingMetaLoader.load(BuildingBlueprints.fileOf(name), name).animals());
+        return SPEC_CACHE.computeIfAbsent(blueprintName, name -> {
+            BuildingMeta meta = BuildingMetaLoader.byBuildName(name);
+            return meta == null ? List.of() : meta.animals();
+        });
     }
 
     public RanchPen update(RanchPen pen) {

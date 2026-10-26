@@ -1,6 +1,7 @@
 package com.xy2407.kingdom.client.structure;
 
 import com.xy2407.kingdom.ModMain;
+import com.xy2407.kingdom.common.building.BuildingBlueprints;
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingMetaLoader;
 import com.xy2407.kingdom.common.building.BuildingType;
@@ -83,18 +84,32 @@ public final class KingdomSimulationStructures {
         Set<String> seen = new HashSet<>();
         Path dir = structuresDir();
         if (Files.isDirectory(dir)) {
+            for (String buildName : BuildingMetaLoader.allBuildNames()) {
+                BuildingMeta meta = BuildingMetaLoader.byBuildName(buildName);
+                if (meta == null || !seen.add(buildName)) {
+                    continue;
+                }
+                Path file = BuildingBlueprints.fileOf(meta.file());
+                Summary summary = Files.isRegularFile(file) ? readSummary(file) : null;
+                if (summary == null) {
+                    continue;
+                }
+                entries.add(new Entry(buildName, meta, summary.size(), summary.beds(),
+                        meta.type() == null ? "" : meta.type().folder()));
+            }
             for (Path file : listLocal(dir)) {
+                String id = stripExtension(dir.relativize(file).toString().replace('\\', '/'));
+                if (!seen.add(id)) {
+                    continue;
+                }
                 Summary summary = readSummary(file);
                 if (summary == null) {
                     StructureDebugChat.chat("剔除无法解析的结构文件：%s", dir.relativize(file));
                     continue;
                 }
-                String id = stripExtension(dir.relativize(file).toString().replace('\\', '/'));
-                if (!seen.add(id)) {
-                    continue;
-                }
                 BuildingMeta meta = BuildingMetaLoader.load(file, id);
-                entries.add(new Entry(id, meta, summary.size(), summary.beds()));
+                entries.add(new Entry(id, meta, summary.size(), summary.beds(),
+                        meta.type() == null ? "" : meta.type().folder()));
             }
         }
         scanBundled(entries, seen);
@@ -148,9 +163,9 @@ public final class KingdomSimulationStructures {
                 continue;
             }
             int slash = id.lastIndexOf('/');
-            String folder = slash < 0 ? null : id.substring(0, slash);
-            BuildingMeta meta = BuildingMeta.fallback(id, BuildingType.parse(folder));
-            entries.add(new Entry(id, meta, summary.size(), summary.beds()));
+            String folder = slash < 0 ? "" : id.substring(0, slash);
+            BuildingMeta meta = BuildingMeta.fallback(id, null);
+            entries.add(new Entry(id, meta, summary.size(), summary.beds(), folder));
         }
     }
 
@@ -215,12 +230,7 @@ public final class KingdomSimulationStructures {
     }
 
     @OnlyIn(Dist.CLIENT)
-    public record Entry(String id, BuildingMeta meta, Vec3i size, int beds) {
-
-        public String folder() {
-            int slash = id.indexOf('/');
-            return slash < 0 ? "" : id.substring(0, slash);
-        }
+    public record Entry(String id, BuildingMeta meta, Vec3i size, int beds, String folder) {
 
         public String displayName() {
             return meta.name();

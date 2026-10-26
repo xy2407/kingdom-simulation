@@ -20,6 +20,7 @@ public final class NpcBrain {
     private boolean ranchControlled;
     private boolean industryControlled;
     private boolean restaurantControlled;
+    private boolean shopControlled;
     private boolean miningControlled;
     private boolean lumberControlled;
     private boolean lumberForced;
@@ -118,6 +119,12 @@ public final class NpcBrain {
                 return;
             }
         }
+        if (shopControlled) {
+            if (NpcSchedule.subState(owner.getShift(), owner.getDayTime()) == NpcSubState.WORKING) {
+                setPlan(phase(), NpcSubState.WORKING, NpcDetail.SELLING);
+                return;
+            }
+        }
         if (tickCounter % MAIN_LOOP_INTERVAL != 0) {
             return;
         }
@@ -134,7 +141,7 @@ public final class NpcBrain {
 
     private void correctDrift() {
         if (rtsControlled || constructionControlled || farmControlled || ranchControlled
-                || industryControlled || restaurantControlled || miningControlled
+                || industryControlled || restaurantControlled || shopControlled || miningControlled
                 || lumberControlled) {
             return;
         }
@@ -310,6 +317,7 @@ public final class NpcBrain {
                 + " 牧=" + ranchControlled
                 + " 工=" + industryControlled
                 + " 餐=" + restaurantControlled
+                + " 商=" + shopControlled
                 + " 矿=" + miningControlled + "]";
     }
 
@@ -382,5 +390,13 @@ public final class NpcBrain {
 
     public void setRestaurantControlled(boolean restaurantControlled) {
         this.restaurantControlled = restaurantControlled;
+    }
+
+    public boolean isShopControlled() {
+        return shopControlled;
+    }
+
+    public void setShopControlled(boolean shopControlled) {
+        this.shopControlled = shopControlled;
     }
 }

@@ -17,6 +17,8 @@ import com.xy2407.kingdom.common.persistence.PlayerProfileSchema;
 import com.xy2407.kingdom.common.persistence.MiningPlotSchema;
 import com.xy2407.kingdom.common.persistence.RegionTaskSchema;
 import com.xy2407.kingdom.common.persistence.RestaurantOrderSchema;
+import com.xy2407.kingdom.common.persistence.RestaurantSeatSchema;
+import com.xy2407.kingdom.common.persistence.ShopSchema;
 import com.xy2407.kingdom.common.persistence.TerritoryVitalsSchema;
 import com.xy2407.kingdom.common.persistence.RanchSchema;
 import com.xy2407.kingdom.common.persistence.TerritorySchema;
@@ -56,6 +58,8 @@ public final class ModMain {
         KingdomPersistence.registerMigration(new MiningPlotSchema());
         KingdomPersistence.registerMigration(new SnapshotUnitSchema());
         KingdomPersistence.registerMigration(new RestaurantOrderSchema());
+        KingdomPersistence.registerMigration(new RestaurantSeatSchema());
+        KingdomPersistence.registerMigration(new ShopSchema());
         KingdomPersistence.registerMigration(new GovernmentAffairSchema());
         KingdomPersistence.registerMigration(new RoadSchema());
         KingdomPersistence.registerMigration(new RegionTaskSchema());

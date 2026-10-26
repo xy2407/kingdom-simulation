@@ -47,6 +47,10 @@ public final class BuildingBlueprints {
     }
 
     public static List<String> listNames() {
+        return BuildingMetaLoader.allBuildNames();
+    }
+
+    public static List<String> listFiles() {
         Path dir = structuresDir();
         if (!Files.isDirectory(dir)) {
             return List.of();
@@ -80,7 +84,7 @@ public final class BuildingBlueprints {
         if (!isValidName(name)) {
             return null;
         }
-        Path file = fileOf(name);
+        Path file = BuildingMetaLoader.blueprintFile(name);
         if (!Files.isRegularFile(file)) {
             return null;
         }

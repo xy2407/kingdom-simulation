@@ -6,10 +6,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-import com.xy2407.kingdom.common.building.BuildingBlueprints;
-import com.xy2407.kingdom.common.building.BuildingMetaLoader;
-import com.xy2407.kingdom.common.building.BuildingRecord;
-import com.xy2407.kingdom.common.building.CropSpec;
+import com.xy2407.kingdom.common.building.*;
 import com.xy2407.kingdom.common.date.DateSystem;
 import com.xy2407.kingdom.common.farm.CropCatalog;
 import com.xy2407.kingdom.common.farm.FarmPlot;
@@ -152,8 +149,10 @@ public final class FarmPanelService {
         if (building == null || building.name() == null || building.name().isBlank()) {
             return List.of();
         }
-        return CROP_CACHE.computeIfAbsent(building.name(),
-                name -> BuildingMetaLoader.load(BuildingBlueprints.fileOf(name), name).crops());
+        return CROP_CACHE.computeIfAbsent(building.name(), name -> {
+            BuildingMeta meta = BuildingMetaLoader.byBuildName(name);
+            return meta == null ? List.of() : meta.crops();
+        });
     }
 
     private static String allowedCrop(BuildingRecord building, String raw) {
@@ -203,7 +202,11 @@ public final class FarmPanelService {
 
     private static BuildingRecord agricultureAt(ServerPlayer player) {
         BuildingRecord building = BuildingRegistry.INSTANCE.locate(player);
-        return building != null && building.farmSlots() > 0 ? building : null;
+        if (building == null) {
+            return null;
+        }
+        BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(building);
+        return meta != null && meta.isType(BuildingType.AGRICULTURE) ? building : null;
     }
 
     private static FarmPlot owned(FarmPlotManager manager, UUID plotId, BuildingRecord building) {

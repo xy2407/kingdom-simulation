@@ -1453,6 +1453,10 @@ public class NpcEntity extends PathfinderMob {
                 stopSitting();
                 NpcRestaurantService.tickWaiter(this, data);
             }
+            case SELLING -> {
+                stopSitting();
+                NpcShopService.tick(this, data);
+            }
             case RANCHING -> stopSitting();
             case TOURIST -> {
                 stopSitting();

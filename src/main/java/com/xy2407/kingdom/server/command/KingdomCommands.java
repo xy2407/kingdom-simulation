@@ -13,10 +13,10 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import com.xy2407.kingdom.ModMain;
+import com.xy2407.kingdom.common.building.BuildingWork;
 import com.xy2407.kingdom.common.building.BuildingBlueprints;
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingRecord;
-import com.xy2407.kingdom.common.building.IndustryKind;
 import com.xy2407.kingdom.common.date.DateSystem;
 import com.xy2407.kingdom.common.mining.MiningPlot;
 import com.xy2407.kingdom.common.entity.ModEntities;
@@ -143,7 +143,7 @@ public final class KingdomCommands {
         BuildingRecord building = nearestMiningBuilding(player);
         if (building == null) {
             ctx.getSource().sendFailure(Component.literal(
-                    "附近没有采矿分类的工业建筑——先给蓝图 json 填 industry_kind=采矿 再建造"));
+                    "附近没有采矿分类的工业建筑——先给蓝图 json 填 work=矿井 再建造"));
             return 0;
         }
         BlockPos min = new BlockPos(player.getBlockX() - half, level.getMinBuildHeight(),
@@ -244,7 +244,7 @@ public final class KingdomCommands {
                 continue;
             }
             BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(building);
-            if (meta == null || meta.industryKind() != IndustryKind.MINING) {
+            if (meta == null || !meta.isWork(BuildingWork.MINE)) {
                 continue;
             }
             double distance = building.min().distSqr(player.blockPosition());

@@ -21,38 +21,66 @@ public final class BuildingMetaLoader {
 
     private static final String JSON_EXTENSION = ".json";
 
+    private static final java.util.Map<String, BuildingMeta> BY_BUILD_NAME =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static final java.util.concurrent.atomic.AtomicBoolean scanned =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
     private BuildingMetaLoader() {
     }
 
     public static BuildingMeta load(Path nbtFile, String id) {
-        BuildingType folderType = BuildingType.parse(typeFromFolder(nbtFile));
         Path jsonFile = jsonOf(nbtFile);
         if (!Files.isRegularFile(jsonFile)) {
-            return BuildingMeta.fallback(id, folderType);
+            return BuildingMeta.fallback(id, null);
         }
         JsonObject root;
         try (Reader reader = Files.newBufferedReader(jsonFile, StandardCharsets.UTF_8)) {
             JsonElement parsed = JsonParser.parseReader(reader);
             if (parsed == null || !parsed.isJsonObject()) {
-                ModMain.LOGGER.warn("建筑元数据不是 JSON 对象，按目录推断处理: {}", jsonFile);
-                return BuildingMeta.fallback(id, folderType);
+                ModMain.LOGGER.warn("建筑定义不是 JSON 对象，已忽略: {}", jsonFile);
+                return BuildingMeta.fallback(id, null);
             }
             root = parsed.getAsJsonObject();
         } catch (IOException | RuntimeException exception) {
-            ModMain.LOGGER.warn("读取建筑元数据失败，按目录推断处理: {}", jsonFile, exception);
-            return BuildingMeta.fallback(id, folderType);
+            ModMain.LOGGER.warn("读取建筑定义失败，已忽略: {}", jsonFile, exception);
+            return BuildingMeta.fallback(id, null);
         }
 
-        BuildingType jsonType = BuildingType.parse(string(root, "type", null));
-        BuildingType type = jsonType != null ? jsonType : folderType;
+        BuildingWork work = BuildingWork.parse(string(root, "work", null));
+        BuildingType type = BuildingType.parse(string(root, "type", null));
+        if (type == null && work != null) {
+            type = work.type();
+        }
+        if (type == null) {
+            ModMain.LOGGER.warn("建筑定义缺少 type 字段，已忽略: {}", jsonFile);
+            return BuildingMeta.fallback(id, null);
+        }
+        if (work != null && work.type() != type) {
+            ModMain.LOGGER.warn("建筑定义 {} 的 work={} 与 type={} 不符，按类型处理",
+                    jsonFile.getFileName(), work, type);
+            work = null;
+        }
+        if (work == null) {
+            ModMain.LOGGER.warn("建筑定义 {} 缺少 work 字段", jsonFile.getFileName());
+        }
         String name = string(root, "name", "");
         if (name == null || name.isBlank()) {
             name = BuildingMeta.shortName(id);
         }
-        return new BuildingMeta(
-                id,
+        String buildName = string(root, "buildname", id);
+        BuildingMeta shared = buildName == null ? null : BY_BUILD_NAME.get(buildName);
+        if (shared != null) {
+            return shared;
+        }
+        BuildingMeta meta = new BuildingMeta(
+                buildName,
+                buildName,
+                string(root, "file", buildName),
                 name,
                 type,
+                work,
                 stringList(root, "tags"),
                 integer(root, "level", 1),
                 integer(root, "jobs", 0),
@@ -62,14 +90,86 @@ public final class BuildingMetaLoader {
                 crops(root),
                 animals(root),
                 recipes(root),
-                string(root, "subtype", ""),
                 menu(root),
                 troops(root),
                 Math.max(0, integer(root, "patrol_radius", 0)),
-                string(root, "nation", ""),
-                IndustryKind.parse(string(root, "industry_kind",
-                        string(root, "industryKind", null)))
+                string(root, "nation", "")
         );
+        BY_BUILD_NAME.putIfAbsent(meta.buildName(), meta);
+        return meta;
+    }
+
+    public static BuildingMeta byBuildName(String buildName) {
+        if (buildName == null || buildName.isBlank()) {
+            return null;
+        }
+        BuildingMeta cached = BY_BUILD_NAME.get(buildName);
+        if (cached != null) {
+            return cached;
+        }
+        scan();
+        return BY_BUILD_NAME.get(buildName);
+    }
+
+    public static java.util.List<String> allBuildNames() {
+        scan();
+        java.util.Set<String> names = new java.util.TreeSet<>(BY_BUILD_NAME.keySet());
+        names.addAll(BuildingBlueprints.listFiles());
+        return new java.util.ArrayList<>(names);
+    }
+
+    public static Path blueprintFile(String buildName) {
+        BuildingMeta meta = byBuildName(buildName);
+        return BuildingBlueprints.fileOf(meta == null ? buildName : meta.file());
+    }
+
+    public static void scan() {
+        if (!scanned.compareAndSet(false, true)) {
+            return;
+        }
+        Path dir = BuildingBlueprints.structuresDir();
+        if (!Files.isDirectory(dir)) {
+            return;
+        }
+        try (java.util.stream.Stream<Path> files = Files.walk(dir, 3)) {
+            for (Path jsonFile : files.filter(BuildingMetaLoader::isJsonFile).toList()) {
+                String id = BuildingBlueprints.relativeId(dir, jsonFile);
+                if (id.toLowerCase().endsWith(JSON_EXTENSION)) {
+                    id = id.substring(0, id.length() - JSON_EXTENSION.length());
+                }
+                if (!hasBlueprint(id, jsonFile)) {
+                    continue;
+                }
+                load(BuildingBlueprints.fileOf(id), id);
+            }
+        } catch (IOException exception) {
+            ModMain.LOGGER.warn("扫描建筑定义失败: {}", dir, exception);
+        }
+    }
+
+    public static void clearIndex() {
+        BY_BUILD_NAME.clear();
+        scanned.set(false);
+    }
+
+    private static boolean hasBlueprint(String id, Path jsonFile) {
+        try (Reader reader = Files.newBufferedReader(jsonFile, StandardCharsets.UTF_8)) {
+            JsonElement parsed = JsonParser.parseReader(reader);
+            if (parsed == null || !parsed.isJsonObject()) {
+                return false;
+            }
+            JsonObject root = parsed.getAsJsonObject();
+            String file = string(root, "file", null);
+            String build = string(root, "buildname", null);
+            String target = file != null ? file : (build != null ? build : id);
+            return Files.isRegularFile(BuildingBlueprints.fileOf(target));
+        } catch (IOException | RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    private static boolean isJsonFile(Path file) {
+        return file.getFileName().toString().toLowerCase().endsWith(JSON_EXTENSION);
     }
 
     private static List<Integer> hire(JsonObject root) {
@@ -260,12 +360,6 @@ public final class BuildingMetaLoader {
             ));
         }
         return specs;
-    }
-
-    private static String typeFromFolder(Path nbtFile) {
-        Path parent = nbtFile == null ? null : nbtFile.getParent();
-        Path folder = parent == null ? null : parent.getFileName();
-        return folder == null ? null : folder.toString();
     }
 
     private static Path jsonOf(Path nbtFile) {

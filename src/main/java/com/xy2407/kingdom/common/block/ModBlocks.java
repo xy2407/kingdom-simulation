@@ -13,7 +13,7 @@ import net.neoforged.neoforge.registries.DeferredItem;
 import net.neoforged.neoforge.registries.DeferredRegister;
 
 /**
- * 方块与物品注册表：市政厅方块及其对应的方块物品。
+ * 方块与物品注册表：市政厅、建筑工方块与商铺货架及其对应的方块物品
  */
 public final class ModBlocks {
 
@@ -39,6 +39,14 @@ public final class ModBlocks {
                             .sound(SoundType.WOOD)
                             .noOcclusion());
 
+    public static final DeferredBlock<ShopShelfBlock> SHOP_SHELF =
+            BLOCKS.registerBlock("shop_shelf", ShopShelfBlock::new,
+                    BlockBehaviour.Properties.of()
+                            .mapColor(MapColor.WOOD)
+                            .strength(2.0F, 6.0F)
+                            .sound(SoundType.WOOD)
+                            .noOcclusion());
+
     public static final DeferredItem<BlockItem> CITY_HALL_ITEM =
             ITEMS.register("city_hall",
                     () -> new BlockItem(CITY_HALL.get(), new Item.Properties()));
@@ -46,6 +54,10 @@ public final class ModBlocks {
     public static final DeferredItem<BlockItem> BUILDER_BLOCK_ITEM =
             ITEMS.register("builder_block",
                     () -> new BlockItem(BUILDER_BLOCK.get(), new Item.Properties()));
+
+    public static final DeferredItem<BlockItem> SHOP_SHELF_ITEM =
+            ITEMS.register("shop_shelf",
+                    () -> new BlockItem(SHOP_SHELF.get(), new Item.Properties()));
 
     private ModBlocks() {
     }

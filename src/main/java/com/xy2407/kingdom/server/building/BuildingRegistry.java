@@ -6,12 +6,12 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.xy2407.kingdom.ModMain;
+import com.xy2407.kingdom.common.building.BuildingWork;
 import com.xy2407.kingdom.common.building.BuildingBlueprints;
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingMetaLoader;
@@ -38,9 +38,6 @@ public final class BuildingRegistry {
     private static final int PROMPT_INTERVAL_TICKS = 20;
     private static final int LOAD_RETRY_DELAY_TICKS = 200;
     private static final String COMPLETED = "COMPLETED";
-    private static final String[] DINING_WORDS = {
-            "restaurant", "dining", "canteen", "tavern", "cafe", "eatery",
-            "餐厅", "饭馆", "餐馆", "饭店", "食堂", "酒馆", "小吃"};
 
     private final List<BuildingRecord> records = new ArrayList<>();
     private final Map<String, Boolean> diningCache = new ConcurrentHashMap<>();
@@ -56,6 +53,7 @@ public final class BuildingRegistry {
         records.clear();
         loaded = false;
         metaCache.clear();
+        BuildingMetaLoader.clearIndex();
         tickCounter = 0;
         loadRetryCooldown = 0;
     }
@@ -75,16 +73,25 @@ public final class BuildingRegistry {
     }
 
     private static int farmSlotsOf(String blueprintName) {
-        BuildingMeta meta = BuildingMetaLoader.load(BuildingBlueprints.fileOf(blueprintName), blueprintName);
-        return meta.farmSlots();
+        BuildingMeta meta = BuildingMetaLoader.byBuildName(blueprintName);
+        return meta == null ? 0 : meta.farmSlots();
     }
 
     public BuildingMeta metaOf(BuildingRecord building) {
         if (building == null || building.name() == null || building.name().isBlank()) {
             return BuildingMeta.fallback("", null);
         }
-        return metaCache.computeIfAbsent(building.name(), blueprintName ->
-                BuildingMetaLoader.load(BuildingBlueprints.fileOf(blueprintName), blueprintName));
+        BuildingMeta cached = metaCache.get(building.name());
+        if (cached != null) {
+            return cached;
+        }
+        BuildingMeta loadedMeta = BuildingMetaLoader.byBuildName(building.name());
+        if (loadedMeta == null) {
+            loadedMeta = BuildingMetaLoader.load(BuildingBlueprints.fileOf(building.name()),
+                    building.name());
+        }
+        metaCache.put(building.name(), loadedMeta);
+        return loadedMeta;
     }
 
     public int storageSlotsOf(BuildingRecord building) {
@@ -225,29 +232,11 @@ public final class BuildingRegistry {
     }
 
     private static boolean resolveDining(String blueprintName) {
-        BuildingMeta meta = BuildingMetaLoader.load(BuildingBlueprints.fileOf(blueprintName), blueprintName);
-        if (meta.type() != BuildingType.COMMERCIAL) {
-            return false;
+        BuildingMeta meta = BuildingMetaLoader.byBuildName(blueprintName);
+        if (meta == null) {
+            meta = BuildingMetaLoader.load(BuildingMetaLoader.blueprintFile(blueprintName), blueprintName);
         }
-        for (String tag : meta.tags()) {
-            if (isDiningWord(tag)) {
-                return true;
-            }
-        }
-        return isDiningWord(BuildingMeta.shortName(blueprintName));
-    }
-
-    private static boolean isDiningWord(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return false;
-        }
-        String key = raw.trim().toLowerCase(Locale.ROOT);
-        for (String word : DINING_WORDS) {
-            if (key.contains(word)) {
-                return true;
-            }
-        }
-        return false;
+        return meta.isWork(BuildingWork.RESTAURANT);
     }
 
     private static Component prompt(BuildingRecord building) {

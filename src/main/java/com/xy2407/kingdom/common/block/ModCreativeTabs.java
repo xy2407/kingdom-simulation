@@ -22,6 +22,7 @@ public final class ModCreativeTabs {
                     .displayItems((parameters, output) -> {
                         output.accept(ModBlocks.CITY_HALL_ITEM.get());
                         output.accept(ModBlocks.BUILDER_BLOCK_ITEM.get());
+                        output.accept(ModBlocks.SHOP_SHELF_ITEM.get());
                     })
                     .build());
 

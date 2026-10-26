@@ -20,6 +20,7 @@ import com.xy2407.kingdom.client.map.ClientMapStore;
 import com.xy2407.kingdom.client.map.MapOverlayStore;
 import com.xy2407.kingdom.client.map.RoadClientStore;
 import com.xy2407.kingdom.client.map.WorldRoadScreen;
+import com.xy2407.kingdom.common.building.BuildingWork;
 import com.xy2407.kingdom.common.building.BuildingType;
 import com.xy2407.kingdom.common.faction.Territory;
 import com.xy2407.kingdom.common.map.WorldSurfaceSampler;
@@ -846,13 +847,15 @@ public class WorldMapElement extends Canvas {
             return ICON_DEFAULT;
         }
         return switch (type) {
-            case "RESIDENTIAL" -> 0xFFB89868;
-            case "AGRICULTURE" -> 0xFF6FA83C;
-            case "LIVESTOCK" -> 0xFFC89A4A;
-            case "INDUSTRY" -> 0xFF8A7A6A;
-            case "COMMERCIAL" -> 0xFFD8A227;
-            case "MILITARY" -> 0xFFA84A3C;
-            case "STORAGE" -> 0xFF7A6A4A;
+            case "RESIDENTIAL", "RESIDENCE" -> 0xFFB89868;
+            case "AGRICULTURE", "FARM" -> 0xFF6FA83C;
+            case "LIVESTOCK", "RANCH" -> 0xFFC89A4A;
+            case "INDUSTRY", "LUMBER", "MINE", "WORKSHOP", "FORGE", "CHEESE", "BREWERY" ->
+                    0xFF8A7A6A;
+            case "COMMERCIAL", "SHOP", "RESTAURANT" -> 0xFFD8A227;
+            case "MILITARY", "BARRACKS" -> 0xFFA84A3C;
+            case "WAREHOUSE", "BUILDER_HUT", "CITY_HALL", "HOSPITAL", "SCHOOL" -> 0xFF7A6A4A;
+            case "DECORATION" -> 0xFF9A9A9A;
             default -> ICON_DEFAULT;
         };
     }
@@ -1188,6 +1191,13 @@ public class WorldMapElement extends Canvas {
         hoveredBuildingId = id;
         if (building == null) {
             Tooltip.hide(document);
+            return;
+        }
+        BuildingWork work = BuildingWork.parse(building.type());
+        if (work != null) {
+            String label = work.label();
+            Tooltip.show(document, new Position(event.clientX, event.clientY),
+                    label + "：" + building.name(), TIP_OPTIONS);
             return;
         }
         BuildingType type = BuildingType.parse(building.type());

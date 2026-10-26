@@ -15,7 +15,8 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
  * 服务端 → 客户端：餐厅的菜单卡片与在后厨上班的人数。
  * 食材描述在服务端就拼成一句话，客户端拿到直接显示，不用再解析条目（含 {@code #标签}）。
  */
-public record RestaurantMenuPacket(int chefCount, List<Dish> dishes) implements CustomPacketPayload {
+public record RestaurantMenuPacket(int chefCount, int waiterCount, List<Dish> dishes)
+        implements CustomPacketPayload {
 
     public record Dish(String id, String name, String outputItem, int outputCount,
                        int price, String inputText, boolean ready) {
@@ -37,6 +38,7 @@ public record RestaurantMenuPacket(int chefCount, List<Dish> dishes) implements 
 
     private static void encode(RegistryFriendlyByteBuf buf, RestaurantMenuPacket packet) {
         buf.writeInt(packet.chefCount());
+        buf.writeInt(packet.waiterCount());
         buf.writeInt(packet.dishes().size());
         for (Dish dish : packet.dishes()) {
             buf.writeUtf(dish.id() == null ? "" : dish.id(), 64);
@@ -51,13 +53,14 @@ public record RestaurantMenuPacket(int chefCount, List<Dish> dishes) implements 
 
     private static RestaurantMenuPacket decode(RegistryFriendlyByteBuf buf) {
         int chefCount = buf.readInt();
+        int waiterCount = buf.readInt();
         List<Dish> dishes = new ArrayList<>();
         int count = Math.min(Math.max(buf.readInt(), 0), MAX_DISHES);
         for (int i = 0; i < count; i++) {
             dishes.add(new Dish(buf.readUtf(64), buf.readUtf(128), buf.readUtf(128),
                     buf.readInt(), buf.readInt(), buf.readUtf(256), buf.readBoolean()));
         }
-        return new RestaurantMenuPacket(chefCount, dishes);
+        return new RestaurantMenuPacket(chefCount, waiterCount, dishes);
     }
 
     public static void handle(RestaurantMenuPacket packet, IPayloadContext context) {

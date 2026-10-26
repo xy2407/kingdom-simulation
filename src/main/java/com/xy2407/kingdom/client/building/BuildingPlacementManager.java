@@ -8,6 +8,7 @@ import com.xy2407.kingdom.client.rts.RtsPicker;
 import com.xy2407.kingdom.client.structure.StructureLoader;
 import com.xy2407.kingdom.client.structure.StructureMesh;
 import com.xy2407.kingdom.client.structure.StructureMesher;
+import com.xy2407.kingdom.common.building.BuildingMetaLoader;
 import com.xy2407.kingdom.common.building.BuildingBlueprints;
 import com.xy2407.kingdom.common.network.building.BuildingPlaceConfirmPacket;
 import com.xy2407.kingdom.common.structure.StructureModel;
@@ -57,7 +58,7 @@ public final class BuildingPlacementManager {
         if (name == null || name.isBlank() || startOrigin == null) {
             return;
         }
-        StructureModel loaded = StructureLoader.loadFile(BuildingBlueprints.fileOf(name));
+        StructureModel loaded = StructureLoader.loadFile(BuildingMetaLoader.blueprintFile(name));
         if (loaded == null || loaded.blocks().isEmpty()) {
             return;
         }

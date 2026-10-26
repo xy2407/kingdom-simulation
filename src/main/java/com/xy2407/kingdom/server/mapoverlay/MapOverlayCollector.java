@@ -128,9 +128,14 @@ public final class MapOverlayCollector {
             if (own == null || !own.id().equals(territoryId)) {
                 continue;
             }
+            com.xy2407.kingdom.common.building.BuildingMeta overlayMeta =
+                    BuildingRegistry.INSTANCE.metaOf(record);
+            String overlayKind = overlayMeta.work() != null
+                    ? overlayMeta.work().name()
+                    : (overlayMeta.type() == null ? "" : overlayMeta.type().name());
             buildings.add(new MapOverlayDataPacket.BuildingEntry(
                     record.id().toString(), record.name(),
-                    BuildingRegistry.INSTANCE.metaOf(record).type().name(),
+                    overlayKind,
                     record.min().getX(), record.min().getZ(),
                     record.max().getX(), record.max().getZ(),
                     territoryId));

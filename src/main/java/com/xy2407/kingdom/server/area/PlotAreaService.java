@@ -5,9 +5,9 @@ import java.util.UUID;
 
 import com.xy2407.kingdom.common.area.PlotArea;
 import com.xy2407.kingdom.common.area.PlotAreaKind;
+import com.xy2407.kingdom.common.building.BuildingWork;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.building.BuildingType;
-import com.xy2407.kingdom.common.building.IndustryKind;
 import com.xy2407.kingdom.common.date.DateSystem;
 import com.xy2407.kingdom.common.network.area.AreaStatePacket;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
@@ -96,12 +96,12 @@ public final class PlotAreaService {
             return false;
         }
         if (kind == PlotAreaKind.RANCH) {
-            return meta.type() == BuildingType.LIVESTOCK;
+            return meta.isType(BuildingType.LIVESTOCK);
         }
-        if (meta.type() != BuildingType.INDUSTRY) {
+        if (!meta.isType(BuildingType.INDUSTRY)) {
             return false;
         }
-        return meta.industryKind() == IndustryKind.LUMBER;
+        return meta.isWork(BuildingWork.LUMBER);
     }
 
 }

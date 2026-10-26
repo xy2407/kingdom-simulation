@@ -16,8 +16,12 @@ import com.xy2407.kingdom.common.network.building.BuildingStorageRequestPacket;
 import com.xy2407.kingdom.common.network.building.ResidentActionPacket;
 import com.xy2407.kingdom.common.network.building.ResidentListPacket;
 import com.xy2407.kingdom.common.network.building.ResidentListRequestPacket;
+import com.xy2407.kingdom.common.network.building.RestaurantLayoutRequestPacket;
 import com.xy2407.kingdom.common.network.building.RestaurantMenuPacket;
 import com.xy2407.kingdom.common.network.building.RestaurantMenuRequestPacket;
+import com.xy2407.kingdom.common.network.shop.ShopPanelActionPacket;
+import com.xy2407.kingdom.common.network.shop.ShopPanelRequestPacket;
+import com.xy2407.kingdom.common.network.shop.ShopPanelStatePacket;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
@@ -55,6 +59,11 @@ public final class BuildingPanelScreen extends ApricityScreen {
     private static final String ID_DISH_COUNT = "rs-count";
     private static final String ID_MENU = "rs-menu";
 
+    private static final String SHOP_PREFIX = "sh";
+    private static final String ID_SHOP_WORKER = "sh-worker";
+    private static final String ID_SHOP_STATE = "sh-state";
+    private static final String ID_SHOP_TOGGLE = "sh-shelve";
+
     private static final Map<String, String> PREFIXES = Map.of(
             "industry", "im",
             "ranch", "rm",
@@ -85,6 +94,7 @@ public final class BuildingPanelScreen extends ApricityScreen {
     private ResidentListPacket latestResidents = ResidentListPacket.outside();
     private String residentFilter = "";
     private String shownResidentFilter;
+    private boolean shopOpen;
 
     public BuildingPanelScreen(String page, String buildingName, int buildingLevel, String buildingPos) {
         super(page);
@@ -147,7 +157,9 @@ public final class BuildingPanelScreen extends ApricityScreen {
         Element main = document.getElementById(MAIN_BUTTONS.getOrDefault(prefix, ""));
         if (main != null) {
             if (RESTAURANT_PREFIX.equals(prefix)) {
-                main.addEventListener("click", event -> requestMenu());
+                main.addEventListener("click", event -> requestLayout());
+            } else if (SHOP_PREFIX.equals(prefix)) {
+                main.addEventListener("click", event -> toggleShop());
             } else {
                 main.addEventListener("click", event -> hint("该功能尚未接入"));
             }
@@ -169,6 +181,8 @@ public final class BuildingPanelScreen extends ApricityScreen {
             requestResidents();
         } else if (RESTAURANT_PREFIX.equals(prefix)) {
             requestMenu();
+        } else if (SHOP_PREFIX.equals(prefix)) {
+            requestShop();
         }
         text(document, ID_NAME, buildingName.isBlank() ? "建筑" : buildingName);
         text(document, ID_LEVEL, "Lv." + buildingLevel);
@@ -184,12 +198,47 @@ public final class BuildingPanelScreen extends ApricityScreen {
         PacketDistributor.sendToServer(new RestaurantMenuRequestPacket());
     }
 
+    private static void requestLayout() {
+        PacketDistributor.sendToServer(new RestaurantLayoutRequestPacket());
+    }
+
+    private static void requestShop() {
+        PacketDistributor.sendToServer(new ShopPanelRequestPacket());
+    }
+
+    private void toggleShop() {
+        PacketDistributor.sendToServer(new ShopPanelActionPacket(!shopOpen));
+    }
+
+    void applyShop(ShopPanelStatePacket packet) {
+        Document document = getLinkedDocument();
+        if (document == null) {
+            return;
+        }
+        shopOpen = packet.open();
+        text(document, ID_SHOP_WORKER, packet.worker().isBlank() ? "未指派" : packet.worker());
+        text(document, ID_SHOP_STATE, packet.open()
+                ? "营业中 · " + packet.shelves() + " 个货架" : "已打烊");
+        Element toggle = document.getElementById(ID_SHOP_TOGGLE);
+        if (toggle != null) {
+            toggle.setTextContent(packet.open() ? "打烊" : "开业");
+        }
+    }
+
     void applyRestaurantMenu(RestaurantMenuPacket packet) {
         Document document = getLinkedDocument();
         if (document == null) {
             return;
         }
-        text(document, ID_CHEF, packet.chefCount() > 0 ? packet.chefCount() + " 人" : "未指派");
+        String staff;
+        if (packet.chefCount() <= 0) {
+            staff = "缺少厨师";
+        } else if (packet.waiterCount() <= 0) {
+            staff = "缺服务员·停业";
+        } else {
+            staff = "厨师 " + packet.chefCount() + " · 服务员 " + packet.waiterCount();
+        }
+        text(document, ID_CHEF, staff);
         text(document, ID_DISH_COUNT, packet.dishes().size() + " 道");
         Element menu = document.getElementById(ID_MENU);
         if (menu == null) {

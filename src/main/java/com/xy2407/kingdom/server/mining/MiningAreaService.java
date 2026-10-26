@@ -3,9 +3,9 @@ package com.xy2407.kingdom.server.mining;
 import java.util.List;
 import java.util.UUID;
 
+import com.xy2407.kingdom.common.building.BuildingWork;
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingRecord;
-import com.xy2407.kingdom.common.building.IndustryKind;
 import com.xy2407.kingdom.common.date.DateSystem;
 import com.xy2407.kingdom.common.mining.MiningPlot;
 import com.xy2407.kingdom.common.npc.NpcData;
@@ -35,7 +35,7 @@ public final class MiningAreaService {
                 : miningBuilding(level, buildingId);
         if (building == null) {
             player.displayClientMessage(Component.literal(
-                    "附近没有采矿分类的工业建筑（蓝图 json 填 industry_kind=采矿 并完工）"), false);
+                    "附近没有采矿分类的工业建筑（蓝图 json 填 work=矿井 并完工）"), false);
             return;
         }
         int minX = Integer.MAX_VALUE;
@@ -88,7 +88,7 @@ public final class MiningAreaService {
             return null;
         }
         BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(building);
-        return meta != null && meta.industryKind() == IndustryKind.MINING ? building : null;
+        return meta != null && meta.isWork(BuildingWork.MINE) ? building : null;
     }
 
     public static BuildingRecord nearestMiningBuilding(ServerLevel level, BlockPos from) {
@@ -100,7 +100,7 @@ public final class MiningAreaService {
                 continue;
             }
             BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(building);
-            if (meta == null || meta.industryKind() != IndustryKind.MINING) {
+            if (meta == null || !meta.isWork(BuildingWork.MINE)) {
                 continue;
             }
             double distance = building.min().distSqr(from);

@@ -4,10 +4,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import com.xy2407.kingdom.common.building.BuildingWork;
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.building.BuildingType;
-import com.xy2407.kingdom.common.building.IndustryKind;
 import com.xy2407.kingdom.common.employment.Employment;
 import com.xy2407.kingdom.common.employment.EmploymentKind;
 import com.xy2407.kingdom.common.employment.EmploymentResult;
@@ -20,6 +20,7 @@ import com.xy2407.kingdom.common.npc.NpcData;
 import com.xy2407.kingdom.common.npc.NpcManager;
 import com.xy2407.kingdom.common.npc.NpcMiningService;
 import com.xy2407.kingdom.common.npc.NpcRole;
+import com.xy2407.kingdom.common.npc.NpcShopService;
 import com.xy2407.kingdom.common.ranch.RanchPen;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
 import com.xy2407.kingdom.server.farm.FarmPlotManager;
@@ -200,6 +201,10 @@ public final class EmploymentService {
                 case BUILDING -> {
                     brain.setIndustryControlled(false);
                     brain.setRestaurantControlled(false);
+                    brain.setShopControlled(false);
+                    if (NpcShopService.JOB_NAME.equals(npc.getJob())) {
+                        npc.setJob("");
+                    }
                 }
                 default -> {
                 }
@@ -285,8 +290,7 @@ public final class EmploymentService {
             if (buildingId != null) {
                 BuildingRecord building = BuildingRegistry.INSTANCE.byId(buildingId);
                 BuildingMeta meta = building == null ? null : BuildingRegistry.INSTANCE.metaOf(building);
-                if (meta != null && meta.type() == BuildingType.INDUSTRY
-                        && meta.industryKind() == IndustryKind.LUMBER) {
+                if (meta != null && meta.isWork(BuildingWork.LUMBER)) {
                     return EmploymentTarget.lumber(buildingId);
                 }
                 return EmploymentTarget.building(buildingId, npc.getWorkRecipeId(), npc.getShift());
@@ -336,7 +340,13 @@ public final class EmploymentService {
             case BUILDING, LUMBER, MINING -> {
                 BuildingRecord building = buildingById(target.buildingId());
                 BuildingMeta meta = building == null ? null : BuildingRegistry.INSTANCE.metaOf(building);
-                return meta == null ? 0 : meta.hireLimit();
+                if (meta == null) {
+                    return 0;
+                }
+                if (meta.isWork(BuildingWork.SHOP)) {
+                    return 1;
+                }
+                return meta.hireLimit();
             }
             default -> {
                 return 0;
@@ -491,16 +501,17 @@ public final class EmploymentService {
                 if (meta == null) {
                     return;
                 }
-                if (meta.type() == BuildingType.COMMERCIAL) {
+                if (meta.isWork(BuildingWork.RESTAURANT)) {
                     brain.setRestaurantControlled(true);
-                } else if (meta.type() == BuildingType.INDUSTRY) {
-                    if (meta.industryKind() == IndustryKind.LUMBER) {
-                        brain.setLumberControlled(true);
-                    } else if (meta.industryKind() == IndustryKind.MINING) {
-                        brain.setMiningControlled(true);
-                    } else {
-                        brain.setIndustryControlled(true);
-                    }
+                } else if (meta.isWork(BuildingWork.SHOP)) {
+                    brain.setShopControlled(true);
+                    npc.setJob(NpcShopService.JOB_NAME);
+                } else if (meta.isWork(BuildingWork.LUMBER)) {
+                    brain.setLumberControlled(true);
+                } else if (meta.isWork(BuildingWork.MINE)) {
+                    brain.setMiningControlled(true);
+                } else if (meta.isType(BuildingType.INDUSTRY)) {
+                    brain.setIndustryControlled(true);
                 }
             }
             default -> {
@@ -515,6 +526,7 @@ public final class EmploymentService {
         brain.setLumberControlled(false);
         brain.setIndustryControlled(false);
         brain.setRestaurantControlled(false);
+        brain.setShopControlled(false);
         brain.setConstructionControlled(false);
     }
 

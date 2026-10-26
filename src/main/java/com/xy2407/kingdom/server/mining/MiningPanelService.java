@@ -4,9 +4,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import com.xy2407.kingdom.common.building.BuildingWork;
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingRecord;
-import com.xy2407.kingdom.common.building.IndustryKind;
 import com.xy2407.kingdom.common.mining.MiningPlot;
 import com.xy2407.kingdom.common.network.mining.MiningPanelActionPacket;
 import com.xy2407.kingdom.common.network.mining.MiningPanelStatePacket;
@@ -131,7 +131,7 @@ public final class MiningPanelService {
             return null;
         }
         BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(hit);
-        if (meta == null || meta.industryKind() != IndustryKind.MINING) {
+        if (meta == null || !meta.isWork(BuildingWork.MINE)) {
             return null;
         }
         return hit;

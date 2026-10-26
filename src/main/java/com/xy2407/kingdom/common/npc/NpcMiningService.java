@@ -5,9 +5,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.xy2407.kingdom.common.building.BuildingWork;
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingRecord;
-import com.xy2407.kingdom.common.building.IndustryKind;
 import com.xy2407.kingdom.common.entity.NpcEntity;
 import com.xy2407.kingdom.common.mining.MiningPlot;
 import com.xy2407.kingdom.common.path.ChunkSnapshot;
@@ -702,7 +702,7 @@ public final class NpcMiningService {
 
     private static boolean isMiningBuilding(BuildingRecord building) {
         BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(building);
-        return meta != null && meta.industryKind() == IndustryKind.MINING;
+        return meta != null && meta.isWork(BuildingWork.MINE);
     }
 
     private static UUID parseId(String raw) {

@@ -11,10 +11,11 @@ import com.xy2407.kingdom.common.building.ItemSpecs;
 import com.xy2407.kingdom.common.building.MenuSpec;
 import com.xy2407.kingdom.common.entity.NpcEntity;
 import com.xy2407.kingdom.common.restaurant.RestaurantOrder;
-import com.xy2407.kingdom.common.restaurant.RestaurantSeats;
+import com.xy2407.kingdom.common.restaurant.RestaurantSeat;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
 import com.xy2407.kingdom.server.building.BuildingStorageStore;
 import com.xy2407.kingdom.server.restaurant.RestaurantOrderStore;
+import com.xy2407.kingdom.server.restaurant.RestaurantSeatStore;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
@@ -133,10 +134,17 @@ public final class NpcForageService {
         if (meta == null || meta.menu().isEmpty()) {
             return false;
         }
+        if (!NpcRestaurantService.rolesOf(restaurant.id()).open()) {
+            return false;
+        }
         BlockPos seat = null;
-        for (BlockPos candidate : RestaurantSeats.seats(level, restaurant)) {
-            if (RestaurantOrderStore.INSTANCE.occupySeat(candidate, data.getId())) {
-                seat = candidate;
+        String dimension = level.dimension().location().toString();
+        for (RestaurantSeat candidate : RestaurantSeatStore.INSTANCE.seatsOf(restaurant.id())) {
+            if (!dimension.equals(candidate.dimension())) {
+                continue;
+            }
+            if (RestaurantOrderStore.INSTANCE.occupySeat(candidate.seat(), data.getId())) {
+                seat = candidate.seat();
                 break;
             }
         }

@@ -1,11 +1,13 @@
 package com.xy2407.kingdom.common.npc;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.xy2407.kingdom.common.building.BuildingWork;
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.building.BuildingType;
@@ -16,6 +18,7 @@ import com.xy2407.kingdom.common.restaurant.RestaurantOrder;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
 import com.xy2407.kingdom.server.building.BuildingStorageStore;
 import com.xy2407.kingdom.server.restaurant.RestaurantOrderStore;
+import com.xy2407.kingdom.server.restaurant.RestaurantSeatStore;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
@@ -32,7 +35,33 @@ public final class NpcRestaurantService {
 
     private static final int DISH_TICKS = 200;
 
+    public record Roles(UUID chefId, int waiters) {
+
+        public boolean open() {
+            return chefId != null && waiters > 0;
+        }
+    }
+
     private NpcRestaurantService() {
+    }
+
+    public static Roles rolesOf(UUID buildingId) {
+        if (buildingId == null) {
+            return new Roles(null, 0);
+        }
+        String id = buildingId.toString();
+        List<UUID> ids = new ArrayList<>();
+        for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
+            if (npc.isDead() || !id.equals(npc.getWorkplaceId())) {
+                continue;
+            }
+            ids.add(npc.getId());
+        }
+        if (ids.isEmpty()) {
+            return new Roles(null, 0);
+        }
+        ids.sort(Comparator.naturalOrder());
+        return new Roles(ids.get(0), ids.size() - 1);
     }
 
     public static void tick(NpcEntity npc, NpcData data) {
@@ -44,6 +73,9 @@ public final class NpcRestaurantService {
         }
         BuildingRecord building = buildingOf(data);
         if (building == null || !isInside(building, data)) {
+            return;
+        }
+        if (!rolesOf(building.id()).open()) {
             return;
         }
         MinecraftServer server = level.getServer();
@@ -108,24 +140,9 @@ public final class NpcRestaurantService {
         if (building == null) {
             return NpcDetail.COOKING;
         }
-        String chefId = chefIdOf(building.id());
-        return chefId != null && chefId.equals(npc.getId().toString())
+        Roles roles = rolesOf(building.id());
+        return roles.chefId() != null && roles.chefId().equals(npc.getId())
                 ? NpcDetail.COOKING : NpcDetail.SERVING;
-    }
-
-    private static String chefIdOf(UUID buildingId) {
-        String best = null;
-        String id = buildingId.toString();
-        for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
-            if (npc.isDead() || !id.equals(npc.getWorkplaceId())) {
-                continue;
-            }
-            String candidate = npc.getId().toString();
-            if (best == null || candidate.compareTo(best) < 0) {
-                best = candidate;
-            }
-        }
-        return best;
     }
 
     public static void tickWaiter(NpcEntity npc, NpcData data) {
@@ -137,6 +154,10 @@ public final class NpcRestaurantService {
         }
         BuildingRecord building = buildingOf(data);
         if (building == null) {
+            return;
+        }
+        if (!rolesOf(building.id()).open()) {
+            npc.getNavigation().stop();
             return;
         }
         MinecraftServer server = level.getServer();
@@ -153,9 +174,12 @@ public final class NpcRestaurantService {
             npc.getNavigation().stop();
             return;
         }
-        BlockPos seat = order.seat();
-        if (!near(npc, seat)) {
-            npc.setNavTarget(seat);
+        BlockPos target = RestaurantSeatStore.INSTANCE.servePointOf(building.id(), order.seat());
+        if (target == null) {
+            target = order.seat();
+        }
+        if (!near(npc, target)) {
+            npc.setNavTarget(target);
             return;
         }
         npc.getNavigation().stop();
@@ -263,7 +287,7 @@ public final class NpcRestaurantService {
 
     private static boolean isRestaurant(BuildingRecord building) {
         BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(building);
-        return meta != null && meta.type() == BuildingType.COMMERCIAL && meta.isRestaurant();
+        return meta != null && meta.isWork(BuildingWork.RESTAURANT);
     }
 
     private static boolean isInside(BuildingRecord building, NpcData npc) {
