@@ -45,6 +45,7 @@ public final class ServerLifecycle {
 
     @SubscribeEvent
     public static void onServerStarting(ServerStartingEvent event) {
+        com.xy2407.kingdom.common.building.BlueprintDeployer.deploy();
         NpcManager.INSTANCE.reset();
         BuildingRegistry.INSTANCE.reset();
         FarmPlotManager.INSTANCE.reset();
@@ -52,8 +53,11 @@ public final class ServerLifecycle {
         RanchWorkService.reset();
         RestaurantOrderStore.INSTANCE.reset();
         RestaurantSeatStore.INSTANCE.reset();
+        com.xy2407.kingdom.common.npc.NpcRestaurantService.reset();
         ShopStore.INSTANCE.reset();
         com.xy2407.kingdom.server.task.RegionTaskService.INSTANCE.reset();
+        com.xy2407.kingdom.server.rts.RtsTeamService.reset();
+        com.xy2407.kingdom.server.freight.FreightService.INSTANCE.reset();
         NationRegistry.INSTANCE.reset();
         TerritoryRegistry.INSTANCE.reset();
         PlayerProfileStore.INSTANCE.reset();

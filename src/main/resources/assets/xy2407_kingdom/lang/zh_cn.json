@@ -2,6 +2,10 @@
   "block.xy2407_kingdom.city_hall": "市政厅操作台",
   "block.xy2407_kingdom.builder_block": "建筑工方块",
   "block.xy2407_kingdom.shop_shelf": "商铺货架",
+  "block.xy2407_kingdom.wooden_chair": "木椅",
+  "block.xy2407_kingdom.wooden_table": "木桌",
+  "block.xy2407_kingdom.feeding_trough": "饲养槽",
+  "block.xy2407_kingdom.map_stand": "仓库地图架",
   "itemGroup.xy2407_kingdom.main": "王国模拟",
   "key.categories.xy2407_kingdom": "王国模拟",
   "key.xy2407_kingdom.world_map": "打开世界地图"

@@ -1,1 +1,8 @@
-{ "variants": { "": { "model": "xy2407_kingdom:block/shop_shelf" } } }
+{
+  "variants": {
+    "facing=south": { "model": "xy2407_kingdom:block/shop_shelf" },
+    "facing=west": { "model": "xy2407_kingdom:block/shop_shelf", "y": 90 },
+    "facing=north": { "model": "xy2407_kingdom:block/shop_shelf", "y": 180 },
+    "facing=east": { "model": "xy2407_kingdom:block/shop_shelf", "y": 270 }
+  }
+}

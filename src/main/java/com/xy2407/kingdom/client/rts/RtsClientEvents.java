@@ -136,6 +136,10 @@ public final class RtsClientEvents {
         }
         boolean press = event.getAction() == InputConstants.PRESS;
         double[] mouse = RtsModeManager.getGuiScaledMouse();
+        if (press && RtsFormationEditorHud.handleClick(mouse[0], mouse[1])) {
+            event.setCanceled(true);
+            return;
+        }
         switch (event.getButton()) {
             case GLFW.GLFW_MOUSE_BUTTON_LEFT -> {
                 if (com.xy2407.kingdom.client.area.AreaSelectionState.isActive()) {

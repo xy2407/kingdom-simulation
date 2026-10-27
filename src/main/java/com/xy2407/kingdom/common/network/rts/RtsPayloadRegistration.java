@@ -29,7 +29,17 @@ public final class RtsPayloadRegistration {
                 RtsFakePlayerSpawnPacket.STREAM_CODEC, RtsFakePlayerSpawnPacket::handle);
         registrar.playToServer(RtsFakePlayerClearPacket.TYPE,
                 RtsFakePlayerClearPacket.STREAM_CODEC, RtsFakePlayerClearPacket::handle);
+        registrar.playToServer(RtsTeamCreatePacket.TYPE,
+                RtsTeamCreatePacket.STREAM_CODEC, RtsTeamCreatePacket::handle);
+        registrar.playToServer(RtsTeamEditPacket.TYPE,
+                RtsTeamEditPacket.STREAM_CODEC, RtsTeamEditPacket::handle);
+        registrar.playToServer(RtsTeamEditStatePacket.TYPE,
+                RtsTeamEditStatePacket.STREAM_CODEC, RtsTeamEditStatePacket::handle);
+        registrar.playToServer(RtsTeamOpPacket.TYPE,
+                RtsTeamOpPacket.STREAM_CODEC, RtsTeamOpPacket::handle);
         registrar.playToClient(RtsSelectionCorrectionPacket.TYPE,
                 RtsSelectionCorrectionPacket.STREAM_CODEC, RtsSelectionCorrectionPacket::handle);
+        registrar.playToClient(RtsTeamSyncPacket.TYPE,
+                RtsTeamSyncPacket.STREAM_CODEC, RtsTeamSyncPacket::handle);
     }
 }

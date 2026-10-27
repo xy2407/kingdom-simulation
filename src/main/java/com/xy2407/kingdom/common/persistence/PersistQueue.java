@@ -154,6 +154,7 @@ public final class PersistQueue {
     }
 
     private void run() {
+        List<Batch> group = new ArrayList<>();
         while (running) {
             Batch batch;
             try {
@@ -170,12 +171,15 @@ public final class PersistQueue {
                 }
                 continue;
             }
-            process(batch);
+            group.clear();
+            group.add(batch);
+            batches.drainTo(group);
+            process(group);
         }
         List<Batch> rest = new ArrayList<>();
         batches.drainTo(rest);
-        for (Batch batch : rest) {
-            process(batch);
+        if (!rest.isEmpty()) {
+            process(rest);
         }
         replayRetry(3);
         if (!pending.isEmpty()) {
@@ -183,22 +187,34 @@ public final class PersistQueue {
         }
     }
 
-    private void process(Batch batch) {
-        try {
+    private void process(List<Batch> group) {
+        boolean releaseGuard = false;
+        boolean hasData = false;
+        List<CountDownLatch> latches = new ArrayList<>(group.size());
+        for (Batch batch : group) {
             if (!batch.data.isEmpty()) {
                 mergeIntoPending(batch.data);
-                if (!degraded) {
-                    writePending();
-                }
+                hasData = true;
             }
             if (batch.latch != null) {
-                if (!pending.isEmpty()) {
-                    replayOnce();
-                }
-                batch.latch.countDown();
+                latches.add(batch.latch);
+            }
+            if (batch.releaseFlushGuard) {
+                releaseGuard = true;
+            }
+        }
+        try {
+            if (hasData && !degraded) {
+                writePending();
+            }
+            if (!pending.isEmpty()) {
+                replayOnce();
+            }
+            for (CountDownLatch latch : latches) {
+                latch.countDown();
             }
         } finally {
-            if (batch.releaseFlushGuard) {
+            if (releaseGuard) {
                 flushingNow.set(false);
             }
         }

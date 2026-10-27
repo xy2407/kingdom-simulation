@@ -8,13 +8,13 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
- * 餐厅家具方块目录：椅子与桌子的注册 id 待定稿后填写，支持 #标签 写法
+ * 餐厅家具方块目录：椅子与桌子的注册 id，支持 #标签 写法以便换材质整套替换
  */
 public final class RestaurantFurniture {
 
-    public static final String CHAIR_BLOCK = "";
+    public static final String CHAIR_BLOCK = "xy2407_kingdom:wooden_chair";
 
-    public static final String TABLE_BLOCK = "";
+    public static final String TABLE_BLOCK = "xy2407_kingdom:wooden_table";
 
     private RestaurantFurniture() {
     }

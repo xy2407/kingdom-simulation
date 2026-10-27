@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 import com.xy2407.kingdom.common.building.BuildingWork;
 import com.xy2407.kingdom.common.building.BuildingMeta;
@@ -35,6 +36,8 @@ public final class NpcRestaurantService {
 
     private static final int DISH_TICKS = 200;
 
+    private static final Map<UUID, Roles> ROLES = new ConcurrentHashMap<>();
+
     public record Roles(UUID chefId, int waiters) {
 
         public boolean open() {
@@ -49,19 +52,46 @@ public final class NpcRestaurantService {
         if (buildingId == null) {
             return new Roles(null, 0);
         }
+        Roles cached = ROLES.get(buildingId);
+        if (cached != null) {
+            return cached;
+        }
+        Roles computed = computeRoles(buildingId);
+        ROLES.put(buildingId, computed);
+        return computed;
+    }
+
+    public static void invalidateWorkplace(String workplaceId) {
+        if (workplaceId == null || workplaceId.isBlank()) {
+            return;
+        }
+        try {
+            ROLES.remove(UUID.fromString(workplaceId));
+        } catch (IllegalArgumentException ignored) {
+        }
+    }
+
+    public static void reset() {
+        ROLES.clear();
+    }
+
+    private static Roles computeRoles(UUID buildingId) {
         String id = buildingId.toString();
-        List<UUID> ids = new ArrayList<>();
+        List<NpcData> crew = new ArrayList<>();
         for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
             if (npc.isDead() || !id.equals(npc.getWorkplaceId())) {
                 continue;
             }
-            ids.add(npc.getId());
+            crew.add(npc);
         }
-        if (ids.isEmpty()) {
+        if (crew.isEmpty()) {
             return new Roles(null, 0);
         }
-        ids.sort(Comparator.naturalOrder());
-        return new Roles(ids.get(0), ids.size() - 1);
+        crew.sort(Comparator.comparing(NpcData::getId));
+        for (int i = 0; i < crew.size(); i++) {
+            crew.get(i).setRestaurantChef(i == 0);
+        }
+        return new Roles(crew.get(0).getId(), crew.size() - 1);
     }
 
     public static void tick(NpcEntity npc, NpcData data) {
@@ -136,13 +166,7 @@ public final class NpcRestaurantService {
     }
 
     public static NpcDetail detailFor(NpcData npc) {
-        BuildingRecord building = buildingOf(npc);
-        if (building == null) {
-            return NpcDetail.COOKING;
-        }
-        Roles roles = rolesOf(building.id());
-        return roles.chefId() != null && roles.chefId().equals(npc.getId())
-                ? NpcDetail.COOKING : NpcDetail.SERVING;
+        return npc == null || npc.isRestaurantChef() ? NpcDetail.COOKING : NpcDetail.SERVING;
     }
 
     public static void tickWaiter(NpcEntity npc, NpcData data) {
@@ -214,6 +238,7 @@ public final class NpcRestaurantService {
     }
 
     public static void assignWorkers(MinecraftServer server) {
+        ROLES.clear();
         Map<UUID, BuildingRecord> buildings = new HashMap<>();
         Map<UUID, List<NpcData>> crews = new HashMap<>();
         for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
@@ -295,12 +320,4 @@ public final class NpcRestaurantService {
         return building.contains(dimension, npc.getX(), npc.getY(), npc.getZ());
     }
 
-    private static MenuSpec firstCraftable(IItemHandler store, List<MenuSpec> menu) {
-        for (MenuSpec dish : menu) {
-            if (ItemSpecs.hasAll(store, dish.inputs()) && ItemSpecs.canInsertOne(store, dish.output())) {
-                return dish;
-            }
-        }
-        return null;
-    }
 }

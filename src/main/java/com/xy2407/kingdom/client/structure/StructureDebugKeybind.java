@@ -380,10 +380,24 @@ public final class StructureDebugKeybind {
             renderTaskEntries(document);
             return;
         }
+        if (isTroopPage()) {
+            if (com.xy2407.kingdom.client.rts.RtsTeamClientCache.first() != null) {
+                com.xy2407.kingdom.client.rts.RtsFormationEditorState.openFirstTeam();
+                closeViewer();
+            } else {
+                com.xy2407.kingdom.client.rts.RtsFormationEditorState.requestCreate();
+                StructureDebugChat.chat("已用当前框选建队，再次点击「队伍」进入阵型编辑");
+            }
+            return;
+        }
         if (isPopulationPage()) {
             PacketDistributor.sendToServer(new NpcRosterRequestPacket());
         }
         renderSideList(document);
+    }
+
+    private static boolean isTroopPage() {
+        return SECTION_KEYS[2].equals(currentSection);
     }
 
     private static boolean isRoadPage() {
@@ -766,6 +780,9 @@ public final class StructureDebugKeybind {
         }
         if (index == 1) {
             return rowHtml("已登记", String.valueOf(Math.max(0, lastBuildings)));
+        }
+        if (index == 2) {
+            return rowHtml("队伍", com.xy2407.kingdom.client.rts.RtsTeamClientCache.describe());
         }
         return rowHtml("数据源", "待接入");
     }

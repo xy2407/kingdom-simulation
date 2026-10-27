@@ -131,9 +131,16 @@ canvas,img{
    ============================================================ */
 .slot-grid{
   display:grid;
-  grid-template-columns:9;
+  /* AUI 1.2.9 起裸整数列数会被判非法（整条声明丢弃 → 只剩一列），必须写真实轨道列表 */
+  grid-template-columns:repeat(9,48px);
   gap:8px;
   width:496px;
+}
+
+/* 货架本体是 3×3 九格：三层台阶 × 横向三格 */
+#block_entity{
+  grid-template-columns:repeat(3,48px);
+  width:160px;
 }
 
 .slot{
@@ -188,13 +195,13 @@ canvas,img{
 
   <header class="panel-head">
     <h2 class="panel-title" id="storageTitle">货 架</h2>
-    <span class="panel-meta" id="storageCapacity">54 / 54 格</span>
+    <span class="panel-meta" id="storageCapacity">9 / 9 格</span>
   </header>
 
   <div class="section-label">存 货</div>
   <!-- 商铺货架：绑 AUI 的方块实体容器（PendingMenu.blockEntity），容量 = ShopShelfBlockEntity.SLOTS。
-       格子沿用仓库页那 54 个，Java 侧由 BuildingStorageScreenDriver 复用同一套标题/容量填充。 -->
-  <container id="block_entity" class="slot-grid" bind="block_entity" size="54" primary="true">
+       9 格对应三层台阶陈列，Java 侧由 BuildingStorageScreenDriver 复用同一套标题/容量填充。 -->
+  <container id="block_entity" class="slot-grid" bind="block_entity" size="9" primary="true">
     <slot id="bslot0" class="slot" slot-index="0" slot-size="48"><item class="slot-icon"></item></slot>
     <slot id="bslot1" class="slot" slot-index="1" slot-size="48"><item class="slot-icon"></item></slot>
     <slot id="bslot2" class="slot" slot-index="2" slot-size="48"><item class="slot-icon"></item></slot>
@@ -204,51 +211,6 @@ canvas,img{
     <slot id="bslot6" class="slot" slot-index="6" slot-size="48"><item class="slot-icon"></item></slot>
     <slot id="bslot7" class="slot" slot-index="7" slot-size="48"><item class="slot-icon"></item></slot>
     <slot id="bslot8" class="slot" slot-index="8" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot9" class="slot" slot-index="9" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot10" class="slot" slot-index="10" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot11" class="slot" slot-index="11" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot12" class="slot" slot-index="12" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot13" class="slot" slot-index="13" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot14" class="slot" slot-index="14" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot15" class="slot" slot-index="15" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot16" class="slot" slot-index="16" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot17" class="slot" slot-index="17" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot18" class="slot" slot-index="18" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot19" class="slot" slot-index="19" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot20" class="slot" slot-index="20" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot21" class="slot" slot-index="21" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot22" class="slot" slot-index="22" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot23" class="slot" slot-index="23" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot24" class="slot" slot-index="24" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot25" class="slot" slot-index="25" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot26" class="slot" slot-index="26" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot27" class="slot" slot-index="27" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot28" class="slot" slot-index="28" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot29" class="slot" slot-index="29" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot30" class="slot" slot-index="30" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot31" class="slot" slot-index="31" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot32" class="slot" slot-index="32" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot33" class="slot" slot-index="33" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot34" class="slot" slot-index="34" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot35" class="slot" slot-index="35" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot36" class="slot" slot-index="36" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot37" class="slot" slot-index="37" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot38" class="slot" slot-index="38" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot39" class="slot" slot-index="39" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot40" class="slot" slot-index="40" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot41" class="slot" slot-index="41" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot42" class="slot" slot-index="42" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot43" class="slot" slot-index="43" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot44" class="slot" slot-index="44" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot45" class="slot" slot-index="45" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot46" class="slot" slot-index="46" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot47" class="slot" slot-index="47" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot48" class="slot" slot-index="48" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot49" class="slot" slot-index="49" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot50" class="slot" slot-index="50" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot51" class="slot" slot-index="51" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot52" class="slot" slot-index="52" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot53" class="slot" slot-index="53" slot-size="48"><item class="slot-icon"></item></slot>
   </container>
 
   <div class="divider"></div>

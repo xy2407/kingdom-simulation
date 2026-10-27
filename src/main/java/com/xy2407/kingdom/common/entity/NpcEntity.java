@@ -8,6 +8,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
+import com.xy2407.kingdom.common.block.WoodenChairBlock;
 import com.xy2407.kingdom.common.home.HomeBeds;
 import com.xy2407.kingdom.common.network.debug.NpcPathDebugBroadcast;
 import com.xy2407.kingdom.common.npc.*;
@@ -19,6 +20,7 @@ import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.persistence.NpcSchema;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.syncher.EntityDataAccessor;
@@ -35,6 +37,7 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
@@ -118,6 +121,7 @@ public class NpcEntity extends PathfinderMob {
     private BlockPos farmTarget;
     private BlockPos ranchTarget;
     private BlockPos navTarget;
+    private BlockPos seatPos;
     private final NpcPathRetry pathRetry = new NpcPathRetry();
     private final NpcRtsController rts = new NpcRtsController(this);
     private Future<NpcPathfinder.PathResult> workPathFuture;
@@ -648,15 +652,6 @@ public class NpcEntity extends PathfinderMob {
             return;
         }
         resyncFollowIndex();
-        if (tickCount % 20 == 0) {
-            BlockPos here = blockPosition();
-            BlockPos next = followIndex < followPath.size()
-                    ? followPath.get(followIndex).pos() : here;
-            com.xy2407.kingdom.ModMain.LOGGER.info(
-                    "[路径] {} idx={}/{} pos={} next={} stuck={} slide={}",
-                    getName().getString(), followIndex, followPath.size(),
-                    here.toShortString(), next.toShortString(), workStuckTicks, slideTicks);
-        }
         while (followIndex < followPath.size()) {
             NpcPathfinder.Waypoint waypoint = followPath.get(followIndex);
             BlockPos pos = waypoint.pos();
@@ -1210,8 +1205,22 @@ public class NpcEntity extends PathfinderMob {
         if (ItemStack.isSameItemSameComponents(entityData.get(DATA_HELD_ITEM), value)) {
             return;
         }
-        setItemInHand(InteractionHand.MAIN_HAND, value);
         entityData.set(DATA_HELD_ITEM, value);
+        applyEquipment();
+    }
+
+    public void applyEquipment() {
+        if (level() == null || level().isClientSide()) {
+            return;
+        }
+        ItemStack workItem = entityData.get(DATA_HELD_ITEM);
+        ItemStack main = workItem.isEmpty() ? npcInventory.getStackInSlot(NpcInventory.MAIN_HAND) : workItem;
+        setItemSlot(EquipmentSlot.MAINHAND, main);
+        setItemSlot(EquipmentSlot.OFFHAND, npcInventory.getStackInSlot(NpcInventory.OFF_HAND));
+        setItemSlot(EquipmentSlot.HEAD, npcInventory.getStackInSlot(NpcInventory.HEAD));
+        setItemSlot(EquipmentSlot.CHEST, npcInventory.getStackInSlot(NpcInventory.CHEST));
+        setItemSlot(EquipmentSlot.LEGS, npcInventory.getStackInSlot(NpcInventory.LEGS));
+        setItemSlot(EquipmentSlot.FEET, npcInventory.getStackInSlot(NpcInventory.FEET));
     }
 
     public void playSwing() {
@@ -1303,6 +1312,7 @@ public class NpcEntity extends PathfinderMob {
         }
         data.setInventoryJson(npcInventory.writeToSnbt(level().registryAccess()));
         data.markDirty();
+        applyEquipment();
     }
 
     private void loadInventory() {
@@ -1316,6 +1326,7 @@ public class NpcEntity extends PathfinderMob {
         } finally {
             inventoryLoading = false;
         }
+        applyEquipment();
     }
 
     @Override
@@ -1457,6 +1468,10 @@ public class NpcEntity extends PathfinderMob {
                 stopSitting();
                 NpcShopService.tick(this, data);
             }
+            case DELIVERING -> {
+                stopSitting();
+                NpcFreightService.tick(this, data);
+            }
             case RANCHING -> stopSitting();
             case TOURIST -> {
                 stopSitting();
@@ -1488,6 +1503,9 @@ public class NpcEntity extends PathfinderMob {
     private void onDetailEnter() {
         idle.reset();
         forageTarget = null;
+        if (seatPos != null && activeDetail != NpcDetail.DINING) {
+            standUpFromSeat();
+        }
         if (activeDetail != NpcDetail.SLEEPING && isSleeping()) {
             stopSleeping();
         }
@@ -1582,7 +1600,39 @@ public class NpcEntity extends PathfinderMob {
         idle.clearSocialPartner();
     }
 
+    public void sitAt(BlockPos seat) {
+        seatPos = seat.immutable();
+        BlockState state = level().getBlockState(seat);
+        Direction facing = state.hasProperty(WoodenChairBlock.FACING)
+                ? state.getValue(WoodenChairBlock.FACING) : Direction.SOUTH;
+        setPos(seat.getX() + 0.5D, seat.getY() + 0.375D, seat.getZ() + 0.5D);
+        setDeltaMovement(Vec3.ZERO);
+        setYRot(facing.toYRot());
+        setYHeadRot(facing.toYRot());
+        setSitting(true);
+        noPhysics = true;
+        getNavigation().stop();
+        clearNavTarget();
+    }
+
+    public void standUpFromSeat() {
+        BlockPos seat = seatPos;
+        seatPos = null;
+        noPhysics = false;
+        if (isSitting()) {
+            setSitting(false);
+        }
+        if (seat != null) {
+            setPos(seat.getX() + 0.5D, seat.getY() + 1.0D, seat.getZ() + 0.5D);
+            setDeltaMovement(Vec3.ZERO);
+        }
+    }
+
     void stopSitting() {
+        if (seatPos != null) {
+            standUpFromSeat();
+            return;
+        }
         idle.stopSitting();
     }
 

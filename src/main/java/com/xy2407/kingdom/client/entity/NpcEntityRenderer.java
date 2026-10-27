@@ -5,10 +5,12 @@ import com.xy2407.kingdom.common.entity.NpcEntity;
 import com.xy2407.kingdom.common.npc.NpcSkins;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.model.geom.ModelLayers;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import net.minecraft.client.renderer.entity.MobRenderer;
+import net.minecraft.client.renderer.entity.layers.HumanoidArmorLayer;
 import net.minecraft.client.renderer.entity.layers.ItemInHandLayer;
 import net.minecraft.resources.ResourceLocation;
 import net.neoforged.api.distmarker.Dist;
@@ -33,6 +35,11 @@ public class NpcEntityRenderer extends MobRenderer<NpcEntity, NpcModel> {
     public NpcEntityRenderer(EntityRendererProvider.Context context) {
         super(context, new NpcModel(context.bakeLayer(ModelLayers.PLAYER), false), 0.0F);
         addLayer(new ItemInHandLayer<>(this, context.getItemInHandRenderer()));
+        // 护甲层用的是 HumanoidModel：PLAYER_*_ARMOR 的部件树里没有 ear，用 NpcModel 会抛异常
+        addLayer(new HumanoidArmorLayer<>(this,
+                new HumanoidModel<>(context.bakeLayer(ModelLayers.PLAYER_INNER_ARMOR)),
+                new HumanoidModel<>(context.bakeLayer(ModelLayers.PLAYER_OUTER_ARMOR)),
+                context.getModelManager()));
     }
 
     @Override

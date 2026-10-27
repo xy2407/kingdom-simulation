@@ -1,0 +1,12 @@
+{
+  "variants": {
+    "part=first,facing=east": { "model": "xy2407_kingdom:block/feeding_trough" },
+    "part=first,facing=south": { "model": "xy2407_kingdom:block/feeding_trough", "y": 90 },
+    "part=first,facing=west": { "model": "xy2407_kingdom:block/feeding_trough", "y": 180 },
+    "part=first,facing=north": { "model": "xy2407_kingdom:block/feeding_trough", "y": 270 },
+    "part=second,facing=east": { "model": "xy2407_kingdom:block/feeding_trough_second" },
+    "part=second,facing=south": { "model": "xy2407_kingdom:block/feeding_trough_second" },
+    "part=second,facing=west": { "model": "xy2407_kingdom:block/feeding_trough_second" },
+    "part=second,facing=north": { "model": "xy2407_kingdom:block/feeding_trough_second" }
+  }
+}

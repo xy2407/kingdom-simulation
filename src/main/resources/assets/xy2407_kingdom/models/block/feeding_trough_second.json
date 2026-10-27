@@ -1,0 +1,5 @@
+{
+  "parent": "block/block",
+  "textures": { "particle": "xy2407_kingdom:block/feeding_trough" },
+  "elements": []
+}

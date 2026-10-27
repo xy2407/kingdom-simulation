@@ -24,7 +24,8 @@
     "RtsCameraMixin",
     "RtsProjectionMixin",
     "RtsKeyboardInputMixin",
-    "RtsMouseHandlerMixin"
+    "RtsMouseHandlerMixin",
+    "HumanoidSittingMixin"
   ],
   "injectors": {
     "defaultRequire": 1

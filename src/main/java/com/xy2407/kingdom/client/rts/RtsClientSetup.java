@@ -44,6 +44,18 @@ public final class RtsClientSetup {
                 ResourceLocation.fromNamespaceAndPath(ModMain.MOD_ID, RegionHudLayer.ID),
                 RegionHudLayer.INSTANCE);
 
+        event.registerAboveAll(
+                ResourceLocation.fromNamespaceAndPath(ModMain.MOD_ID, RtsFormationEditorHud.ID),
+                RtsFormationEditorHud.INSTANCE);
+
+        event.registerAboveAll(
+                ResourceLocation.fromNamespaceAndPath(ModMain.MOD_ID,
+                        com.xy2407.kingdom.client.block.ShopShelfHud.ID),
+                com.xy2407.kingdom.client.block.ShopShelfHud.INSTANCE);
+
+        RtsTeamClientCache.install();
+        com.xy2407.kingdom.client.building.MapStandScreenDriver.install();
+
         event.wrapLayer(VanillaGuiLayers.CHAT, layer -> (guiGraphics, deltaTracker) -> {
             guiGraphics.flush();
             boolean depthTestWasOn = GL11.glGetBoolean(GL11.GL_DEPTH_TEST);

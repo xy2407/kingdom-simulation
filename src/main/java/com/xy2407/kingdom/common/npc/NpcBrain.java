@@ -23,6 +23,7 @@ public final class NpcBrain {
     private boolean shopControlled;
     private boolean miningControlled;
     private boolean lumberControlled;
+    private boolean freightControlled;
     private boolean lumberForced;
     private WanderStyle wanderStyle = WanderStyle.RANDOM_WALK;
     private boolean forageDue;
@@ -125,6 +126,10 @@ public final class NpcBrain {
                 return;
             }
         }
+        if (freightControlled && NpcFreightService.isCarrying(owner.getId())) {
+            setPlan(phase(), NpcSubState.MOVING, NpcDetail.DELIVERING);
+            return;
+        }
         if (tickCounter % MAIN_LOOP_INTERVAL != 0) {
             return;
         }
@@ -142,7 +147,7 @@ public final class NpcBrain {
     private void correctDrift() {
         if (rtsControlled || constructionControlled || farmControlled || ranchControlled
                 || industryControlled || restaurantControlled || shopControlled || miningControlled
-                || lumberControlled) {
+                || lumberControlled || freightControlled) {
             return;
         }
         NpcSubState subState = owner.getSubState();
@@ -390,6 +395,14 @@ public final class NpcBrain {
 
     public void setRestaurantControlled(boolean restaurantControlled) {
         this.restaurantControlled = restaurantControlled;
+    }
+
+    public boolean isFreightControlled() {
+        return freightControlled;
+    }
+
+    public void setFreightControlled(boolean freightControlled) {
+        this.freightControlled = freightControlled;
     }
 
     public boolean isShopControlled() {

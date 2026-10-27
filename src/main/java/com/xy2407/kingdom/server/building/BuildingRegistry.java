@@ -4,6 +4,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +41,7 @@ public final class BuildingRegistry {
     private static final String COMPLETED = "COMPLETED";
 
     private final List<BuildingRecord> records = new ArrayList<>();
+    private final Map<UUID, BuildingRecord> index = new HashMap<>();
     private final Map<String, Boolean> diningCache = new ConcurrentHashMap<>();
     private final Map<String, BuildingMeta> metaCache = new ConcurrentHashMap<>();
     private boolean loaded;
@@ -51,6 +53,7 @@ public final class BuildingRegistry {
 
     public void reset() {
         records.clear();
+        index.clear();
         loaded = false;
         metaCache.clear();
         BuildingMetaLoader.clearIndex();
@@ -66,6 +69,7 @@ public final class BuildingRegistry {
                 task.dimension().location().toString(), min, max, task.level(), task.rotation(),
                 farmSlotsOf(task.blueprintName()), task.createdDay());
         records.add(building);
+        index.put(building.id(), building);
         KingdomPersistence.submit(BuildingSchema.TABLE_BUILDING, BuildingSchema.COL_UUID,
                 building.id().toString(), toValues(building));
         MapOverlayCollector.pushAll();
@@ -106,12 +110,7 @@ public final class BuildingRegistry {
         if (buildingId == null) {
             return null;
         }
-        for (BuildingRecord record : records) {
-            if (record.id().equals(buildingId)) {
-                return record;
-            }
-        }
-        return null;
+        return index.get(buildingId);
     }
 
     public void update(BuildingRecord building) {
@@ -121,6 +120,7 @@ public final class BuildingRegistry {
         for (int i = 0; i < records.size(); i++) {
             if (records.get(i).id().equals(building.id())) {
                 records.set(i, building);
+                index.put(building.id(), building);
                 break;
             }
         }
@@ -167,6 +167,10 @@ public final class BuildingRegistry {
             });
             records.clear();
             records.addAll(rows);
+            index.clear();
+            for (BuildingRecord row : rows) {
+                index.put(row.id(), row);
+            }
             loaded = true;
             ModMain.LOGGER.info("已加载 {} 座建筑", records.size());
         } catch (Exception exception) {

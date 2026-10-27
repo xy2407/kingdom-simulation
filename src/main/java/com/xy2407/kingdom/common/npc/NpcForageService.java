@@ -166,14 +166,14 @@ public final class NpcForageService {
         BlockPos seat = order.seat();
         if (!arrived(npc, seat)) {
             if (npc.isSitting()) {
-                npc.setSitting(false);
+                npc.standUpFromSeat();
             }
             npc.setForageTarget(seat);
             return;
         }
         npc.getNavigation().stop();
         if (!npc.isSitting()) {
-            npc.setSitting(true);
+            npc.sitAt(seat);
         }
         if (order.status() == RestaurantOrder.Status.SERVING) {
             data.setHunger(NpcData.HUNGER_MAX);
@@ -189,9 +189,7 @@ public final class NpcForageService {
     private static void finishDining(NpcEntity npc, NpcData data) {
         RestaurantOrderStore.INSTANCE.remove(data.getId());
         WAITING.remove(data.getId());
-        if (npc.isSitting()) {
-            npc.setSitting(false);
-        }
+        npc.standUpFromSeat();
         npc.clearForageTarget();
         if (data.getDetail() == NpcDetail.DINING) {
             data.setDetail(NpcDetail.FORAGING);

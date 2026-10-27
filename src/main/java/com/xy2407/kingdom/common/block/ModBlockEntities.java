@@ -8,7 +8,7 @@ import net.neoforged.neoforge.registries.DeferredRegister;
 import net.neoforged.neoforge.registries.DeferredHolder;
 
 /**
- * 方块实体注册表：建筑工方块的材料容器与商铺货架的货物容器
+ * 方块实体注册表：建筑工材料容器、商铺货架货物容器与木桌桌面展示
  */
 public final class ModBlockEntities {
 
@@ -24,6 +24,16 @@ public final class ModBlockEntities {
             BLOCK_ENTITIES.register("shop_shelf",
                     () -> BlockEntityType.Builder.of(ShopShelfBlockEntity::new,
                             ModBlocks.SHOP_SHELF.get()).build(null));
+
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<MapStandBlockEntity>> MAP_STAND =
+            BLOCK_ENTITIES.register("map_stand",
+                    () -> BlockEntityType.Builder.of(MapStandBlockEntity::new,
+                            ModBlocks.MAP_STAND.get()).build(null));
+
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<WoodenTableBlockEntity>> WOODEN_TABLE =
+            BLOCK_ENTITIES.register("wooden_table",
+                    () -> BlockEntityType.Builder.of(WoodenTableBlockEntity::new,
+                            ModBlocks.WOODEN_TABLE.get()).build(null));
 
     private ModBlockEntities() {
     }

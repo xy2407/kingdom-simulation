@@ -45,5 +45,9 @@ public final class BuildingPayloadRegistration {
                 BuildingSyncPacket.STREAM_CODEC, BuildingSyncPacket::handle);
         registrar.playToServer(BuildingMovePacket.TYPE,
                 BuildingMovePacket.STREAM_CODEC, BuildingMovePacket::handle);
+        registrar.playToClient(MapStandDataPacket.TYPE,
+                MapStandDataPacket.STREAM_CODEC, MapStandDataPacket::handle);
+        registrar.playToServer(MapStandTogglePacket.TYPE,
+                MapStandTogglePacket.STREAM_CODEC, MapStandTogglePacket::handle);
     }
 }

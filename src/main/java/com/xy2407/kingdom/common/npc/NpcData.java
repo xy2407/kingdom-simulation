@@ -42,6 +42,7 @@ public final class NpcData {
     private int intelligence;
     private int agility;
     private int workTicks;
+    private boolean restaurantChef = true;
     private double health = 100.0;
     private double mood = 100.0;
     private double hunger = 20.0;
@@ -232,8 +233,21 @@ public final class NpcData {
     }
 
     public void setWorkplaceId(String workplaceId) {
+        String previous = this.workplaceId;
         this.workplaceId = workplaceId;
+        if (previous == null ? workplaceId != null : !previous.equals(workplaceId)) {
+            NpcRestaurantService.invalidateWorkplace(previous);
+            NpcRestaurantService.invalidateWorkplace(workplaceId);
+        }
         markDirty();
+    }
+
+    public boolean isRestaurantChef() {
+        return restaurantChef;
+    }
+
+    public void setRestaurantChef(boolean restaurantChef) {
+        this.restaurantChef = restaurantChef;
     }
 
     public String getWorkRecipeId() {

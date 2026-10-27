@@ -23,6 +23,10 @@ public final class ModCreativeTabs {
                         output.accept(ModBlocks.CITY_HALL_ITEM.get());
                         output.accept(ModBlocks.BUILDER_BLOCK_ITEM.get());
                         output.accept(ModBlocks.SHOP_SHELF_ITEM.get());
+                        output.accept(ModBlocks.WOODEN_CHAIR_ITEM.get());
+                        output.accept(ModBlocks.WOODEN_TABLE_ITEM.get());
+                        output.accept(ModBlocks.FEEDING_TROUGH_ITEM.get());
+                        output.accept(ModBlocks.MAP_STAND_ITEM.get());
                     })
                     .build());
 

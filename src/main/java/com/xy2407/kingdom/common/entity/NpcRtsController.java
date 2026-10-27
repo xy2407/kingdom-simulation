@@ -14,10 +14,10 @@ import net.minecraft.core.BlockPos;
  */
 final class NpcRtsController {
 
-    private static final double RTS_ARRIVE_SQR = 0.49D;
-    private static final double CROWD_ARRIVE_SQR = 0.49D;
+    private static final double RTS_ARRIVE_SQR = 9.0D;
+    private static final double CROWD_ARRIVE_SQR = 9.0D;
     private static final double GROUP_HANDOFF_SQR = 9.0D;
-    private static final double ARRIVE_HEIGHT = 1.0D;
+    private static final double ARRIVE_HEIGHT = 1.5D;
     private static final int GIVE_UP_TICKS = 600;
 
     private final NpcEntity npc;
@@ -145,9 +145,7 @@ final class NpcRtsController {
         }
         advance();
         BlockPos segment = waypoints.isEmpty() ? current : waypoints.peekFirst();
-        if (npc.tickPathTo(segment, false)) {
-            npc.getNavigation().stop();
-        }
+        npc.tickPathTo(segment, false);
     }
 
     private void apply(BlockPos destination, boolean clear) {
@@ -171,8 +169,6 @@ final class NpcRtsController {
         if (dx * dx + dz * dz < CROWD_ARRIVE_SQR
                 && Math.abs(npc.getY() - node.getY()) < ARRIVE_HEIGHT) {
             waypoints.poll();
-            npc.resetSharedPathKey();
-            npc.stopConstructionPath();
         }
     }
 

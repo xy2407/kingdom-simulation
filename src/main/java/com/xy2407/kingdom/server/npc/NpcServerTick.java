@@ -57,5 +57,7 @@ public final class NpcServerTick {
         MiningScanService.tick(event.getServer());
         com.xy2407.kingdom.server.lumber.LumberSurveyService.INSTANCE.tick(event.getServer());
         com.xy2407.kingdom.server.tourism.TourismService.INSTANCE.tick(event.getServer());
+        com.xy2407.kingdom.server.rts.RtsTeamService.tick(event.getServer());
+        com.xy2407.kingdom.server.freight.FreightService.INSTANCE.tick(event.getServer());
     }
 }

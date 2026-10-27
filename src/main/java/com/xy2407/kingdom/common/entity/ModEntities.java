@@ -8,7 +8,7 @@ import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 
 /**
- * 实体类型注册：市民 NPC 与 RTS 假玩家实体。
+ * 实体类型注册：市民 NPC、RTS 假玩家与椅子座位实体
  */
 public final class ModEntities {
 
@@ -29,6 +29,15 @@ public final class ModEntities {
                             .updateInterval(1)
                             .noSummon()
                             .build("rts_fake_player"));
+
+    public static final DeferredHolder<EntityType<?>, EntityType<SeatEntity>> SEAT =
+            ENTITY_TYPES.register("seat",
+                    () -> EntityType.Builder.<SeatEntity>of(SeatEntity::new, MobCategory.MISC)
+                            .sized(0.5F, 0.5F)
+                            .clientTrackingRange(6)
+                            .updateInterval(20)
+                            .noSummon()
+                            .build("seat"));
 
     private ModEntities() {
     }

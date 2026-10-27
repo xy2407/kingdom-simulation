@@ -12,6 +12,7 @@ import com.xy2407.kingdom.ModMain;
 
 import com.xy2407.kingdom.common.block.BuilderBlockEntity;
 import com.xy2407.kingdom.common.building.BuildPlan;
+import com.xy2407.kingdom.common.building.ItemCount;
 import com.xy2407.kingdom.common.building.BuildRequirements;
 import com.xy2407.kingdom.common.building.BuildingBlueprints;
 import com.xy2407.kingdom.common.building.BuildingTask;
@@ -25,6 +26,7 @@ import com.xy2407.kingdom.common.npc.NpcSubState;
 import com.xy2407.kingdom.common.network.building.BuildingSitePacket;
 import com.xy2407.kingdom.common.path.NpcPathfinder;
 import com.xy2407.kingdom.common.path.SnapshotRepository;
+import com.xy2407.kingdom.server.freight.FreightRequests;
 import com.xy2407.kingdom.server.path.UnitSnapshotStore;
 import com.xy2407.kingdom.common.structure.StructureModel;
 
@@ -50,6 +52,8 @@ public final class BuildingConstructionService {
     public static final BuildingConstructionService INSTANCE = new BuildingConstructionService();
 
     private static String lastFailure;
+
+    private static final int RESTOCK_BATCH = 16;
 
     private static final int PLACE_FLAGS = Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE;
     private static final int LIQUID_FLAGS = Block.UPDATE_CLIENTS | Block.UPDATE_NEIGHBORS;
@@ -85,6 +89,7 @@ public final class BuildingConstructionService {
         if (BuildRequirements.required()) {
             String missing = checkDeposit(level, deposit, materials);
             if (missing != null) {
+                requestFreight(level, deposit, shortfall(level, deposit, materials));
                 lastFailure = missing;
                 ModMain.LOGGER.warn("建筑开工失败：{}（{} @ {}）", missing, blueprintName, origin);
                 return null;
@@ -307,6 +312,33 @@ public final class BuildingConstructionService {
         return null;
     }
 
+    private static List<ItemCount> shortfall(ServerLevel level, BlockPos deposit,
+                                             Map<String, Integer> materials) {
+        List<ItemCount> missing = new ArrayList<>();
+        if (deposit == null || !(level.getBlockEntity(deposit) instanceof BuilderBlockEntity container)) {
+            return missing;
+        }
+        for (Map.Entry<String, Integer> entry : materials.entrySet()) {
+            int have = container.countOf(entry.getKey());
+            if (have < entry.getValue()) {
+                missing.add(new ItemCount(entry.getKey(), entry.getValue() - have));
+            }
+        }
+        return missing;
+    }
+
+    private static void requestFreight(ServerLevel level, BlockPos deposit, List<ItemCount> items) {
+        if (level == null || deposit == null || items == null || items.isEmpty()) {
+            return;
+        }
+        MinecraftServer server = level.getServer();
+        if (server == null) {
+            return;
+        }
+        FreightRequests.requestToContainer(server,
+                level.dimension().location().toString(), deposit, items);
+    }
+
     private static boolean consumeAtSite(ServerLevel level, BuildingTask task, BuildingTask.Step step) {
         if (step.kind() != BuildingTask.WorkKind.BUILD) {
             return true;
@@ -317,6 +349,7 @@ public final class BuildingConstructionService {
         }
         String itemId = BuildingTask.itemIdOf(step.state());
         if (!container.consume(itemId, 1)) {
+            requestFreight(level, deposit, List.of(new ItemCount(itemId, RESTOCK_BATCH)));
             return false;
         }
         task.markConsumed(step);

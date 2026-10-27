@@ -31,6 +31,7 @@ import com.xy2407.kingdom.server.npc.NpcServerTick;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.ModContainer;
+import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import org.slf4j.Logger;
 
@@ -75,6 +76,9 @@ public final class ModMain {
         com.xy2407.kingdom.common.block.ModBlockEntities.BLOCK_ENTITIES.register(modEventBus);
         ModBlocks.ITEMS.register(modEventBus);
         ModCreativeTabs.TABS.register(modEventBus);
+        modEventBus.addListener(FMLCommonSetupEvent.class,
+                event -> event.enqueueWork(
+                        com.xy2407.kingdom.common.building.BlueprintDeployer::deploy));
     }
 }
 

@@ -20,5 +20,6 @@ public final class NpcClientRegistries {
     public static void onRegisterRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerEntityRenderer(ModEntities.NPC.get(), NpcEntityRenderer::new);
         event.registerEntityRenderer(ModEntities.RTS_FAKE_PLAYER.get(), RtsFakePlayerRenderer::new);
+        event.registerEntityRenderer(ModEntities.SEAT.get(), SeatRenderer::new);
     }
 }

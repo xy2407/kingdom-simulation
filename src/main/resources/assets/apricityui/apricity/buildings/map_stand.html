@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="aui-viewport" content="mode=gui,min-zoom=0.5,max-zoom=3,user-scalable=true">
+<meta name="aui-mouse-events" content="intercept">
+<title>仓库管辖地图</title>
+<style>
+@font-face{font-family:'Zpix';src:url('/font/zpix.ttf') format('truetype');font-display:block;}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{background:transparent;}
+:root{
+  --parchment:#c8ac7c;--parchment-lo:#b89868;--pane:#d6bc94;
+  --border-mid:#6a4a20;--border-dark:#4a3218;--border-deep:#2a1a08;
+  --border-light:#8a6e3c;--border-hi:#d8bc8c;--ink:#1a0e04;--ink-2:#4a3218;--gold:#c9a227;
+}
+body{font-family:'Zpix',monospace;font-size:12px;color:var(--ink);}
+.ms-root{
+  position:fixed;left:0;top:6%;width:86%;height:88%;
+  display:flex;flex-direction:row;
+  background-color:var(--parchment);
+  background-image:url('/tex/card_gen.png');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  padding:14px;
+}
+.ms-left{
+  width:236px;flex:0 0 auto;display:flex;flex-direction:column;
+  background-color:var(--pane);
+  background-image:url('/tex/pane_gen.png');
+  background-size:100% 100%;
+  padding:10px;
+  margin-right:12px;
+}
+.ms-title{font-size:13px;letter-spacing:2px;color:var(--ink);padding-bottom:8px;border-bottom:2px solid var(--border-mid);margin-bottom:8px;}
+.ms-hire{
+  height:24px;line-height:24px;text-align:center;
+  background-color:var(--border-light);color:var(--border-deep);
+  border:2px solid var(--border-dark);margin-bottom:8px;cursor:pointer;
+}
+.ms-list{flex:1 1 auto;overflow-y:auto;}
+.ms-card{
+  min-height:34px;padding:5px 6px;margin-bottom:6px;
+  background-color:var(--parchment-hi,#d6bb94);
+  border:2px solid var(--border-light);
+}
+.ms-card .n{font-size:12px;color:var(--ink);}
+.ms-card .j{font-size:11px;color:var(--ink-2);}
+.ms-right{flex:1 1 auto;display:flex;flex-direction:column;min-width:0;}
+.ms-map{
+  position:relative;flex:1 1 auto;overflow:hidden;
+  background-color:var(--parchment-lo);
+  background-image:url('/tex/pane_gen.png');
+  background-size:100% 100%;
+  border:2px solid var(--border-dark);
+}
+.ms-range{position:absolute;border:1px solid var(--border-mid);background-color:rgba(120,90,40,0.18);}
+.ms-range.warehouse{border-color:var(--border-deep);background-color:rgba(60,40,20,0.25);}
+.ms-range.picked{border-color:#b02a1e;background-color:rgba(176,42,30,0.35);}
+.ms-core{position:absolute;width:8px;height:8px;background-color:var(--border-deep);cursor:pointer;}
+.ms-core.picked{background-color:#b02a1e;width:12px;height:12px;}
+.ms-core.locked{cursor:default;}
+.ms-link{position:absolute;width:3px;height:3px;background-color:#8a2a1e;}
+.ms-link.tip{width:5px;height:5px;background-color:#5a1a10;}
+.ms-act{
+  height:26px;line-height:26px;text-align:center;margin-top:10px;
+  background-color:var(--border-light);color:var(--border-deep);
+  border:2px solid var(--border-dark);cursor:pointer;
+}
+.ms-act.disabled{background-color:var(--parchment-lo);color:#7a6a52;cursor:default;}
+</style>
+</head>
+<body>
+
+<div class="ms-root" id="msRoot">
+  <aside class="ms-left">
+    <div class="ms-title" id="msTitle">仓 库</div>
+    <div class="ms-hire" id="msHire">雇 佣 员 工</div>
+    <div class="ms-list" id="msStaff"></div>
+  </aside>
+  <main class="ms-right">
+    <div class="ms-map" id="msMap"></div>
+    <div class="ms-act disabled" id="msAct">加入管辖范围</div>
+  </main>
+</div>
+
+</body>
+</html>

@@ -76,6 +76,7 @@ public final class KingdomSimulationStructures {
         } catch (IOException exception) {
             ModMain.LOGGER.error("Failed to create kingdom simulation structures folder", exception);
         }
+        com.xy2407.kingdom.common.building.BlueprintDeployer.deploy();
     }
 
     public static List<Entry> scan() {

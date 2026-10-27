@@ -2,6 +2,9 @@
   "block.xy2407_kingdom.city_hall": "City Hall Desk",
   "block.xy2407_kingdom.builder_block": "Builder Block",
   "block.xy2407_kingdom.shop_shelf": "Shop Shelf",
+  "block.xy2407_kingdom.wooden_chair": "Wooden Chair",
+  "block.xy2407_kingdom.feeding_trough": "Feeding Trough",
+  "block.xy2407_kingdom.wooden_table": "Wooden Table",
   "itemGroup.xy2407_kingdom.main": "kingdom simulation",
   "key.categories.xy2407_kingdom": "kingdom simulation",
   "key.xy2407_kingdom.world_map": "Open World Map"
