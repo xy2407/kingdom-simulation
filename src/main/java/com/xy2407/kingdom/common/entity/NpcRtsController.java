@@ -8,13 +8,16 @@ import com.xy2407.kingdom.common.npc.NpcData;
 import com.xy2407.kingdom.common.npc.NpcManager;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.phys.Vec3;
 
 /**
- * RTS 移动指令：整队目标、路点推进、到达判定与失控放弃。
+ * RTS 移动指令：整队目标、路点推进、到达判定与卡死传送到下一节点。
  */
 final class NpcRtsController {
 
     private static final double RTS_ARRIVE_SQR = 9.0D;
+    private static final double PRECISE_ARRIVE_SQR = 0.25D;
+    private static final double PRECISE_HEIGHT = 0.75D;
     private static final double CROWD_ARRIVE_SQR = 9.0D;
     private static final double GROUP_HANDOFF_SQR = 9.0D;
     private static final double ARRIVE_HEIGHT = 1.5D;
@@ -24,6 +27,7 @@ final class NpcRtsController {
     private final ArrayDeque<BlockPos> waypoints = new ArrayDeque<>();
     private BlockPos target;
     private boolean clearOnArrive;
+    private boolean precise;
     private BlockPos groupDest;
     private int stuckTicks;
     private BlockPos stuckAnchor;
@@ -87,7 +91,14 @@ final class NpcRtsController {
     }
 
     double arrivalThreshold() {
-        return target == null ? 1.0D : RTS_ARRIVE_SQR;
+        if (target == null) {
+            return 1.0D;
+        }
+        return precise ? PRECISE_ARRIVE_SQR : RTS_ARRIVE_SQR;
+    }
+
+    void setPrecise(boolean value) {
+        precise = value;
     }
 
     boolean withinHandoff(BlockPos pos) {
@@ -139,13 +150,31 @@ final class NpcRtsController {
             stuckAnchor = now;
             stuckTicks = 0;
         } else if (++stuckTicks >= GIVE_UP_TICKS) {
-            npc.getNavigation().stop();
-            release();
+            stuckAnchor = now;
+            stuckTicks = 0;
+            relocate(waypoints.isEmpty() ? current : waypoints.peekFirst());
             return;
         }
         advance();
         BlockPos segment = waypoints.isEmpty() ? current : waypoints.peekFirst();
         npc.tickPathTo(segment, false);
+    }
+
+    private void relocate(BlockPos node) {
+        npc.getNavigation().stop();
+        npc.setDeltaMovement(Vec3.ZERO);
+        npc.fallDistance = 0.0F;
+        npc.stopConstructionPath();
+        int y = node.getY();
+        for (int up = 0; up <= 2; up++) {
+            BlockPos candidate = node.above(up);
+            if (npc.level().getBlockState(candidate).isAir()
+                    && npc.level().getBlockState(candidate.above()).isAir()) {
+                y = candidate.getY();
+                break;
+            }
+        }
+        npc.teleportTo(node.getX() + 0.5D, y, node.getZ() + 0.5D);
     }
 
     private void apply(BlockPos destination, boolean clear) {
@@ -175,8 +204,10 @@ final class NpcRtsController {
     private boolean isArrived(BlockPos destination) {
         double dx = npc.getX() - (destination.getX() + 0.5D);
         double dz = npc.getZ() - (destination.getZ() + 0.5D);
-        return dx * dx + dz * dz < RTS_ARRIVE_SQR
-                && Math.abs(npc.getY() - destination.getY()) < ARRIVE_HEIGHT;
+        double threshold = precise ? PRECISE_ARRIVE_SQR : RTS_ARRIVE_SQR;
+        double height = precise ? PRECISE_HEIGHT : ARRIVE_HEIGHT;
+        return dx * dx + dz * dz < threshold
+                && Math.abs(npc.getY() - destination.getY()) < height;
     }
 
 }

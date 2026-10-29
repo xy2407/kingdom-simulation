@@ -25,6 +25,12 @@ import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.neoforged.neoforge.client.settings.KeyConflictContext;
 import org.lwjgl.glfw.GLFW;
 
+import com.xy2407.kingdom.common.network.rts.RtsTeamSyncPacket;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
 /**
  * RTS 的键鼠输入与渲染事件处理，含模式切换、相机推进与世界空间线框入口。
  */
@@ -99,6 +105,15 @@ public final class RtsClientEvents {
         }
         RtsModeManager.tickCamera();
         ClientBuildingController.tick();
+        if (RtsTeamPanelState.dragging()) {
+            long handle = minecraft.getWindow().getWindow();
+            if (GLFW.glfwGetMouseButton(handle, GLFW.GLFW_MOUSE_BUTTON_LEFT) != GLFW.GLFW_PRESS) {
+                RtsTeamPanelState.endDrag();
+            } else {
+                double[] dragMouse = RtsModeManager.getGuiScaledMouse();
+                RtsTeamPanelState.updateDrag(dragMouse[0], dragMouse[1]);
+            }
+        }
         com.xy2407.kingdom.client.area.AreaSelectionState.tick();
     }
 
@@ -136,9 +151,36 @@ public final class RtsClientEvents {
         }
         boolean press = event.getAction() == InputConstants.PRESS;
         double[] mouse = RtsModeManager.getGuiScaledMouse();
+        if (!press) {
+            RtsTeamPanelState.endDrag();
+        }
         if (press && RtsFormationEditorHud.handleClick(mouse[0], mouse[1])) {
             event.setCanceled(true);
             return;
+        }
+        if (RtsTeamPanelState.isOpen()) {
+            if (RtsTeamPanelLayer.isInTitleBar(mouse[0], mouse[1])) {
+                if (press) {
+                    RtsTeamPanelState.startDrag(mouse[0], mouse[1]);
+                }
+                event.setCanceled(true);
+                return;
+            }
+            RtsTeamPanelLayer.Area area = RtsTeamPanelLayer.hitTest(mouse[0], mouse[1]);
+            if (area != null) {
+                if (press) {
+                    handleTeamPanel(area);
+                }
+                event.setCanceled(true);
+                return;
+            }
+            if (RtsTeamPanelLayer.isMouseInPanel(mouse[0], mouse[1])) {
+                if (press) {
+                    RtsModeManager.clearSelection();
+                }
+                event.setCanceled(true);
+                return;
+            }
         }
         switch (event.getButton()) {
             case GLFW.GLFW_MOUSE_BUTTON_LEFT -> {
@@ -282,7 +324,9 @@ public final class RtsClientEvents {
             return;
         }
         if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) {
-            if (ClientBuildingController.isMoving()) {
+            if (RtsFormationEditorState.isOpen() && RtsFormationEditorState.isWorldOps()) {
+                RtsFormationEditorState.returnToGrid();
+            } else if (ClientBuildingController.isMoving()) {
                 ClientBuildingController.confirm();
             }
         } else if (key == GLFW.GLFW_KEY_R) {
@@ -293,7 +337,70 @@ public final class RtsClientEvents {
             }
         } else if (key == GLFW.GLFW_KEY_X) {
             BuildingPlacementManager.undoLastPlacement();
+        } else if (key == GLFW.GLFW_KEY_G) {
+            RtsTeamPanelState.toggle();
+        } else if (key == GLFW.GLFW_KEY_H) {
+            toggleFormationEditor();
         }
+    }
+
+    private static void handleTeamPanel(RtsTeamPanelLayer.Area area) {
+        List<RtsTeamSyncPacket.Entry> teams = RtsTeamPanelLayer.orderedTeams(
+                RtsTeamPanelState.selectedSingle());
+        switch (area.kind()) {
+            case LEADER -> {
+                List<UUID> picked = new ArrayList<>(RtsModeManager.getSelectedEntities());
+                if (area.index() >= 0 && area.index() < picked.size()) {
+                    RtsTeamPanelState.selectLeader(picked.get(area.index()));
+                }
+            }
+            case CREATE -> RtsTeamPanelState.createTeam();
+            case FOCUS -> {
+                if (area.index() >= 0 && area.index() < teams.size()) {
+                    RtsTeamPanelState.focusLeader(teams.get(area.index()).teamId());
+                }
+            }
+            case EDIT -> {
+                if (area.index() >= 0 && area.index() < teams.size()) {
+                    UUID teamId = teams.get(area.index()).teamId();
+                    RtsTeamPanelState.close();
+                    RtsFormationEditorState.openById(teamId);
+                }
+            }
+            case DELETE -> {
+                if (area.index() >= 0 && area.index() < teams.size()) {
+                    RtsTeamPanelState.deleteTeam(teams.get(area.index()).teamId());
+                }
+            }
+            case JOIN -> {
+                UUID single = RtsTeamPanelState.selectedSingle();
+                if (single != null && area.index() >= 0 && area.index() < teams.size()) {
+                    RtsTeamPanelState.joinTeam(teams.get(area.index()).teamId(), single);
+                }
+            }
+            case LEAVE -> {
+                UUID single = RtsTeamPanelState.selectedSingle();
+                if (single != null && area.index() >= 0 && area.index() < teams.size()) {
+                    RtsTeamPanelState.leaveTeam(teams.get(area.index()).teamId(), single);
+                }
+            }
+            default -> {
+            }
+        }
+    }
+
+    private static void toggleFormationEditor() {
+        if (RtsFormationEditorState.isOpen()) {
+            RtsFormationEditorState.close();
+            return;
+        }
+        if (RtsTeamClientCache.first() != null) {
+            RtsFormationEditorState.openFirstTeam();
+            return;
+        }
+        RtsFormationEditorState.requestCreate();
+        com.xy2407.kingdom.client.structure.StructureDebugChat.chat(
+                "已创建队伍，再按 G 进入阵型编辑");
     }
 
     @SubscribeEvent

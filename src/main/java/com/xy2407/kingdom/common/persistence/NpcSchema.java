@@ -28,6 +28,9 @@ public final class NpcSchema implements Migration {
     public static final String COL_JOB = "job";
     public static final String COL_WORKPLACE_ID = "workplace_id";
     public static final String COL_HOME_ID = "home_id";
+    public static final String COL_OWNER_ID = "owner_id";
+    public static final String COL_TERRITORY_ID = "territory_id";
+    public static final String COL_NATION_ID = "nation_id";
     public static final String COL_AGE = "age";
     public static final String COL_LIFECYCLE = "lifecycle";
     public static final String COL_HOBBIES = "hobbies";
@@ -46,6 +49,7 @@ public final class NpcSchema implements Migration {
     public static final String COL_DEATH_DAY = "death_day";
     public static final String COL_UPDATED_AT = "updated_at";
     public static final String COL_DIMENSION = "dimension";
+    public static final String COL_CHUNK = "chunk";
     public static final String COL_POS_X = "pos_x";
     public static final String COL_POS_Y = "pos_y";
     public static final String COL_POS_Z = "pos_z";
@@ -67,7 +71,7 @@ public final class NpcSchema implements Migration {
 
     @Override
     public int version() {
-        return 25;
+        return 34;
     }
 
     @Override
@@ -140,6 +144,9 @@ public final class NpcSchema implements Migration {
         defs.put(COL_JOB, "TEXT NOT NULL DEFAULT ''");
         defs.put(COL_WORKPLACE_ID, "TEXT");
         defs.put(COL_HOME_ID, "TEXT");
+        defs.put(COL_OWNER_ID, "TEXT NOT NULL DEFAULT ''");
+        defs.put(COL_TERRITORY_ID, "TEXT NOT NULL DEFAULT ''");
+        defs.put(COL_NATION_ID, "TEXT NOT NULL DEFAULT ''");
         defs.put(COL_AGE, "INTEGER NOT NULL DEFAULT 0");
         defs.put(COL_LIFECYCLE, "TEXT NOT NULL DEFAULT 'BORN'");
         defs.put(COL_HOBBIES, "TEXT NOT NULL DEFAULT '[]'");
@@ -158,6 +165,7 @@ public final class NpcSchema implements Migration {
         defs.put(COL_DEATH_DAY, "INTEGER NOT NULL DEFAULT 0");
         defs.put(COL_UPDATED_AT, "INTEGER NOT NULL DEFAULT 0");
         defs.put(COL_DIMENSION, "TEXT NOT NULL DEFAULT ''");
+        defs.put(COL_CHUNK, "INTEGER NOT NULL DEFAULT 0");
         defs.put(COL_POS_X, "REAL NOT NULL DEFAULT 0");
         defs.put(COL_POS_Y, "REAL NOT NULL DEFAULT 0");
         defs.put(COL_POS_Z, "REAL NOT NULL DEFAULT 0");
@@ -182,10 +190,11 @@ public final class NpcSchema implements Migration {
     public static String columns() {
         return String.join(", ", new String[] {
                 COL_UUID, COL_ENTITY_UUID, COL_NAME, COL_NATION, COL_GENDER, COL_FAMILY_ID, COL_FATHER_ID,
-                COL_MOTHER_ID, COL_SPOUSE_ID, COL_JOB, COL_WORKPLACE_ID, COL_HOME_ID, COL_AGE, COL_LIFECYCLE,
+                COL_MOTHER_ID, COL_SPOUSE_ID, COL_JOB, COL_WORKPLACE_ID, COL_HOME_ID,
+            COL_OWNER_ID, COL_TERRITORY_ID, COL_NATION_ID, COL_AGE, COL_LIFECYCLE,
                 COL_HOBBIES, COL_LIKED_ITEMS, COL_PERSONALITY, COL_STRENGTH, COL_INTELLIGENCE, COL_AGILITY,
                 COL_HEALTH, COL_MOOD, COL_HUNGER, COL_STAMINA, COL_WEALTH, COL_DEAD, COL_BIRTH_DAY,
-                COL_DEATH_DAY, COL_UPDATED_AT, COL_DIMENSION, COL_POS_X, COL_POS_Y, COL_POS_Z,
+                COL_DEATH_DAY, COL_UPDATED_AT, COL_DIMENSION, COL_CHUNK,
                 COL_HOME_X, COL_HOME_Y, COL_HOME_Z, COL_WORK_X, COL_WORK_Y, COL_WORK_Z,
                 COL_STATE, COL_SUB_STATE, COL_DETAIL, COL_SHIFT, COL_INVENTORY, COL_SKIN,
                 COL_WORK_TICKS, COL_WORK_RECIPE_ID, COL_ROLE

@@ -27,6 +27,8 @@ public final class ShopStore {
 
     public static final ShopStore INSTANCE = new ShopStore();
 
+    public static final int MIN_SHELVES = 3;
+
     private static final int LOAD_RETRY_DELAY_TICKS = 200;
 
     private static final int MAX_SCAN = 32768;
@@ -95,6 +97,9 @@ public final class ShopStore {
         if (open) {
             ServerLevel level = levelOf(server, dimension);
             shelves = level == null ? List.of() : scan(level, building);
+            if (shelves.size() < MIN_SHELVES) {
+                return -1;
+            }
         }
         ShopRecord record = new ShopRecord(open, dimension, shelves);
         byBuilding.put(building.id(), record);

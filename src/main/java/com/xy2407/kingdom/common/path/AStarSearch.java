@@ -29,6 +29,7 @@ final class AStarSearch {
     private final int endY;
     private final int endZ;
     private final boolean preferRoad;
+    private final float minStep;
     private int minY;
     private int maxY;
     final Long2ObjectOpenHashMap<Node> nodes = new Long2ObjectOpenHashMap<>();
@@ -50,6 +51,7 @@ final class AStarSearch {
         this.endY = endY;
         this.endZ = endZ;
         this.preferRoad = preferRoad;
+        this.minStep = preferRoad ? PathCostModel.ROAD_FACTOR : 1.0F;
         clampY();
     }
 
@@ -114,45 +116,45 @@ final class AStarSearch {
     }
 
     private void expand(Node current) {
+        double currentHeight = heightAt(view, current.x, current.y, current.z);
         if (view.climbable(current.x, current.y, current.z)) {
-            offer(current, current.x, current.y + 1, current.z);
-            offer(current, current.x, current.y - 1, current.z);
+            offer(current, current.x, current.y + 1, current.z, currentHeight);
+            offer(current, current.x, current.y - 1, current.z, currentHeight);
         }
         for (Direction direction : NpcPathfinder.HORIZONTALS) {
             int x = current.x + direction.getStepX();
             int z = current.z + direction.getStepZ();
-            offer(current, x, current.y, z);
-            offer(current, x, current.y + 1, z);
+            offer(current, x, current.y, z, currentHeight);
+            offer(current, x, current.y + 1, z, currentHeight);
             for (int dy = -1; dy >= -DOWNWARD_RANGE; dy--) {
                 int y = current.y + dy;
                 if (view.blocked(x, y, z)) {
                     break;
                 }
                 if (view.standable(x, y, z)) {
-                    offer(current, x, y, z);
+                    offer(current, x, y, z, currentHeight);
                     break;
                 }
             }
         }
     }
 
-    private void offer(Node current, int x, int y, int z) {
+    private void offer(Node current, int x, int y, int z, double currentHeight) {
         if (y < minY || y > maxY) {
-            return;
-        }
-        if (!view.standable(x, y, z)) {
             return;
         }
         long key = BlockPos.asLong(x, y, z);
         Node node = nodes.get(key);
         if (node == null) {
+            if (!view.standable(x, y, z)) {
+                return;
+            }
             node = create(x, y, z, Float.MAX_VALUE);
             nodes.put(key, node);
-        }
-        if (node.closed) {
+        } else if (node.closed || current.g + minStep > node.g) {
             return;
         }
-        double dh = heightAt(view, x, y, z) - heightAt(view, current.x, current.y, current.z);
+        double dh = heightAt(view, x, y, z) - currentHeight;
         float raw = (float) PathCostModel.stepCost(dh);
         float step = raw;
         if (preferRoad && view.onRoad(x, y, z)) {

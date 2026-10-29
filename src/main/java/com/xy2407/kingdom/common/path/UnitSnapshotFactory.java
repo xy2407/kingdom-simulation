@@ -24,40 +24,60 @@ public final class UnitSnapshotFactory {
                 || !level.hasChunk(cx, cz - 1) || !level.hasChunk(cx, cz + 1)) {
             return false;
         }
-        int baseX = cx << 4;
-        int baseY = layer << 4;
-        int baseZ = cz << 4;
-        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
-        for (int side = 0; side < 2; side++) {
-            int y = side == 0 ? baseY - 1 : baseY + 16;
+        int minLayer = level.getMinBuildHeight() >> 4;
+        int maxLayer = (level.getMaxBuildHeight() - 1) >> 4;
+        if (layer - 1 < minLayer || layer + 1 > maxLayer) {
+            return false;
+        }
+        int index = layer - minLayer;
+        LevelChunkSection[] self = level.getChunk(cx, cz).getSections();
+        if (!sealedPlaneY(self[index - 1], 15) || !sealedPlaneY(self[index + 1], 0)) {
+            return false;
+        }
+        if (!sealedPlaneX(level.getChunk(cx - 1, cz).getSections()[index], 15)
+                || !sealedPlaneX(level.getChunk(cx + 1, cz).getSections()[index], 0)) {
+            return false;
+        }
+        return sealedPlaneZ(level.getChunk(cx, cz - 1).getSections()[index], 15)
+                && sealedPlaneZ(level.getChunk(cx, cz + 1).getSections()[index], 0);
+    }
+
+    private static boolean sealedPlaneY(LevelChunkSection section, int ly) {
+        if (section.hasOnlyAir()) {
+            return false;
+        }
+        for (int lx = 0; lx < 16; lx++) {
+            for (int lz = 0; lz < 16; lz++) {
+                if (ChunkSnapshot.isPassable(section.getBlockState(lx, ly, lz))) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private static boolean sealedPlaneX(LevelChunkSection section, int lx) {
+        if (section.hasOnlyAir()) {
+            return false;
+        }
+        for (int ly = 0; ly < 16; ly++) {
+            for (int lz = 0; lz < 16; lz++) {
+                if (ChunkSnapshot.isPassable(section.getBlockState(lx, ly, lz))) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private static boolean sealedPlaneZ(LevelChunkSection section, int lz) {
+        if (section.hasOnlyAir()) {
+            return false;
+        }
+        for (int ly = 0; ly < 16; ly++) {
             for (int lx = 0; lx < 16; lx++) {
-                for (int lz = 0; lz < 16; lz++) {
-                    cursor.set(baseX + lx, y, baseZ + lz);
-                    if (ChunkSnapshot.isPassable(level.getBlockState(cursor))) {
-                        return false;
-                    }
-                }
-            }
-        }
-        for (int side = 0; side < 2; side++) {
-            int x = side == 0 ? baseX - 1 : baseX + 16;
-            for (int ly = 0; ly < 16; ly++) {
-                for (int lz = 0; lz < 16; lz++) {
-                    cursor.set(x, baseY + ly, baseZ + lz);
-                    if (ChunkSnapshot.isPassable(level.getBlockState(cursor))) {
-                        return false;
-                    }
-                }
-            }
-        }
-        for (int side = 0; side < 2; side++) {
-            int z = side == 0 ? baseZ - 1 : baseZ + 16;
-            for (int ly = 0; ly < 16; ly++) {
-                for (int lx = 0; lx < 16; lx++) {
-                    cursor.set(baseX + lx, baseY + ly, z);
-                    if (ChunkSnapshot.isPassable(level.getBlockState(cursor))) {
-                        return false;
-                    }
+                if (ChunkSnapshot.isPassable(section.getBlockState(lx, ly, lz))) {
+                    return false;
                 }
             }
         }

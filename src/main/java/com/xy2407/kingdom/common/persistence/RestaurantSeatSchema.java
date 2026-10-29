@@ -30,7 +30,7 @@ public final class RestaurantSeatSchema implements Migration {
 
     @Override
     public int version() {
-        return 26;
+        return 31;
     }
 
     @Override

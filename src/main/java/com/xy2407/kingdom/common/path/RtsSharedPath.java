@@ -28,6 +28,7 @@ public final class RtsSharedPath {
 
     private static final double JOIN_RADIUS_SQR = 24.0D * 24.0D;
     private static final long ENTRY_TTL_TICKS = 600L;
+    private static final int SWEEP_INTERVAL_TICKS = 100;
     private static final double[] LANE_OFFSETS = {0.0D, 0.7D, -0.7D, 1.4D, -1.4D, 2.1D, -2.1D};
     private static final int LANE_TAPER_WAYPOINTS = 4;
 
@@ -35,6 +36,7 @@ public final class RtsSharedPath {
             Collections.synchronizedMap(new WeakHashMap<>());
 
     private final Map<Long, Entry> active = new HashMap<>();
+    private int sweepCounter;
 
     private RtsSharedPath() {
     }
@@ -51,6 +53,30 @@ public final class RtsSharedPath {
                 instance.active.clear();
             }
         }
+    }
+
+    public static void tick(MinecraftServer server) {
+        if (server == null) {
+            return;
+        }
+        long now = server.overworld().getGameTime();
+        synchronized (INSTANCES) {
+            for (RtsSharedPath instance : INSTANCES.values()) {
+                instance.sweep(now);
+            }
+        }
+    }
+
+    private void sweep(long now) {
+        if (++sweepCounter < SWEEP_INTERVAL_TICKS) {
+            return;
+        }
+        sweepCounter = 0;
+        active.entrySet().removeIf(entry -> {
+            Entry value = entry.getValue();
+            long age = now - value.createdAt();
+            return (age > ENTRY_TTL_TICKS && value.future().isDone()) || age > ENTRY_TTL_TICKS * 4;
+        });
     }
 
     public Join joinOrSubmit(ServerLevel level, BlockPos from, BlockPos stand, int padding, int laneSeed) {

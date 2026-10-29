@@ -6,11 +6,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** RTS 队伍：队长锚点、成员 UUID 及每人相对队长的水平偏移，附阵型是否已保存。 */
+/**
+ * RTS 队伍：队长锚点、成员 UUID 与每相对队长的水平偏移，附所属领地与阵型保存标记
+ */
 public final class RtsTeam {
 
     private final UUID teamId;
     private final UUID ownerUuid;
+    private final String territoryId;
     private UUID leaderUuid;
     private final List<UUID> members = new ArrayList<>();
     private final Map<UUID, float[]> offsets = new LinkedHashMap<>();
@@ -18,12 +21,23 @@ public final class RtsTeam {
     private boolean formationSaved;
 
     public RtsTeam(UUID teamId, UUID ownerUuid, UUID leaderUuid) {
+        this(teamId, ownerUuid, leaderUuid, "", List.of(), Map.of(), false);
+    }
+
+    public RtsTeam(UUID teamId, UUID ownerUuid, UUID leaderUuid, String territoryId,
+                   List<UUID> members, Map<UUID, float[]> offsets, boolean formationSaved) {
         this.teamId = teamId;
         this.ownerUuid = ownerUuid;
         this.leaderUuid = leaderUuid;
-        if (leaderUuid != null) {
-            members.add(leaderUuid);
+        this.territoryId = territoryId == null ? "" : territoryId;
+        this.members.addAll(members == null ? List.of() : members);
+        if (this.members.isEmpty() && leaderUuid != null) {
+            this.members.add(leaderUuid);
         }
+        if (offsets != null) {
+            this.offsets.putAll(offsets);
+        }
+        this.formationSaved = formationSaved;
     }
 
     public UUID teamId() {
@@ -32,6 +46,10 @@ public final class RtsTeam {
 
     public UUID ownerUuid() {
         return ownerUuid;
+    }
+
+    public String territoryId() {
+        return territoryId;
     }
 
     public UUID leaderUuid() {
@@ -76,6 +94,10 @@ public final class RtsTeam {
         if (member != null) {
             offsets.put(member, new float[]{x, z});
         }
+    }
+
+    public Map<UUID, float[]> offsets() {
+        return Map.copyOf(offsets);
     }
 
     public RtsFormation.Shape shape() {

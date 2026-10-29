@@ -29,7 +29,17 @@ public abstract class LevelChunkMixin {
         if (!(level instanceof ServerLevel serverLevel)) {
             return;
         }
-        UnitSnapshotStore.INSTANCE.markDirty(serverLevel.dimension().location().toString(),
-                pos.getX() >> 4, pos.getY() >> 4, pos.getZ() >> 4, serverLevel.getGameTime());
+        String dimension = serverLevel.dimension().location().toString();
+        int cx = pos.getX() >> 4;
+        int cz = pos.getZ() >> 4;
+        int layer = pos.getY() >> 4;
+        long gameTime = serverLevel.getGameTime();
+        UnitSnapshotStore.INSTANCE.markDirty(dimension, cx, layer, cz, gameTime);
+        int localY = pos.getY() & 15;
+        if (localY == 15) {
+            UnitSnapshotStore.INSTANCE.markDirty(dimension, cx, layer + 1, cz, gameTime);
+        } else if (localY == 0) {
+            UnitSnapshotStore.INSTANCE.markDirty(dimension, cx, layer - 1, cz, gameTime);
+        }
     }
 }

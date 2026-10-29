@@ -16,6 +16,7 @@ import com.xy2407.kingdom.common.entity.NpcEntity;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
 import com.xy2407.kingdom.server.building.BuildingStorageStore;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
@@ -174,7 +175,8 @@ public final class NpcIndustryService {
 
     private static boolean isInside(BuildingRecord building, NpcData npc) {
         String dimension = npc.getDimension() == null ? "" : npc.getDimension();
-        return building.contains(dimension, npc.getX(), npc.getY(), npc.getZ());
+        BlockPos pos = NpcManager.INSTANCE.positionOf(npc);
+        return pos != null && building.contains(dimension, pos.getX() + 0.5D, pos.getY(), pos.getZ() + 0.5D);
     }
 
     private static RecipeSpec recipeOf(BuildingMeta meta, String recipeId) {

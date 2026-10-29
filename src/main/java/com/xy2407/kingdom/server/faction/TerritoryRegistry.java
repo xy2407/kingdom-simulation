@@ -154,6 +154,21 @@ public final class TerritoryRegistry {
         return territory;
     }
 
+    public Territory createWithChunks(UUID owner, String nationId, String name, String dimension,
+                                      BlockPos center, int day, Collection<Long> chunks) {
+        if (owner == null || center == null || chunks == null || chunks.isEmpty()
+                || byOwner(owner) != null) {
+            return null;
+        }
+        Territory territory = new Territory(nextId(), name, nationId == null ? "" : nationId,
+                owner, dimension, center.getX(), center.getY(), center.getZ(), day,
+                new LinkedHashSet<>(chunks));
+        byId.put(territory.id(), territory);
+        KingdomPersistence.submit(TerritorySchema.TABLE_TERRITORY, TerritorySchema.COL_ID,
+                territory.id(), toValues(territory));
+        return territory;
+    }
+
     public Territory addChunks(Territory territory, Collection<Long> keys) {
         if (territory == null || keys == null || keys.isEmpty()) {
             return null;

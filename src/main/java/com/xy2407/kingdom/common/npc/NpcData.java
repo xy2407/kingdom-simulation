@@ -38,6 +38,36 @@ public final class NpcData {
     private String personality = "";
     private String inventoryJson = "";
     private String skin = "";
+
+    private String ownerId = "";
+
+    private String territoryId = "";
+
+    private String nationId = "";
+
+    public String getOwnerId() {
+        return ownerId == null ? "" : ownerId;
+    }
+
+    public void setOwnerId(String value) {
+        ownerId = value == null ? "" : value;
+    }
+
+    public String getTerritoryId() {
+        return territoryId == null ? "" : territoryId;
+    }
+
+    public void setTerritoryId(String value) {
+        territoryId = value == null ? "" : value;
+    }
+
+    public String getNationId() {
+        return nationId == null ? "" : nationId;
+    }
+
+    public void setNationId(String value) {
+        nationId = value == null ? "" : value;
+    }
     private int strength;
     private int intelligence;
     private int agility;
@@ -55,10 +85,7 @@ public final class NpcData {
     private boolean dirty;
 
     private String dimension = "";
-    private double x;
-    private double y;
-    private double z;
-    private boolean positionDirty;
+    private long chunk;
     private int homeX;
     private int homeY;
     private int homeZ;
@@ -81,7 +108,7 @@ public final class NpcData {
             UUID motherId, UUID spouseId, String job, String workplaceId, String homeId, int age, String lifecycle,
             String hobbiesJson, String likedItemsJson, String personality, int strength, int intelligence,
             int agility, double health, double mood, double hunger, double stamina, long wealth, boolean dead,
-            int birthDay, int deathDay, long updatedAt, String dimension, double x, double y, double z,
+            int birthDay, int deathDay, long updatedAt, String dimension, long chunk,
             int homeX, int homeY, int homeZ, int workX, int workY, int workZ, int workTicks) {
         this.id = id;
         this.entityUuid = entityUuid;
@@ -113,9 +140,7 @@ public final class NpcData {
         this.deathDay = deathDay;
         this.updatedAt = updatedAt;
         this.dimension = dimension;
-        this.x = x;
-        this.y = y;
-        this.z = z;
+        this.chunk = chunk;
         this.homeX = homeX;
         this.homeY = homeY;
         this.homeZ = homeZ;
@@ -442,18 +467,6 @@ public final class NpcData {
         return updatedAt;
     }
 
-    public double getX() {
-        return x;
-    }
-
-    public double getY() {
-        return y;
-    }
-
-    public double getZ() {
-        return z;
-    }
-
     public String getDimension() {
         return dimension;
     }
@@ -466,11 +479,15 @@ public final class NpcData {
         }
     }
 
-    public void setPosition(double x, double y, double z) {
-        this.x = x;
-        this.y = y;
-        this.z = z;
-        positionDirty = true;
+    public long getChunk() {
+        return chunk;
+    }
+
+    public void setChunk(long chunk) {
+        if (this.chunk != chunk) {
+            this.chunk = chunk;
+            markDirty();
+        }
     }
 
     public int getHomeX() {
@@ -531,10 +548,6 @@ public final class NpcData {
         return dirty;
     }
 
-    public boolean isPositionDirty() {
-        return positionDirty;
-    }
-
     public void markDirty() {
         dirty = true;
         updatedAt = System.currentTimeMillis();
@@ -542,7 +555,6 @@ public final class NpcData {
 
     public void clearDirty() {
         dirty = false;
-        positionDirty = false;
     }
 
     public NpcBrain getBrain() {
@@ -620,6 +632,9 @@ public final class NpcData {
         values.put(NpcSchema.COL_WORKPLACE_ID, workplaceId);
         values.put(NpcSchema.COL_WORK_RECIPE_ID, workRecipeId);
         values.put(NpcSchema.COL_HOME_ID, homeId);
+        values.put(NpcSchema.COL_OWNER_ID, getOwnerId());
+        values.put(NpcSchema.COL_TERRITORY_ID, getTerritoryId());
+        values.put(NpcSchema.COL_NATION_ID, getNationId());
         values.put(NpcSchema.COL_AGE, age);
         values.put(NpcSchema.COL_LIFECYCLE, lifecycle);
         values.put(NpcSchema.COL_HOBBIES, GSON.toJson(hobbies));
@@ -641,9 +656,7 @@ public final class NpcData {
         values.put(NpcSchema.COL_DEATH_DAY, deathDay);
         values.put(NpcSchema.COL_UPDATED_AT, updatedAt);
         values.put(NpcSchema.COL_DIMENSION, dimension);
-        values.put(NpcSchema.COL_POS_X, x);
-        values.put(NpcSchema.COL_POS_Y, y);
-        values.put(NpcSchema.COL_POS_Z, z);
+        values.put(NpcSchema.COL_CHUNK, chunk);
         values.put(NpcSchema.COL_HOME_X, homeX);
         values.put(NpcSchema.COL_HOME_Y, homeY);
         values.put(NpcSchema.COL_HOME_Z, homeZ);

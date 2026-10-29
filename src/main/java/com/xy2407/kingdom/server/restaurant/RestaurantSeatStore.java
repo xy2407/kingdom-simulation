@@ -61,6 +61,15 @@ public final class RestaurantSeatStore {
         return loaded;
     }
 
+    public boolean hasTableSeat(UUID buildingId) {
+        for (RestaurantSeat seat : seatsOf(buildingId)) {
+            if (seat.table() != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public List<RestaurantSeat> seatsOf(UUID buildingId) {
         if (buildingId == null) {
             return List.of();

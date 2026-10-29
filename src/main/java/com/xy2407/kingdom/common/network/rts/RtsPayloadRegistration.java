@@ -37,6 +37,22 @@ public final class RtsPayloadRegistration {
                 RtsTeamEditStatePacket.STREAM_CODEC, RtsTeamEditStatePacket::handle);
         registrar.playToServer(RtsTeamOpPacket.TYPE,
                 RtsTeamOpPacket.STREAM_CODEC, RtsTeamOpPacket::handle);
+        registrar.playToServer(RtsTeamDeletePacket.TYPE,
+                RtsTeamDeletePacket.STREAM_CODEC, RtsTeamDeletePacket::handle);
+        registrar.playToServer(RtsTeamJoinPacket.TYPE,
+                RtsTeamJoinPacket.STREAM_CODEC, RtsTeamJoinPacket::handle);
+        registrar.playToServer(RtsTeamLeavePacket.TYPE,
+                RtsTeamLeavePacket.STREAM_CODEC, RtsTeamLeavePacket::handle);
+        registrar.playToServer(RtsTeamFocusPacket.TYPE,
+                RtsTeamFocusPacket.STREAM_CODEC, RtsTeamFocusPacket::handle);
+        registrar.playToServer(RtsTeamMovePacket.TYPE,
+                RtsTeamMovePacket.STREAM_CODEC, RtsTeamMovePacket::handle);
+        registrar.playToClient(RtsTeamMemberPosPacket.TYPE,
+                RtsTeamMemberPosPacket.STREAM_CODEC, RtsTeamMemberPosPacket::handle);
+        registrar.playToClient(RtsTeamOpResultPacket.TYPE,
+                RtsTeamOpResultPacket.STREAM_CODEC, RtsTeamOpResultPacket::handle);
+        registrar.playToClient(RtsTeamRosterPacket.TYPE,
+                RtsTeamRosterPacket.STREAM_CODEC, RtsTeamRosterPacket::handle);
         registrar.playToClient(RtsSelectionCorrectionPacket.TYPE,
                 RtsSelectionCorrectionPacket.STREAM_CODEC, RtsSelectionCorrectionPacket::handle);
         registrar.playToClient(RtsTeamSyncPacket.TYPE,

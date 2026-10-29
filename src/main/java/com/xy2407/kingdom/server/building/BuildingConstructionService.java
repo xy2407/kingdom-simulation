@@ -53,6 +53,8 @@ public final class BuildingConstructionService {
 
     private static String lastFailure;
 
+    private static String lastNotice;
+
     private static final int RESTOCK_BATCH = 16;
 
     private static final int PLACE_FLAGS = Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE;
@@ -86,13 +88,16 @@ public final class BuildingConstructionService {
         List<BuildingTask.Step> sequence = workSequence(plan);
         Map<String, Integer> materials = requiredMaterials(sequence);
         BlockPos deposit = findDeposit(level, origin);
+        String notice = null;
         if (BuildRequirements.required()) {
             String missing = checkDeposit(level, deposit, materials);
             if (missing != null) {
-                requestFreight(level, deposit, shortfall(level, deposit, materials));
-                lastFailure = missing;
-                ModMain.LOGGER.warn("建筑开工失败：{}（{} @ {}）", missing, blueprintName, origin);
-                return null;
+                if (deposit != null) {
+                    requestFreight(level, deposit, shortfall(level, deposit, materials));
+                }
+                notice = missing;
+                ModMain.LOGGER.info("建筑开工（材料未齐，工人会自行取料/等货运）：{}（{} @ {}）",
+                        missing, blueprintName, origin);
             }
         }
         BuildingTask task = new BuildingTask(UUID.randomUUID(), blueprintName, level.dimension(),
@@ -103,15 +108,28 @@ public final class BuildingConstructionService {
                 origin.getY(), plan.layerCount());
         tasks.put(task.id(), task);
         indexTask(task);
+        NpcData auto = pickArchitect(level, origin);
+        if (auto != null) {
+            task.assignArchitect(auto.getId(), auto.getName());
+            auto.getBrain().setConstructionControlled(true);
+            ModMain.LOGGER.info("自动派遣建筑工 {} → {} @ {}",
+                    auto.getName(), blueprintName, origin);
+        }
         recount(level, task);
         save(task);
         broadcastSite(level, task, false);
+        lastNotice = notice;
         return task;
     }
 
     public void startWithFeedback(ServerLevel level, ServerPlayer player, String blueprintName,
                                   BlockPos origin, int rotationDegrees) {
         if (start(level, blueprintName, origin, rotationDegrees, player) != null) {
+            if (lastNotice != null) {
+                player.displayClientMessage(Component.literal(
+                        "已开工，但" + lastNotice + "（建筑工会自行取料或等货运）"), false);
+                lastNotice = null;
+            }
             return;
         }
         String reason = lastFailure != null ? lastFailure
@@ -204,15 +222,32 @@ public final class BuildingConstructionService {
                 origin.getZ() + size.getZ() + 8);
         UnitSnapshotStore.INSTANCE.buildNow(level.getServer(),
                 level.dimension().location().toString(), min, max);
-        BlockPos from = new BlockPos((int) Math.floor(architect.getX()), (int) Math.floor(architect.getY()),
-                (int) Math.floor(architect.getZ()));
+        BlockPos architectPos = NpcManager.INSTANCE.positionOf(architect);
+        if (architectPos == null) {
+            return;
+        }
+        BlockPos from = new BlockPos(architectPos.getX(), architectPos.getY(), architectPos.getZ());
         BlockPos to = origin.offset(size.getX() / 2, Math.min(height, 8), size.getZ() / 2);
         repository.requestUnits(level.dimension(), from, to, NpcPathfinder.DEFAULT_PADDING);
     }
 
     private NpcData pickArchitect(ServerLevel level, BlockPos origin) {
-        NpcData employee = pickWorker(level, origin, true);
-        return employee != null ? employee : pickWorker(level, origin, false);
+        return pickWorker(level, origin, true);
+    }
+
+    private static boolean busy(NpcData npc) {
+        com.xy2407.kingdom.common.npc.NpcBrain brain = npc.getBrain();
+        return brain.isStarving()
+                || brain.isRtsControlled()
+                || brain.isConstructionControlled()
+                || brain.isFarmControlled()
+                || brain.isRanchControlled()
+                || brain.isIndustryControlled()
+                || brain.isRestaurantControlled()
+                || brain.isMiningControlled()
+                || brain.isLumberControlled()
+                || brain.isFreightControlled()
+                || brain.isShopControlled();
     }
 
     private NpcData pickWorker(ServerLevel level, BlockPos origin, boolean employeesOnly) {
@@ -220,16 +255,19 @@ public final class BuildingConstructionService {
         double bestDist = Double.MAX_VALUE;
         String dimension = level.dimension().location().toString();
         for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
-            if (npc.isDead() || !dimension.equals(npc.getDimension())
-                    || npc.getBrain().isConstructionControlled() || npc.getBrain().isStarving()) {
+            if (npc.isDead() || !dimension.equals(npc.getDimension()) || busy(npc)) {
                 continue;
             }
             if (employeesOnly && !com.xy2407.kingdom.server.task.RegionTaskService.INSTANCE.isEmployed(npc.getId())) {
                 continue;
             }
-            double dx = npc.getX() - origin.getX();
-            double dy = npc.getY() - origin.getY();
-            double dz = npc.getZ() - origin.getZ();
+            BlockPos npcPos = NpcManager.INSTANCE.positionOf(npc);
+            if (npcPos == null) {
+                continue;
+            }
+            double dx = npcPos.getX() - origin.getX();
+            double dy = npcPos.getY() - origin.getY();
+            double dz = npcPos.getZ() - origin.getZ();
             double dist = dx * dx + dy * dy + dz * dz;
             if (dist < bestDist) {
                 bestDist = dist;
@@ -274,14 +312,15 @@ public final class BuildingConstructionService {
         BlockPos best = null;
         double bestDistance = Double.MAX_VALUE;
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
-        for (int dx = -32; dx <= 32; dx += 2) {
-            for (int dz = -32; dz <= 32; dz += 2) {
-                for (int dy = -8; dy <= 8; dy += 2) {
+        for (int dx = -32; dx <= 32; dx++) {
+            for (int dz = -32; dz <= 32; dz++) {
+                for (int dy = -8; dy <= 8; dy++) {
                     cursor.set(origin.getX() + dx, origin.getY() + dy, origin.getZ() + dz);
                     if (!level.isLoaded(cursor)) {
                         continue;
                     }
-                    if (!(level.getBlockEntity(cursor) instanceof BuilderBlockEntity)) {
+                    if (!level.getBlockState(cursor).is(
+                            com.xy2407.kingdom.common.block.ModBlocks.BUILDER_BLOCK.get())) {
                         continue;
                     }
                     double distance = cursor.distSqr(origin);
@@ -298,7 +337,7 @@ public final class BuildingConstructionService {
     private static String checkDeposit(ServerLevel level, BlockPos deposit,
                                        Map<String, Integer> materials) {
         if (deposit == null) {
-            return "附近没有建筑工方块，无法取料";
+            return "附近没有建筑工方块，工人暂时无法取料";
         }
         if (!(level.getBlockEntity(deposit) instanceof BuilderBlockEntity container)) {
             return "建筑工方块的材料容器不可用";
@@ -770,6 +809,10 @@ public final class BuildingConstructionService {
             return;
         }
         if (BuildRequirements.required() && !consumeAtSite(level, task, step)) {
+            BlockPos deposit = task.depositPos();
+            if (deposit != null) {
+                entity.tickConstructionPath(deposit);
+            }
             return;
         }
         entity.setHeldItem(new ItemStack(step.state().getBlock()));

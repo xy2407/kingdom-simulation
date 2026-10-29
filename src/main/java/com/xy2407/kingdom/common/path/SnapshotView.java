@@ -1,11 +1,9 @@
 package com.xy2407.kingdom.common.path;
 
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
-
 import com.xy2407.kingdom.server.path.UnitSnapshotStore;
+
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -19,8 +17,8 @@ final class SnapshotView {
 
     private final UnitSnapshotStore store;
     private final String dimension;
-    private final Map<Long, UnitSnapshot> units = new HashMap<>();
-    private final Set<Long> missed = new HashSet<>();
+    private final Long2ObjectOpenHashMap<UnitSnapshot> units = new Long2ObjectOpenHashMap<>();
+    private final LongOpenHashSet missed = new LongOpenHashSet();
     private int missingChunks;
 
     private SnapshotView(UnitSnapshotStore store, String dimension) {

@@ -12,6 +12,7 @@ import com.xy2407.kingdom.client.map.MapOverlayStore;
 import com.xy2407.kingdom.common.network.cityhall.CityHallAffairActionPacket;
 import com.xy2407.kingdom.common.network.cityhall.CityHallDataPacket;
 import com.xy2407.kingdom.common.network.cityhall.CityHallRequestPacket;
+import com.xy2407.kingdom.common.network.cityhall.CityHallTreasuryActionPacket;
 import com.xy2407.kingdom.common.network.faction.TerritoryBuyPacket;
 import com.xy2407.kingdom.common.network.road.RoadTeleportPacket;
 
@@ -31,6 +32,10 @@ public final class CityHallScreen extends ApricityScreen {
     public static final String PAGE = "ui/city_hall.html";
 
     private static final String TODO_HOST = "chTodoList";
+
+    private static final String TREASURY_MODAL = "chTreasuryModal";
+
+    private static final String TREASURY_INPUT = "chTreasuryInput";
 
     private static final String AFFAIR_ROW_PREFIX = "chAffair-";
 
@@ -151,8 +156,8 @@ public final class CityHallScreen extends ApricityScreen {
             return;
         }
         text(document, "chGoldNow", value(packet.gold()));
-        text(document, "chGoldMax", limit(packet.goldMax()));
-        bar(document, "chGoldBar", packet.gold(), packet.goldMax());
+        text(document, "chGoldMax", packet.goldMax() > packet.gold() ? limit(packet.goldMax()) : "");
+        bar(document, "chGoldBar", packet.gold(), Math.max(1L, packet.goldMax()));
         bar(document, "chUnityBar", packet.unity(), 100);
         bar(document, "chLoyalBar", packet.loyalty(), 100);
         bar(document, "chHappyBar", packet.happiness(), 100);
@@ -202,6 +207,18 @@ public final class CityHallScreen extends ApricityScreen {
         click(document, "chStatVassal", () -> showModal(ModalKind.VASSAL));
 
         click(document, "chCalBtn", this::showDayModal);
+        click(document, "chGoldVital", this::showTreasuryModal);
+        click(document, "chTreasuryClose", this::closeTreasuryModal);
+        click(document, "chTreasuryWithdraw", () -> submitTreasury(false));
+        click(document, "chTreasuryDeposit", () -> submitTreasury(true));
+        Element treasury = document.getElementById(TREASURY_MODAL);
+        if (treasury != null) {
+            treasury.addEventListener("click", event -> {
+                if (event.target == treasury) {
+                    closeTreasuryModal();
+                }
+            });
+        }
 
         WorldMapElement.setSelectionListener(this::openBuyModal);
         WorldMapElement.setRoadClickListener(this::openRoadTeleport);
@@ -249,6 +266,46 @@ public final class CityHallScreen extends ApricityScreen {
     }
 
     private String searchKeyword = "";
+
+    private void showTreasuryModal() {
+        Document document = boundDocument;
+        if (document == null) {
+            return;
+        }
+        if (document.getElementById(TREASURY_INPUT) instanceof Input input) {
+            input.setValue("");
+        }
+        toggleClass(document, TREASURY_MODAL, "is-open", true);
+    }
+
+    private void closeTreasuryModal() {
+        Document document = boundDocument;
+        if (document == null) {
+            return;
+        }
+        toggleClass(document, TREASURY_MODAL, "is-open", false);
+    }
+
+    private void submitTreasury(boolean deposit) {
+        Document document = boundDocument;
+        if (document == null) {
+            return;
+        }
+        long amount = 0L;
+        if (document.getElementById(TREASURY_INPUT) instanceof Input input) {
+            String raw = input.getValue() == null ? "" : input.getValue().trim();
+            try {
+                amount = Long.parseLong(raw);
+            } catch (NumberFormatException ignored) {
+                amount = 0L;
+            }
+        }
+        if (amount > 0L) {
+            PacketDistributor.sendToServer(
+                    new CityHallTreasuryActionPacket(hallX, hallZ, deposit, amount));
+        }
+        closeTreasuryModal();
+    }
 
     private void showModal(ModalKind kind) {
         Document document = boundDocument;

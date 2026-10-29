@@ -27,5 +27,7 @@ public final class CityHallPayloadRegistration {
                 CityHallAffairActionPacket.STREAM_CODEC, CityHallAffairActionPacket::handle);
         registrar.playToServer(CityHallRequestPacket.TYPE,
                 CityHallRequestPacket.STREAM_CODEC, CityHallRequestPacket::handle);
+        registrar.playToServer(CityHallTreasuryActionPacket.TYPE,
+                CityHallTreasuryActionPacket.STREAM_CODEC, CityHallTreasuryActionPacket::handle);
     }
 }

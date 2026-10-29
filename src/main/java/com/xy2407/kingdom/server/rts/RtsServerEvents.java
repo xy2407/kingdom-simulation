@@ -21,6 +21,7 @@ public final class RtsServerEvents {
     public static void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             RtsFakePlayerService.clearFor(player);
+            RtsTeamService.releaseEditingOf(player);
         }
     }
 
@@ -37,5 +38,12 @@ public final class RtsServerEvents {
     @SubscribeEvent
     public static void onServerStopping(ServerStoppingEvent event) {
         RtsFakePlayerService.clearAll(event.getServer());
+    }
+
+    @SubscribeEvent
+    public static void onServerStarted(net.neoforged.neoforge.event.server.ServerStartedEvent event) {
+        RtsTeamService.load(event.getServer().overworld());
+        com.xy2407.kingdom.server.faction.WildTerritoryService.INSTANCE
+                .load(event.getServer().overworld());
     }
 }

@@ -120,9 +120,13 @@ public final class MiningAreaService {
             if (npc.isDead() || !dimension.equals(npc.getDimension())) {
                 continue;
             }
-            double dx = npc.getX() - from.getX();
-            double dy = npc.getY() - from.getY();
-            double dz = npc.getZ() - from.getZ();
+            BlockPos pos = NpcManager.INSTANCE.positionOf(npc);
+            if (pos == null) {
+                continue;
+            }
+            double dx = pos.getX() - from.getX();
+            double dy = pos.getY() - from.getY();
+            double dz = pos.getZ() - from.getZ();
             double distance = dx * dx + dy * dy + dz * dz;
             if (distance < bestDistance) {
                 bestDistance = distance;

@@ -24,6 +24,10 @@ import com.xy2407.kingdom.server.farm.FarmPlotManager;
 import com.xy2407.kingdom.server.mining.MiningPlotManager;
 import com.xy2407.kingdom.server.ranch.RanchPenManager;
 
+import com.xy2407.kingdom.common.faction.Territory;
+import com.xy2407.kingdom.server.faction.TerritoryRegistry;
+
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -33,6 +37,8 @@ import net.neoforged.neoforge.network.PacketDistributor;
  * 雇佣界面服务端：按范围目标组装候选人名册、执行入职并回推最新状态
  */
 public final class EmploymentPanelService {
+
+    private static final double RECRUIT_RADIUS_SQR = 64.0D * 64.0D;
 
     private EmploymentPanelService() {
     }
@@ -120,8 +126,23 @@ public final class EmploymentPanelService {
         EmploymentTarget probe = targetOf(player, buildingId, targetText, kind);
         List<EmploymentPanelStatePacket.Entry> entries = new ArrayList<>();
         List<UUID> selected = new ArrayList<>();
+        ServerLevel level = player.serverLevel();
+        BlockPos playerPos = player.blockPosition();
+        String dimension = level.dimension().location().toString();
+        Territory territory = TerritoryRegistry.INSTANCE.byBlock(dimension,
+                playerPos.getX(), playerPos.getZ());
         for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
             if (npc.isDead() || npc.getRole() == NpcRole.TOURIST) {
+                continue;
+            }
+            if (!dimension.equals(npc.getDimension())) {
+                continue;
+            }
+            BlockPos pos = NpcManager.INSTANCE.positionOf(npc);
+            if (pos == null || pos.distSqr(playerPos) > RECRUIT_RADIUS_SQR) {
+                continue;
+            }
+            if (territory != null && !territory.containsBlock(pos.getX(), pos.getZ())) {
                 continue;
             }
             EmploymentTarget current = EmploymentService.INSTANCE.current(npc);

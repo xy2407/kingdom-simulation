@@ -37,16 +37,10 @@ public final class NpcManager {
 
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final int FLUSH_INTERVAL_TICKS = 60;
-    private static final int RECOVER_BIND_BUDGET = 64;
-    private static final int RESTORE_RETRY_TICKS = 200;
-    private static final double CITIZEN_SCAN_RADIUS = 32.0D;
 
     private final Map<UUID, NpcData> byId = new ConcurrentHashMap<>();
-    private final List<NpcData> restoreList = new ArrayList<>();
-    private int restoreCursor;
-    private int restoreRetryIn;
+    private final Map<UUID, NpcEntity> liveByCitizen = new ConcurrentHashMap<>();
     private boolean loaded;
-    private boolean restored;
     private int tickCounter;
 
     private NpcManager() {
@@ -54,12 +48,30 @@ public final class NpcManager {
 
     public void reset() {
         byId.clear();
-        restoreList.clear();
-        restoreCursor = 0;
-        restoreRetryIn = 0;
+        liveByCitizen.clear();
         loaded = false;
-        restored = false;
         tickCounter = 0;
+    }
+
+    public void registerLive(NpcEntity entity) {
+        if (entity != null && entity.getCitizenId() != null) {
+            liveByCitizen.put(entity.getCitizenId(), entity);
+        }
+    }
+
+    public void unregisterLive(NpcEntity entity) {
+        if (entity != null && entity.getCitizenId() != null) {
+            liveByCitizen.remove(entity.getCitizenId(), entity);
+        }
+    }
+
+    public NpcEntity liveEntity(NpcData npc) {
+        return npc == null ? null : liveByCitizen.get(npc.getId());
+    }
+
+    public BlockPos positionOf(NpcData npc) {
+        NpcEntity entity = liveEntity(npc);
+        return entity == null || entity.isRemoved() ? null : entity.blockPosition();
     }
 
     public void tick(ServerLevel overworld) {
@@ -68,13 +80,6 @@ public final class NpcManager {
         }
         if (!loaded) {
             return;
-        }
-        if (!restored && overworld != null) {
-            if (restoreRetryIn > 0) {
-                restoreRetryIn--;
-            } else {
-                recoverStep(overworld);
-            }
         }
         long dayTime = overworld == null ? 0L : overworld.getDayTime() % NpcSchedule.DAY_LENGTH;
         for (NpcData npc : byId.values()) {
@@ -87,101 +92,6 @@ public final class NpcManager {
         flushDirty();
     }
 
-    private void recoverStep(ServerLevel level) {
-        int bindBudget = RECOVER_BIND_BUDGET;
-        while (restoreCursor < restoreList.size()) {
-            NpcData npc = restoreList.get(restoreCursor);
-            if (npc.isRestoreDone()) {
-                restoreCursor++;
-                continue;
-            }
-            if (byId.get(npc.getId()) != npc) {
-                npc.markRestoreDone();
-                restoreCursor++;
-                continue;
-            }
-            if (bindBudget <= 0) {
-                return;
-            }
-            ServerLevel target = dimensionLevel(level, npc);
-            if (!target.isLoaded(BlockPos.containing(npc.getX(), npc.getY(), npc.getZ()))) {
-                restoreCursor++;
-                continue;
-            }
-            NpcEntity existing = claimCitizen(target, npc);
-            if (existing != null) {
-                npc.setEntityUuid(existing.getUUID());
-                npc.markRestoreDone();
-                restoreCursor++;
-                bindBudget--;
-                continue;
-            }
-            UUID entityUuid = npc.getEntityUuid();
-            Entity found = entityUuid == null ? null : target.getEntity(entityUuid);
-            if (found instanceof NpcEntity entity) {
-                if (entity.getCitizenId() == null) {
-                    entity.setCitizenId(npc.getId());
-                }
-                npc.markRestoreDone();
-                restoreCursor++;
-                bindBudget--;
-                continue;
-            }
-            restoreCursor++;
-        }
-        restoreCursor = 0;
-        int remaining = 0;
-        for (NpcData npc : restoreList) {
-            if (!npc.isRestoreDone()) {
-                remaining++;
-            }
-        }
-        if (remaining == 0) {
-            restored = true;
-        } else {
-            restoreRetryIn = RESTORE_RETRY_TICKS;
-        }
-    }
-
-    private static ServerLevel dimensionLevel(ServerLevel fallback, NpcData npc) {
-        ResourceLocation id = ResourceLocation.tryParse(npc.getDimension());
-        if (id == null || fallback.getServer() == null) {
-            return fallback;
-        }
-        ServerLevel level = fallback.getServer().getLevel(ResourceKey.create(Registries.DIMENSION, id));
-        return level == null ? fallback : level;
-    }
-
-    private static NpcEntity claimCitizen(ServerLevel level, NpcData npc) {
-        BlockPos pos = BlockPos.containing(npc.getX(), npc.getY(), npc.getZ());
-        AABB box = new AABB(pos.getX(), pos.getY(), pos.getZ(),
-                pos.getX() + 1.0D, pos.getY() + 1.0D, pos.getZ() + 1.0D).inflate(CITIZEN_SCAN_RADIUS);
-        List<NpcEntity> matches = level.getEntitiesOfClass(NpcEntity.class, box);
-        NpcEntity keeper = null;
-        double best = Double.MAX_VALUE;
-        for (NpcEntity entity : matches) {
-            if (!npc.getId().equals(entity.getCitizenId())) {
-                continue;
-            }
-            if (npc.getEntityUuid() != null && npc.getEntityUuid().equals(entity.getUUID())) {
-                keeper = entity;
-                break;
-            }
-            double distance = entity.distanceToSqr(npc.getX(), npc.getY(), npc.getZ());
-            if (distance < best) {
-                best = distance;
-                keeper = entity;
-            }
-        }
-        for (NpcEntity entity : matches) {
-            if (entity != keeper && npc.getId().equals(entity.getCitizenId())) {
-                entity.setCitizenId(null);
-                entity.discard();
-            }
-        }
-        return keeper;
-    }
-
     public void onNewDay(int day) {
         for (NpcData npc : byId.values()) {
             if (!npc.isDead() && !npc.isTourist()) {
@@ -191,7 +101,7 @@ public final class NpcManager {
     }
 
     public NpcData getNpc(UUID id) {
-        return byId.get(id);
+        return id == null ? null : byId.get(id);
     }
 
     public List<String> debugReport(ServerPlayer player) {
@@ -278,7 +188,7 @@ public final class NpcManager {
 
     public void flushDirty() {
         for (NpcData npc : byId.values()) {
-            if (npc.isDirty() || npc.isPositionDirty()) {
+            if (npc.isDirty()) {
                 KingdomPersistence.submit(NpcSchema.TABLE_NPC, NpcSchema.COL_UUID, npc.getId().toString(), npc.toValues());
                 npc.clearDirty();
             }
@@ -316,11 +226,6 @@ public final class NpcManager {
                 return rows.size();
             });
             loaded = true;
-            restoreList.clear();
-            restoreList.addAll(byId.values());
-            restoreCursor = 0;
-            restoreRetryIn = 0;
-            restored = false;
             LOGGER.info("已加载 {} 名市民", byId.size());
         } catch (Exception e) {
             LOGGER.error("加载市民数据失败", e);
@@ -359,9 +264,7 @@ public final class NpcManager {
                 rs.getInt(NpcSchema.COL_DEATH_DAY),
                 rs.getLong(NpcSchema.COL_UPDATED_AT),
                 rs.getString(NpcSchema.COL_DIMENSION),
-                rs.getDouble(NpcSchema.COL_POS_X),
-                rs.getDouble(NpcSchema.COL_POS_Y),
-                rs.getDouble(NpcSchema.COL_POS_Z),
+                rs.getLong(NpcSchema.COL_CHUNK),
                 rs.getInt(NpcSchema.COL_HOME_X),
                 rs.getInt(NpcSchema.COL_HOME_Y),
                 rs.getInt(NpcSchema.COL_HOME_Z),
@@ -370,6 +273,9 @@ public final class NpcManager {
                 rs.getInt(NpcSchema.COL_WORK_Z),
                 rs.getInt(NpcSchema.COL_WORK_TICKS));
         npc.setRole(NpcRole.parse(rs.getString(NpcSchema.COL_ROLE)));
+        npc.setOwnerId(rs.getString(NpcSchema.COL_OWNER_ID));
+        npc.setTerritoryId(rs.getString(NpcSchema.COL_TERRITORY_ID));
+        npc.setNationId(rs.getString(NpcSchema.COL_NATION_ID));
         npc.setState(NpcState.parse(rs.getString(NpcSchema.COL_STATE)));
         npc.setSubState(NpcSubState.parse(rs.getString(NpcSchema.COL_SUB_STATE)));
         npc.setDetail(NpcDetail.parse(rs.getString(NpcSchema.COL_DETAIL)));

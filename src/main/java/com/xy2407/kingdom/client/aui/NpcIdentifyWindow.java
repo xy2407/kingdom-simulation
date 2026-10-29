@@ -373,8 +373,9 @@ public final class NpcIdentifyWindow {
         if (maxHealth <= 0.0D) {
             return NpcIdentifyInfo.EMPTY;
         }
+        String syncedName = npc.getSyncedName();
         return new NpcIdentifyInfo(
-                null,
+                syncedName == null || syncedName.isBlank() ? null : syncedName,
                 null,
                 null,
                 null,

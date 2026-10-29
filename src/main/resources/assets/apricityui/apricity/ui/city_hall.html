@@ -1154,7 +1154,7 @@ npc-bar,kingdom-entity-avatar,world-map,img{
         <div class="eyebrow">金 库</div>
 
         <div class="vitals">
-          <div class="vital">
+          <div class="vital" id="chGoldVital">
             <div class="vital-head">
               <span class="vital-label">库存</span>
               <span class="vital-num"><b id="chGoldNow">1240</b><i id="chGoldMax">/2000</i></span>
@@ -1395,6 +1395,25 @@ npc-bar,kingdom-entity-avatar,world-map,img{
       <div class="modal-actions">
         <span class="modal-btn" id="chRoadModalCancel">取 消</span>
         <span class="modal-btn modal-btn--main" id="chRoadModalConfirm">确 认</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 领地金库存取：点金库条弹出，输入金额后提取或存入，开合与数据都由 Java 控制 -->
+  <div class="modal" id="chTreasuryModal">
+    <div class="modal-box modal-box--buy" id="chTreasuryBox">
+      <header class="modal-head">
+        <span class="modal-title">领 地 金 库</span>
+        <span class="modal-close" id="chTreasuryClose">✕</span>
+      </header>
+      <div class="modal-body">
+        <div class="modal-search field">
+          <input type="text" id="chTreasuryInput" maxlength="12" placeholder="输入金额…">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <span class="modal-btn" id="chTreasuryWithdraw">提 取</span>
+        <span class="modal-btn modal-btn--main" id="chTreasuryDeposit">存 入</span>
       </div>
     </div>
   </div>

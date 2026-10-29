@@ -1,7 +1,6 @@
 package com.xy2407.kingdom.common.path;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -13,6 +12,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 import com.xy2407.kingdom.server.path.UnitSnapshotStore;
+
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
@@ -31,7 +32,7 @@ public final class SnapshotRepository {
     private static final int SEARCH_THREADS = 4;
 
     private final AtomicInteger threadSeq = new AtomicInteger();
-    private final Map<String, Set<Long>> requestedUnits = new HashMap<>();
+    private final Map<String, LongOpenHashSet> requestedUnits = new HashMap<>();
     private int searchesThisTick;
     private int commuteSearchesThisTick;
     private ExecutorService executor;
@@ -117,7 +118,7 @@ public final class SnapshotRepository {
 
     public void requestUnits(ResourceKey<Level> dimension, BlockPos start, BlockPos end, int padding) {
         String dim = dimension.location().toString();
-        Set<Long> seen = requestedUnits.computeIfAbsent(dim, key -> new HashSet<>());
+        LongOpenHashSet seen = requestedUnits.computeIfAbsent(dim, key -> new LongOpenHashSet());
         int minX = Math.min(start.getX(), end.getX()) - padding;
         int maxX = Math.max(start.getX(), end.getX()) + padding;
         int minZ = Math.min(start.getZ(), end.getZ()) - padding;

@@ -317,7 +317,8 @@ public final class NpcRestaurantService {
 
     private static boolean isInside(BuildingRecord building, NpcData npc) {
         String dimension = npc.getDimension() == null ? "" : npc.getDimension();
-        return building.contains(dimension, npc.getX(), npc.getY(), npc.getZ());
+        BlockPos pos = NpcManager.INSTANCE.positionOf(npc);
+        return pos != null && building.contains(dimension, pos.getX() + 0.5D, pos.getY(), pos.getZ() + 0.5D);
     }
 
 }

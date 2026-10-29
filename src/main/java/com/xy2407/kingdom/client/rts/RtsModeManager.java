@@ -187,6 +187,11 @@ public final class RtsModeManager {
         BuildingPlacementManager.cancel();
         FarmAreaSelector.cancel();
         RegionSelectionState.reset();
+        // 退出 RTS 时把队伍面板与阵型编辑器一并收掉，否则它们会残留在普通视角里
+        if (RtsFormationEditorState.isOpen()) {
+            RtsFormationEditorState.close();
+        }
+        RtsTeamPanelState.close();
         if (minecraft.getConnection() != null) {
             PacketDistributor.sendToServer(RtsFakePlayerClearPacket.INSTANCE);
         }

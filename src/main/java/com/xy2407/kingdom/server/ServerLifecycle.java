@@ -30,6 +30,9 @@ import com.xy2407.kingdom.server.ranch.RanchWorkService;
 import com.xy2407.kingdom.server.restaurant.RestaurantOrderStore;
 import com.xy2407.kingdom.server.restaurant.RestaurantSeatStore;
 import com.xy2407.kingdom.server.shop.ShopStore;
+import com.xy2407.kingdom.server.faction.TerritoryTreasuryStore;
+import com.xy2407.kingdom.server.faction.MoneyLedgerStore;
+import com.xy2407.kingdom.server.faction.PlayerGrantStore;
 
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
@@ -55,6 +58,10 @@ public final class ServerLifecycle {
         RestaurantSeatStore.INSTANCE.reset();
         com.xy2407.kingdom.common.npc.NpcRestaurantService.reset();
         ShopStore.INSTANCE.reset();
+        com.xy2407.kingdom.server.faction.WildTerritoryService.INSTANCE.reset();
+        TerritoryTreasuryStore.INSTANCE.reset();
+        MoneyLedgerStore.INSTANCE.reset();
+        PlayerGrantStore.INSTANCE.reset();
         com.xy2407.kingdom.server.task.RegionTaskService.INSTANCE.reset();
         com.xy2407.kingdom.server.rts.RtsTeamService.reset();
         com.xy2407.kingdom.server.freight.FreightService.INSTANCE.reset();
@@ -116,6 +123,7 @@ public final class ServerLifecycle {
         RoadPavingQueue.releaseAll(event.getServer());
         NpcManager.INSTANCE.flushSync();
         BuildingStorageStore.INSTANCE.flushAll(event.getServer());
+        UnitSnapshotStore.INSTANCE.shutdown();
         KingdomPersistence instance = KingdomPersistence.current();
         if (instance != null) {
             instance.onServerStopping();

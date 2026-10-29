@@ -20,6 +20,8 @@ public final class BuildingChunkEvents {
     public static void onChunkLoad(ChunkEvent.Load event) {
         if (event.getLevel() instanceof ServerLevel level) {
             BuildingConstructionService.INSTANCE.onChunkLoad(level, event.getChunk().getPos());
+            com.xy2407.kingdom.server.faction.WildTerritoryService.INSTANCE
+                    .onChunkLoad(level, event.getChunk().getPos());
         }
     }
 

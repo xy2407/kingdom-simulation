@@ -49,11 +49,27 @@ public final class RtsClientSetup {
                 RtsFormationEditorHud.INSTANCE);
 
         event.registerAboveAll(
+                ResourceLocation.fromNamespaceAndPath(ModMain.MOD_ID, RtsTeamPanelLayer.ID),
+                RtsTeamPanelLayer.INSTANCE);
+
+        event.registerAboveAll(
                 ResourceLocation.fromNamespaceAndPath(ModMain.MOD_ID,
                         com.xy2407.kingdom.client.block.ShopShelfHud.ID),
                 com.xy2407.kingdom.client.block.ShopShelfHud.INSTANCE);
 
         RtsTeamClientCache.install();
+        RtsTeamPosCache.install();
+        RtsTeamRosterCache.install();
+        com.xy2407.kingdom.common.network.clientbound.RtsTeamResultBridge.setSink(
+                (success, message) -> {
+                    net.minecraft.client.Minecraft minecraft =
+                            net.minecraft.client.Minecraft.getInstance();
+                    if (minecraft.player != null) {
+                        minecraft.player.displayClientMessage(
+                                net.minecraft.network.chat.Component.literal(
+                                        (success ? "§a" : "§c") + message), true);
+                    }
+                });
         com.xy2407.kingdom.client.building.MapStandScreenDriver.install();
 
         event.wrapLayer(VanillaGuiLayers.CHAT, layer -> (guiGraphics, deltaTracker) -> {

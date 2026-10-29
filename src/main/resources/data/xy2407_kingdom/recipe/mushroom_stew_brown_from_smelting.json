@@ -1,4 +1,4 @@
-﻿{
+{
   "type": "minecraft:smelting",
   "category": "food",
   "ingredient": { "item": "minecraft:brown_mushroom" },

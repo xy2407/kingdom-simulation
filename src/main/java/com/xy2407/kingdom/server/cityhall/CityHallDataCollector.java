@@ -15,9 +15,9 @@ import com.xy2407.kingdom.common.network.cityhall.CityHallDataPacket;
 import com.xy2407.kingdom.common.npc.NpcData;
 import com.xy2407.kingdom.common.npc.NpcManager;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
+import com.xy2407.kingdom.server.faction.MoneyLedgerStore;
+import com.xy2407.kingdom.server.faction.MoneyService;
 import com.xy2407.kingdom.server.faction.NationRegistry;
-import com.xy2407.kingdom.common.faction.PlayerProfile;
-import com.xy2407.kingdom.server.faction.PlayerProfileStore;
 import com.xy2407.kingdom.server.faction.TerritoryRegistry;
 import com.xy2407.kingdom.server.faction.TerritoryVitalsStore;
 import com.xy2407.kingdom.server.government.GovernmentAffairStore;
@@ -33,6 +33,10 @@ public final class CityHallDataCollector {
 
     private static final int CITIZEN_LIMIT = 200;
     private static final int STRUCTURE_LIMIT = 200;
+
+    private static final java.time.format.DateTimeFormatter TIME =
+            java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+                    .withZone(java.time.ZoneId.systemDefault());
 
     private CityHallDataCollector() {
     }
@@ -102,9 +106,15 @@ public final class CityHallDataCollector {
                     affair.daysLeft(today)));
         }
 
-        // 资金 = 领地主玩家余额（全场唯一资金源）；goldMax 与余额同值
-        PlayerProfile profile = PlayerProfileStore.INSTANCE.byUuid(player.getUUID());
-        long gold = profile == null ? 0L : profile.money();
+        String treasuryId = territory == null ? "" : territory.id();
+        long gold = MoneyService.territoryBalance(treasuryId);
+        List<CityHallDataPacket.Line> ledger = new ArrayList<>();
+        for (MoneyLedgerStore.Entry entry : MoneyLedgerStore.INSTANCE.recent(treasuryId)) {
+            ledger.add(new CityHallDataPacket.Line(
+                    TIME.format(java.time.Instant.ofEpochMilli(entry.stamp())) + " " + entry.kind(),
+                    (entry.amount() > 0L ? "+" : "") + entry.amount(),
+                    entry.amount() > 0L ? 1 : -1));
+        }
         return new CityHallDataPacket(
                 townName,
                 today,
@@ -115,7 +125,7 @@ public final class CityHallDataCollector {
                 unity, loyalty, happiness,
                 nationLabel, "", "", "",
                 citizens, structures,
-                List.of(), List.of(), List.of(), List.copyOf(affairs));
+                List.of(), List.of(), ledger, List.copyOf(affairs));
     }
 
     private static String describe(NpcData npc) {

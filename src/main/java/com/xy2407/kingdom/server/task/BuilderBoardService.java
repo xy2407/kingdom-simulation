@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.common.network.builder.BuilderBoardDataPacket;
 import com.xy2407.kingdom.common.network.builder.BuilderBoardRequestPacket;
 import com.xy2407.kingdom.common.network.builder.BuilderEmployeePacket;
@@ -37,11 +38,23 @@ public final class BuilderBoardService {
     }
 
     public static BuilderBoardDataPacket buildPacket() {
-        List<BuilderBoardDataPacket.EmployeeEntry> employees =
-                new ArrayList<>(RegionTaskService.INSTANCE.employeeEntries());
+        List<BuilderBoardDataPacket.EmployeeEntry> employees = new ArrayList<>();
+        try {
+            employees.addAll(RegionTaskService.INSTANCE.employeeEntries());
+        } catch (RuntimeException exception) {
+            ModMain.LOGGER.error("建筑工面板：雇员列表组装失败", exception);
+        }
         List<BuilderBoardDataPacket.TaskEntry> tasks = new ArrayList<>();
-        tasks.addAll(buildingEntries());
-        tasks.addAll(RegionTaskService.INSTANCE.taskEntries());
+        try {
+            tasks.addAll(buildingEntries());
+        } catch (RuntimeException exception) {
+            ModMain.LOGGER.error("建筑工面板：建筑任务组装失败", exception);
+        }
+        try {
+            tasks.addAll(RegionTaskService.INSTANCE.taskEntries());
+        } catch (RuntimeException exception) {
+            ModMain.LOGGER.error("建筑工面板：区域任务组装失败", exception);
+        }
         return new BuilderBoardDataPacket(employees, tasks);
     }
 
@@ -50,7 +63,8 @@ public final class BuilderBoardService {
         for (BuildingConstructionService.TaskSnapshot snapshot
                 : BuildingConstructionService.INSTANCE.snapshots()) {
             List<BuilderBoardDataPacket.NpcRef> npcs = new ArrayList<>();
-            NpcData architect = NpcManager.INSTANCE.getNpc(snapshot.architectId());
+            NpcData architect = snapshot.architectId() == null
+                    ? null : NpcManager.INSTANCE.getNpc(snapshot.architectId());
             if (architect != null && !architect.isDead()) {
                 npcs.add(new BuilderBoardDataPacket.NpcRef(architect.getId(),
                         architect.getName(), architect.getSkin()));

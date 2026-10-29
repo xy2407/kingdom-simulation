@@ -99,9 +99,31 @@ public final class RtsPicker {
 
     public static boolean isSelectable(Entity entity) {
         if (entity instanceof NpcEntity npc) {
-            return !npc.isTouristEntity();
+            return !npc.isTouristEntity() && canControlLocally(npc);
         }
-        return entity instanceof RtsFakePlayerEntity;
+        if (entity instanceof RtsFakePlayerEntity fake) {
+            Minecraft minecraft = Minecraft.getInstance();
+            return minecraft.player != null
+                    && minecraft.player.getUUID().equals(fake.getOwnerUUID());
+        }
+        return false;
+    }
+
+    private static boolean canControlLocally(NpcEntity npc) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player == null) {
+            return false;
+        }
+        String me = minecraft.player.getStringUUID();
+        String owner = npc.getSyncedOwnerId();
+        if (owner != null && !owner.isBlank()) {
+            return owner.equals(me);
+        }
+        String territoryOwner = npc.getSyncedTerritoryOwner();
+        if (territoryOwner != null && !territoryOwner.isBlank()) {
+            return territoryOwner.equals(me);
+        }
+        return true;
     }
 
     public static Vec3 pickTargetBlock(double mouseX, double mouseY) {
@@ -338,13 +360,32 @@ public final class RtsPicker {
     }
 
     private static boolean isOccludedByBlocks(Level level, Vec3 camPos, Entity entity, Entity context) {
-        Vec3 to = entity.getBoundingBox().getCenter();
+        AABB box = entity.getBoundingBox();
+        Vec3 center = box.getCenter();
+        Vec3[] samples = {
+                center,
+                new Vec3(center.x, box.maxY - 0.05D, center.z),
+                new Vec3(center.x, box.minY + 0.05D, center.z),
+                new Vec3(box.minX + 0.05D, center.y, box.minZ + 0.05D),
+                new Vec3(box.maxX - 0.05D, center.y, box.minZ + 0.05D),
+                new Vec3(box.minX + 0.05D, center.y, box.maxZ - 0.05D),
+                new Vec3(box.maxX - 0.05D, center.y, box.maxZ - 0.05D)
+        };
+        for (Vec3 to : samples) {
+            if (!blockedFromCamera(level, camPos, to, context)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean blockedFromCamera(Level level, Vec3 camPos, Vec3 to, Entity context) {
         double distance = camPos.distanceTo(to);
         if (distance < 1.0E-4D) {
             return false;
         }
         BlockHitResult hit = level.clip(new ClipContext(
-                camPos, to, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, context));
+                camPos, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, context));
         return hit.getType() == HitResult.Type.BLOCK
                 && hit.getLocation().distanceTo(camPos) < distance - 0.05D;
     }

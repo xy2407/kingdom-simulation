@@ -3,6 +3,7 @@ package com.xy2407.kingdom.server.npc;
 import com.xy2407.kingdom.common.date.DailyProcessor;
 import com.xy2407.kingdom.common.npc.NpcManager;
 import com.xy2407.kingdom.common.npc.NpcMiningService;
+import com.xy2407.kingdom.common.path.RtsSharedPath;
 import com.xy2407.kingdom.common.path.SnapshotRepository;
 import com.xy2407.kingdom.server.mining.MiningPlotManager;
 import com.xy2407.kingdom.server.mining.MiningScanService;
@@ -53,6 +54,7 @@ public final class NpcServerTick {
         com.xy2407.kingdom.server.area.PlotAreaManager.INSTANCE.tick(event.getServer());
         NpcMiningService.assign(event.getServer());
         NpcManager.INSTANCE.tick(overworld);
+        RtsSharedPath.tick(event.getServer());
         CommuteScheduler.tick(event.getServer());
         MiningScanService.tick(event.getServer());
         com.xy2407.kingdom.server.lumber.LumberSurveyService.INSTANCE.tick(event.getServer());

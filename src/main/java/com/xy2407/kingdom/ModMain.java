@@ -19,12 +19,16 @@ import com.xy2407.kingdom.common.persistence.RegionTaskSchema;
 import com.xy2407.kingdom.common.persistence.RestaurantOrderSchema;
 import com.xy2407.kingdom.common.persistence.RestaurantSeatSchema;
 import com.xy2407.kingdom.common.persistence.ShopSchema;
+import com.xy2407.kingdom.common.persistence.TerritoryTreasurySchema;
+import com.xy2407.kingdom.common.persistence.MoneyLedgerSchema;
+import com.xy2407.kingdom.common.persistence.PlayerGrantSchema;
 import com.xy2407.kingdom.common.persistence.TerritoryVitalsSchema;
 import com.xy2407.kingdom.common.persistence.RanchSchema;
 import com.xy2407.kingdom.common.persistence.TerritorySchema;
 import com.xy2407.kingdom.server.ServerLifecycle;
 import com.xy2407.kingdom.server.building.BuildingServerTick;
 import com.xy2407.kingdom.server.date.DateServerTick;
+import com.xy2407.kingdom.server.npc.NpcChunkEvents;
 import com.xy2407.kingdom.server.npc.NpcJoinWorldHandler;
 import com.xy2407.kingdom.server.npc.NpcServerTick;
 
@@ -61,6 +65,12 @@ public final class ModMain {
         KingdomPersistence.registerMigration(new RestaurantOrderSchema());
         KingdomPersistence.registerMigration(new RestaurantSeatSchema());
         KingdomPersistence.registerMigration(new ShopSchema());
+        KingdomPersistence.registerMigration(new TerritoryTreasurySchema());
+        KingdomPersistence.registerMigration(new MoneyLedgerSchema());
+        KingdomPersistence.registerMigration(new PlayerGrantSchema());
+        KingdomPersistence.registerMigration(new com.xy2407.kingdom.common.persistence.RtsTeamSchema());
+        KingdomPersistence.registerMigration(new com.xy2407.kingdom.common.persistence.RtsTeamMemberSchema());
+        KingdomPersistence.registerMigration(new com.xy2407.kingdom.common.persistence.WildStructureSchema());
         KingdomPersistence.registerMigration(new GovernmentAffairSchema());
         KingdomPersistence.registerMigration(new RoadSchema());
         KingdomPersistence.registerMigration(new RegionTaskSchema());
@@ -70,6 +80,7 @@ public final class ModMain {
         NeoForge.EVENT_BUS.register(ServerLifecycle.class);
         NeoForge.EVENT_BUS.register(DateServerTick.class);
         NeoForge.EVENT_BUS.register(NpcJoinWorldHandler.class);
+        NeoForge.EVENT_BUS.register(NpcChunkEvents.class);
         NeoForge.EVENT_BUS.register(NpcServerTick.class);
         ModEntities.ENTITY_TYPES.register(modEventBus);
         ModBlocks.BLOCKS.register(modEventBus);

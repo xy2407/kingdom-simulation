@@ -1,14 +1,6 @@
 package com.xy2407.kingdom.server.task;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.common.building.BuildingMeta;
@@ -226,6 +218,14 @@ public final class RegionTaskService {
                 materials, total, DateSystem.totalDay(level));
         tasks.put(task.id(), task);
         persist(task);
+        UUID candidate = pickHireCandidate(level, task.min());
+        if (candidate != null) {
+            hireBySystem(candidate);
+            task.assigned().add(candidate);
+        } else {
+            player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                    "附近建筑工棚没有空闲建筑工，请在建筑工面板手动雇佣并指派"), false);
+        }
         ModMain.LOGGER.info("[建筑工] 新建{}任务 {} 范围 {} ~ {} 共 {} 格",
                 kind == RegionTask.Kind.FILL ? "填充" : "拆除", task.id(), min, max, total);
         BuilderBoardService.broadcastAll(level.getServer());
@@ -338,6 +338,55 @@ public final class RegionTaskService {
         BuilderBoardService.broadcastAll(player.server);
     }
 
+    public UUID pickHireCandidate(ServerLevel level, BlockPos near) {
+        String dimension = level.dimension().location().toString();
+        BuildingRecord hut = nearestBuilderHut(dimension, near);
+        if (hut == null) {
+            return null;
+        }
+        Set<UUID> busy = new java.util.HashSet<>();
+        for (RegionTask task : tasks.values()) {
+            if (task.status() == RegionTask.Status.RUNNING) {
+                busy.addAll(task.assigned());
+            }
+        }
+        List<UUID> idle = new ArrayList<>();
+        for (UUID npcId : employees.keySet()) {
+            if (busy.contains(npcId)) {
+                continue;
+            }
+            NpcData npc = NpcManager.INSTANCE.getNpc(npcId);
+            if (npc == null || npc.isDead() || !dimension.equals(npc.getDimension())) {
+                continue;
+            }
+            idle.add(npcId);
+        }
+        if (idle.isEmpty()) {
+            return null;
+        }
+        return idle.get(level.random.nextInt(idle.size()));
+    }
+
+    private static BuildingRecord nearestBuilderHut(String dimension, BlockPos near) {
+        BuildingRecord best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (BuildingRecord record : BuildingRegistry.INSTANCE.all()) {
+            if (!record.dimension().equals(dimension)) {
+                continue;
+            }
+            BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(record);
+            if (meta == null || !meta.isWork(BuildingWork.BUILDER_HUT)) {
+                continue;
+            }
+            double distance = record.min().distSqr(near);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = record;
+            }
+        }
+        return best;
+    }
+
     public boolean hireBySystem(UUID npcId) {
         NpcData npc = NpcManager.INSTANCE.getNpc(npcId);
         if (npc == null || npc.isDead()) {
@@ -383,23 +432,6 @@ public final class RegionTaskService {
         }
         persistEmployee(npcId, false);
         EmploymentService.INSTANCE.dismiss(null, npcId);
-    }
-
-    public UUID pickHireCandidate(ServerLevel level) {
-        String dimension = level.dimension().location().toString();
-        NpcData best = null;
-        double bestDistance = Double.MAX_VALUE;
-        for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
-            if (npc.isDead() || !dimension.equals(npc.getDimension()) || isEmployed(npc.getId())) {
-                continue;
-            }
-            double distance = npc.getX() * npc.getX() + npc.getZ() * npc.getZ();
-            if (distance < bestDistance) {
-                bestDistance = distance;
-                best = npc;
-            }
-        }
-        return best == null ? null : best.getId();
     }
 
     private void tickTask(MinecraftServer server, RegionTask task, boolean swingDue) {

@@ -3,7 +3,7 @@ package com.xy2407.kingdom.server.faction;
 import java.util.UUID;
 
 /**
- * 资金唯一出入口：全场只有玩家余额一个数据源，领地与国家花费一律扣玩家余额。
+ * 资金出入口：玩家钱包、领地金库、市民私产三本账，存取与收益统一记流水
  */
 public final class MoneyService {
 
@@ -42,7 +42,53 @@ public final class MoneyService {
         return new Result(true, balance(uuid));
     }
 
-    // TODO 待扩展（全部走 credit/debit，不另设资金维度）：
-    //  税收征收 / 交易与商店 / 工资俸禄 / 军费支出 / 外交进贡 / 政务奖惩
-    //  资金流水（chLedgerList）暂留空，接入时在此记账并向 CityHallDataPacket.ledger 填充
+    public static long territoryBalance(String territoryId) {
+        return TerritoryTreasuryStore.INSTANCE.balance(territoryId);
+    }
+
+    public static long creditTerritory(String territoryId, long amount, String kind) {
+        if (territoryId == null || amount <= 0L) {
+            return territoryBalance(territoryId);
+        }
+        long after = TerritoryTreasuryStore.INSTANCE.deposit(territoryId, amount);
+        MoneyLedgerStore.INSTANCE.append(territoryId, kind, amount, after);
+        return after;
+    }
+
+    public static boolean debitTerritory(String territoryId, long amount, String kind) {
+        if (territoryId == null || amount <= 0L) {
+            return false;
+        }
+        if (!TerritoryTreasuryStore.INSTANCE.withdraw(territoryId, amount)) {
+            return false;
+        }
+        MoneyLedgerStore.INSTANCE.append(territoryId, kind, -amount,
+                TerritoryTreasuryStore.INSTANCE.balance(territoryId));
+        return true;
+    }
+
+    public static Result depositToTerritory(UUID uuid, String territoryId, long amount) {
+        if (uuid == null || territoryId == null || amount <= 0L) {
+            return new Result(false, balance(uuid));
+        }
+        if (!PlayerProfileStore.INSTANCE.trySpend(uuid, amount)) {
+            return new Result(false, balance(uuid));
+        }
+        long after = TerritoryTreasuryStore.INSTANCE.deposit(territoryId, amount);
+        MoneyLedgerStore.INSTANCE.append(territoryId, "玩家存入", amount, after);
+        return new Result(true, balance(uuid));
+    }
+
+    public static Result withdrawFromTerritory(UUID uuid, String territoryId, long amount) {
+        if (uuid == null || territoryId == null || amount <= 0L) {
+            return new Result(false, balance(uuid));
+        }
+        if (!TerritoryTreasuryStore.INSTANCE.withdraw(territoryId, amount)) {
+            return new Result(false, balance(uuid));
+        }
+        PlayerProfileStore.INSTANCE.addMoney(uuid, amount);
+        MoneyLedgerStore.INSTANCE.append(territoryId, "玩家提取", -amount,
+                TerritoryTreasuryStore.INSTANCE.balance(territoryId));
+        return new Result(true, balance(uuid));
+    }
 }

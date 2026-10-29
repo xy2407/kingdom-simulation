@@ -2,6 +2,8 @@ package com.xy2407.kingdom.common.npc;
 
 import java.util.concurrent.ThreadLocalRandom;
 
+import net.minecraft.core.BlockPos;
+
 /**
  * 市民状态机，按昼夜排班与饥饿驱动三主状态
  */
@@ -238,9 +240,13 @@ public final class NpcBrain {
         if (owner.getWorkX() == 0 && owner.getWorkY() == 0 && owner.getWorkZ() == 0) {
             return true;
         }
-        double dx = owner.getX() - (owner.getWorkX() + 0.5D);
-        double dz = owner.getZ() - (owner.getWorkZ() + 0.5D);
-        double dy = Math.abs(owner.getY() - owner.getWorkY());
+        BlockPos pos = NpcManager.INSTANCE.positionOf(owner);
+        if (pos == null) {
+            return false;
+        }
+        double dx = pos.getX() - (owner.getWorkX() + 0.5D);
+        double dz = pos.getZ() - (owner.getWorkZ() + 0.5D);
+        double dy = Math.abs(pos.getY() - owner.getWorkY());
         return dx * dx + dz * dz <= 0.25D && dy <= 2.0D;
     }
 
@@ -251,9 +257,13 @@ public final class NpcBrain {
         if (owner.getHomeX() == 0 && owner.getHomeY() == 0 && owner.getHomeZ() == 0) {
             return true;
         }
-        double dx = owner.getX() - (owner.getHomeX() + 0.5D);
-        double dz = owner.getZ() - (owner.getHomeZ() + 0.5D);
-        double dy = Math.abs(owner.getY() - owner.getHomeY());
+        BlockPos pos = NpcManager.INSTANCE.positionOf(owner);
+        if (pos == null) {
+            return false;
+        }
+        double dx = pos.getX() - (owner.getHomeX() + 0.5D);
+        double dz = pos.getZ() - (owner.getHomeZ() + 0.5D);
+        double dy = Math.abs(pos.getY() - owner.getHomeY());
         return dx * dx + dz * dz <= 0.25D && dy <= 2.0D;
     }
 

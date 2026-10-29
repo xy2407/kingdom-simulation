@@ -136,12 +136,36 @@ public final class FactionService {
         }
 
         PlayerProfileStore.INSTANCE.setTerritory(player.getUUID(), territory.id());
+        adoptNpcs(player, territory);
         sendState(player);
         MapOverlayCollector.pushAll();
         ModMain.LOGGER.info("{} 建立了领地 {}，初始 {} 个区块",
                 player.getName().getString(), name, territory.chunkCount());
     }
 
+
+    private static void adoptNpcs(ServerPlayer player, Territory territory) {
+        String ownerId = player.getUUID().toString();
+        int adopted = 0;
+        for (com.xy2407.kingdom.common.npc.NpcData npc
+                : com.xy2407.kingdom.common.npc.NpcManager.INSTANCE.allNpcs()) {
+            if (npc == null || !ownerId.equals(npc.getOwnerId())
+                    || !npc.getTerritoryId().isBlank()) {
+                continue;
+            }
+            npc.setTerritoryId(territory.id());
+            npc.setNationId(territory.nationId());
+            com.xy2407.kingdom.common.persistence.KingdomPersistence.submit(
+                    com.xy2407.kingdom.common.persistence.NpcSchema.TABLE_NPC,
+                    com.xy2407.kingdom.common.persistence.NpcSchema.COL_UUID,
+                    npc.getId().toString(), npc.toValues());
+            adopted++;
+        }
+        if (adopted > 0) {
+            ModMain.LOGGER.info("{} 的 {} 名市民归入领地 {}",
+                    player.getName().getString(), adopted, territory.name());
+        }
+    }
 
     private static void onBuyTerritory(ServerPlayer player, TerritoryBuyPacket packet) {
         Territory own = TerritoryRegistry.INSTANCE.byOwner(player.getUUID());

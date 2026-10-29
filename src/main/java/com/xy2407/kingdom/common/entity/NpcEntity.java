@@ -80,6 +80,12 @@ public class NpcEntity extends PathfinderMob {
             SynchedEntityData.defineId(NpcEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Boolean> DATA_TOURIST =
             SynchedEntityData.defineId(NpcEntity.class, EntityDataSerializers.BOOLEAN);
+    private static final EntityDataAccessor<String> DATA_NAME =
+            SynchedEntityData.defineId(NpcEntity.class, EntityDataSerializers.STRING);
+    private static final EntityDataAccessor<String> DATA_OWNER_ID =
+            SynchedEntityData.defineId(NpcEntity.class, EntityDataSerializers.STRING);
+    private static final EntityDataAccessor<String> DATA_TERRITORY_OWNER =
+            SynchedEntityData.defineId(NpcEntity.class, EntityDataSerializers.STRING);
 
     private final NpcInventory npcInventory = createInventory();
     private boolean inventoryLoading;
@@ -131,6 +137,7 @@ public class NpcEntity extends PathfinderMob {
     private int followIndex;
     private boolean followCompleted;
     private BlockPos followEndPos;
+    private boolean testFollowing;
     private long sharedPathUsedKey = Long.MIN_VALUE;
     private int workRepathCooldown;
     private long workPathDeadlineNanos;
@@ -162,6 +169,10 @@ public class NpcEntity extends PathfinderMob {
 
     public void setRtsGroupTarget(BlockPos landing, BlockPos groupTarget, boolean clearOnArrive) {
         rts.setGroupTarget(landing, groupTarget, clearOnArrive);
+    }
+
+    public void setRtsPrecise(boolean precise) {
+        rts.setPrecise(precise);
     }
 
     public void setRtsWaypoints(List<BlockPos> waypoints) {
@@ -304,7 +315,7 @@ public class NpcEntity extends PathfinderMob {
                     if (trimmed.size() < waypoints.size()) {
                         sharedPathUsedKey = stand.asLong();
                     }
-                    workRepathCooldown = 20;
+                    workRepathCooldown = rts.target() == null ? 20 : 0;
                     workFailures = 0;
                     pathPaddingStage = 0;
                     applyPath(trimmed);
@@ -342,7 +353,7 @@ public class NpcEntity extends PathfinderMob {
                     if (trimmed.size() < join.readyPath().size()) {
                         sharedPathUsedKey = stand.asLong();
                     }
-                    workRepathCooldown = 20;
+                    workRepathCooldown = rts.target() == null ? 20 : 0;
                     workFailures = 0;
                     pathPaddingStage = 0;
                     workSession = null;
@@ -630,6 +641,30 @@ public class NpcEntity extends PathfinderMob {
 
     private boolean passable(BlockPos pos) {
         return ChunkSnapshot.isPassable(level().getBlockState(pos));
+    }
+
+    public void startTestFollow(List<NpcPathfinder.Waypoint> path) {
+        rts.clear();
+        stopConstructionPath();
+        testFollowing = true;
+        NpcData data = citizenId == null ? null : NpcManager.INSTANCE.getNpc(citizenId);
+        if (data != null) {
+            data.getBrain().setRtsControlled(true);
+        }
+        applyPath(path);
+    }
+
+    private void tickTestFollow() {
+        if (followIndex >= followPath.size()) {
+            testFollowing = false;
+            stopConstructionPath();
+            NpcData data = citizenId == null ? null : NpcManager.INSTANCE.getNpc(citizenId);
+            if (data != null) {
+                data.getBrain().setRtsControlled(false);
+            }
+            return;
+        }
+        followWaypoints();
     }
 
     private void followWaypoints() {
@@ -1166,6 +1201,9 @@ public class NpcEntity extends PathfinderMob {
         builder.define(DATA_INTELLIGENCE, 0);
         builder.define(DATA_AGILITY, 0);
         builder.define(DATA_TOURIST, false);
+        builder.define(DATA_NAME, "");
+        builder.define(DATA_OWNER_ID, "");
+        builder.define(DATA_TERRITORY_OWNER, "");
     }
 
     public boolean isTouristEntity() {
@@ -1194,6 +1232,22 @@ public class NpcEntity extends PathfinderMob {
 
     public String getSyncedSkin() {
         return entityData.get(DATA_SKIN);
+    }
+
+    public String getSyncedName() {
+        return entityData.get(DATA_NAME);
+    }
+
+    public void setSyncedName(String name) {
+        entityData.set(DATA_NAME, name == null ? "" : name);
+    }
+
+    public String getSyncedOwnerId() {
+        return entityData.get(DATA_OWNER_ID);
+    }
+
+    public String getSyncedTerritoryOwner() {
+        return entityData.get(DATA_TERRITORY_OWNER);
     }
 
     public String getSyncedStatus() {
@@ -1330,9 +1384,30 @@ public class NpcEntity extends PathfinderMob {
     }
 
     @Override
+    protected void dropCustomDeathLoot(ServerLevel level, DamageSource damageSource, boolean recentlyHit) {
+        if (level().isClientSide()) {
+            return;
+        }
+        for (int slot = 0; slot < npcInventory.getSlots(); slot++) {
+            ItemStack stack = npcInventory.getStackInSlot(slot);
+            if (!stack.isEmpty()) {
+                spawnAtLocation(stack);
+                npcInventory.setStackInSlot(slot, ItemStack.EMPTY);
+            }
+        }
+        for (EquipmentSlot equipmentSlot : EquipmentSlot.values()) {
+            setItemSlot(equipmentSlot, ItemStack.EMPTY);
+        }
+    }
+
+    @Override
     public void die(DamageSource cause) {
         super.die(cause);
         if (!level().isClientSide()) {
+            if (level() instanceof ServerLevel serverLevel) {
+                com.xy2407.kingdom.server.rts.RtsTeamManager.removeMemberOnDeath(
+                        serverLevel, getUUID());
+            }
             purgeCitizenData();
         }
     }
@@ -1379,10 +1454,26 @@ public class NpcEntity extends PathfinderMob {
         if (data == null) {
             return;
         }
+        if (data.getEntityUuid() == null) {
+            data.setEntityUuid(entity.getUUID());
+        }
         data.setDimension(entity.level().dimension().location().toString());
-        data.setPosition(entity.getX(), entity.getY(), entity.getZ());
-        KingdomPersistence.submit(NpcSchema.TABLE_NPC, NpcSchema.COL_UUID, data.getId().toString(), data.toValues());
-        data.clearDirty();
+        data.setChunk(entity.chunkPosition().toLong());
+        NpcManager.INSTANCE.registerLive(entity);
+    }
+
+    public static void onLeaveWorld(NpcEntity entity) {
+        NpcData data = entity.citizenId == null ? null : NpcManager.INSTANCE.getNpc(entity.citizenId);
+        if (data == null) {
+            return;
+        }
+        if (entity.level() != null && !entity.level().isClientSide()) {
+            data.setDimension(entity.level().dimension().location().toString());
+            data.setChunk(entity.chunkPosition().toLong());
+            KingdomPersistence.submit(NpcSchema.TABLE_NPC, NpcSchema.COL_UUID, data.getId().toString(), data.toValues());
+            data.clearDirty();
+        }
+        NpcManager.INSTANCE.unregisterLive(entity);
     }
 
     @Override
@@ -1409,16 +1500,37 @@ public class NpcEntity extends PathfinderMob {
         if (!entityData.get(DATA_STATUS).equals(status)) {
             entityData.set(DATA_STATUS, status);
         }
+        String citizenName = data.getName();
+        if (citizenName != null && !citizenName.equals(entityData.get(DATA_NAME))) {
+            entityData.set(DATA_NAME, citizenName);
+        }
+        String ownerId = data.getOwnerId();
+        if (!ownerId.equals(entityData.get(DATA_OWNER_ID))) {
+            entityData.set(DATA_OWNER_ID, ownerId);
+        }
+        String territoryOwner = "";
+        if (!data.getTerritoryId().isBlank()) {
+            var territory = com.xy2407.kingdom.server.faction.TerritoryRegistry.INSTANCE
+                    .byId(data.getTerritoryId());
+            if (territory != null && territory.owner() != null) {
+                territoryOwner = territory.owner().toString();
+            }
+        }
+        if (!territoryOwner.equals(entityData.get(DATA_TERRITORY_OWNER))) {
+            entityData.set(DATA_TERRITORY_OWNER, territoryOwner);
+        }
         if (entityData.get(DATA_TOURIST) != data.isTourist()) {
             entityData.set(DATA_TOURIST, data.isTourist());
         }
         if (data.getEntityUuid() == null) {
             data.setEntityUuid(getUUID());
         }
-        data.setDimension(dimensionId());
-        data.setPosition(getX(), getY(), getZ());
         syncTalent(data);
         NpcBrain brain = data.getBrain();
+        if (testFollowing) {
+            tickTestFollow();
+            return;
+        }
         if (brain.getState() == NpcState.COMMANDED) {
             rts.tick();
             return;
@@ -1473,10 +1585,8 @@ public class NpcEntity extends PathfinderMob {
                 NpcFreightService.tick(this, data);
             }
             case RANCHING -> stopSitting();
-            case TOURIST -> {
-                stopSitting();
-                com.xy2407.kingdom.server.tourism.TourismService.INSTANCE.tickTourist(this, data);
-            }
+            case TOURIST -> com.xy2407.kingdom.server.tourism.TourismService.INSTANCE
+                    .tickTourist(this, data);
             case GOING_WORK -> {
                 tickPathTo(new BlockPos(data.getWorkX(), data.getWorkY(), data.getWorkZ()));
             }
@@ -1522,6 +1632,12 @@ public class NpcEntity extends PathfinderMob {
     }
 
     private void executeWander(NpcBrain brain) {
+        if (com.xy2407.kingdom.server.rts.RtsSelectionService.isSelectedNpc(getUUID())
+                || com.xy2407.kingdom.server.rts.RtsTeamManager.isEditFrozen(getUUID())) {
+            getNavigation().stop();
+            setDeltaMovement(Vec3.ZERO);
+            return;
+        }
         idle.tick(brain);
     }
 
@@ -1583,7 +1699,7 @@ public class NpcEntity extends PathfinderMob {
                 && Math.abs(Math.floor(getY() + 0.5D) - target.getY()) < 1.0D;
     }
 
-    void clearNavTarget() {
+    public void clearNavTarget() {
         navTarget = null;
         pathRetry.reset();
     }

@@ -91,6 +91,25 @@ public record RtsMoveCommandPacket(List<UUID> entityIds, Vec3 target) implements
             int cols = Math.max(1, (int) Math.ceil(Math.sqrt(total)));
             int rows = Math.max(1, (total + cols - 1) / cols);
             BlockPos center = BlockPos.containing(target);
+            boolean worldOps = false;
+            for (NpcEntity npc : units) {
+                UUID teamId = com.xy2407.kingdom.server.rts.RtsTeamManager.teamIdOf(npc.getUUID());
+                if (teamId != null
+                        && com.xy2407.kingdom.server.rts.RtsTeamManager.isWorldOps(teamId)) {
+                    worldOps = true;
+                    break;
+                }
+            }
+            if (worldOps) {
+                for (NpcEntity npc : units) {
+                    npc.setRtsPrecise(true);
+                    npc.setRtsGroupTarget(center, center, false);
+                }
+                for (RtsFakePlayerEntity fake : fakes) {
+                    fake.setMoveTarget(Vec3.atLowerCornerOf(center).add(0.5D, 0.0D, 0.5D));
+                }
+                return;
+            }
             int index = 0;
             for (NpcEntity npc : units) {
                 npc.setRtsGroupTarget(formationLanding(center, index, cols, rows), center, false);

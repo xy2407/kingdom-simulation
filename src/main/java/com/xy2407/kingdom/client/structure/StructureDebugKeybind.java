@@ -782,7 +782,8 @@ public final class StructureDebugKeybind {
             return rowHtml("已登记", String.valueOf(Math.max(0, lastBuildings)));
         }
         if (index == 2) {
-            return rowHtml("队伍", com.xy2407.kingdom.client.rts.RtsTeamClientCache.describe());
+            return rowHtml("队伍", com.xy2407.kingdom.client.rts.RtsTeamClientCache.describe()
+                    + "　（G 键：新建 / 编辑阵型）");
         }
         return rowHtml("数据源", "待接入");
     }

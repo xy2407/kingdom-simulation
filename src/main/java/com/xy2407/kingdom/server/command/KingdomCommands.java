@@ -83,6 +83,11 @@ public final class KingdomCommands {
                                                 .then(Commands.literal("together").executes(ctx -> spawn(ctx, true)))))
                                 .then(Commands.literal("why")
                                         .executes(KingdomCommands::npcWhy)))
+                        .then(Commands.literal("wild")
+                                .then(Commands.literal("scan")
+                                        .executes(KingdomCommands::wildScan)
+                                        .then(Commands.argument("radius", IntegerArgumentType.integer(1, 24))
+                                                .executes(KingdomCommands::wildScan))))
                         .then(Commands.literal("test")
                                 .then(Commands.literal("move")
                                         .then(Commands.literal("clear")
@@ -161,13 +166,7 @@ public final class KingdomCommands {
             ctx.getSource().sendFailure(Component.literal("框选范围内没有可站立的地表"));
             return 0;
         }
-        NpcData worker = nearestCitizen(player);
-        List<UUID> workers = worker == null ? List.of() : List.of(worker.getId());
-        if (worker != null) {
-            EmploymentService.INSTANCE.hire(ctx.getSource().getServer(), worker.getId(),
-                    com.xy2407.kingdom.common.employment.EmploymentTarget.building(
-                            building.id(), "", worker.getShift()));
-        }
+        List<UUID> workers = List.of();
         int spanX = max.getX() - min.getX() + 1;
         int spanZ = max.getZ() - min.getZ() + 1;
         long[] rawCells = new long[Math.max(0, spanX * spanZ)];
@@ -188,7 +187,7 @@ public final class KingdomCommands {
         ctx.getSource().sendSuccess(() -> Component.literal("矿场已建立：范围 "
                 + min.getX() + "," + min.getZ() + " ~ " + max.getX() + "," + max.getZ()
                 + "　地表 y=" + surface
-                + "　采矿工=" + (worker == null ? "未指派" : worker.getName())), true);
+                + "　采矿工=未指派"), true);
         return 1;
     }
 
@@ -229,7 +228,7 @@ public final class KingdomCommands {
             boolean mining = worker.getBrain().isMiningControlled();
             ctx.getSource().sendSuccess(() -> Component.literal("  " + worker.getName()
                     + " 控制位=" + mining
-                    + " 位置=" + (int) worker.getX() + "," + (int) worker.getY() + "," + (int) worker.getZ()
+                    + " 位置=" + worker.getChunk()
                     + " 岗位=" + (worker.getWorkplaceId() == null ? "无" : worker.getWorkplaceId().substring(0, 8))), false);
         }
         return 1;
@@ -391,6 +390,33 @@ public final class KingdomCommands {
                         .executes(KingdomCommands::hireKeeper));
     }
 
+    private static int wildScan(CommandContext<CommandSourceStack> ctx) {
+        ServerLevel level = ctx.getSource().getLevel();
+        ServerPlayer player = ctx.getSource().getPlayer();
+        BlockPos center = player != null
+                ? player.blockPosition()
+                : BlockPos.containing(ctx.getSource().getPosition());
+        int radius = 8;
+        try {
+            radius = IntegerArgumentType.getInteger(ctx, "radius");
+        } catch (IllegalArgumentException ignored) {
+        }
+        com.xy2407.kingdom.server.faction.WildTerritoryService wild =
+                com.xy2407.kingdom.server.faction.WildTerritoryService.INSTANCE;
+        int added = wild.scanAround(level, center, radius);
+        int processed = wild.forceProcess(level.getServer(), 12);
+        int pending = wild.pendingCount();
+        final int r = radius;
+        final int a = added;
+        final int p = processed;
+        final int q = pending;
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "野生领地扫描：半径 " + r + " 区块，新命中实例 " + a
+                        + "，本轮处理 " + p + "，队列剩余 " + q
+                        + "（未完全加载的会在区块加载后自动重试）"), false);
+        return a;
+    }
+
     private static int npcWhy(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         CommandSourceStack source = ctx.getSource();
         ServerPlayer player = source.getPlayerOrException();
@@ -414,7 +440,7 @@ public final class KingdomCommands {
             source.sendFailure(Component.literal(building.name() + " 不是养殖建筑（蓝图 json 里没有 animals）"));
             return 0;
         }
-        NpcData nearest = nearestCitizen(player);
+        NpcData nearest = firstCitizen(player);
         if (nearest == null) {
             source.sendFailure(Component.literal("这个维度还没有市民，先用 /kingdom npc spawn 生成"));
             return 0;
@@ -434,24 +460,24 @@ public final class KingdomCommands {
         return pens.size();
     }
 
-    private static NpcData nearestCitizen(ServerPlayer player) {
+    private static NpcData firstCitizen(ServerPlayer player) {
         String dimension = player.level().dimension().location().toString();
-        NpcData best = null;
-        double bestDistance = Double.MAX_VALUE;
+        BlockPos center = player.blockPosition();
+        List<NpcData> nearby = new java.util.ArrayList<>();
         for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
             if (npc.isDead() || !dimension.equals(npc.getDimension())) {
                 continue;
             }
-            double dx = npc.getX() - player.getX();
-            double dy = npc.getY() - player.getY();
-            double dz = npc.getZ() - player.getZ();
-            double distance = dx * dx + dy * dy + dz * dz;
-            if (distance < bestDistance) {
-                bestDistance = distance;
-                best = npc;
+            BlockPos pos = NpcManager.INSTANCE.positionOf(npc);
+            if (pos == null || pos.distSqr(center) > 64.0D * 64.0D) {
+                continue;
             }
+            nearby.add(npc);
         }
-        return best;
+        if (nearby.isEmpty()) {
+            return null;
+        }
+        return nearby.get(player.getRandom().nextInt(nearby.size()));
     }
 
     private static int exportMap(CommandContext<CommandSourceStack> ctx, int radius)
@@ -581,10 +607,22 @@ public final class KingdomCommands {
             var entity = type.create(level);
             if (entity == null) continue;
             NpcData data = new NpcData(UUID.randomUUID());
-            data.setName("市民" + (i + 1));
             data.setGender(level.random.nextBoolean() ? "MALE" : "FEMALE");
+            data.setName(com.xy2407.kingdom.common.npc.NpcNameGenerator.generate(data.getGender()));
             NpcTalent.roll(data, level.random);
             data.setEntityUuid(entity.getUUID());
+            data.setOwnerId(player.getUUID().toString());
+            data.setNationId(com.xy2407.kingdom.server.faction.PlayerProfileStore.INSTANCE
+                    .byUuid(player.getUUID()) == null ? ""
+                    : com.xy2407.kingdom.server.faction.PlayerProfileStore.INSTANCE
+                            .byUuid(player.getUUID()).nationId());
+            com.xy2407.kingdom.common.faction.Territory here =
+                    com.xy2407.kingdom.server.faction.TerritoryRegistry.INSTANCE.byBlock(
+                            level.dimension().location().toString(), player.getX(), player.getZ());
+            if (here != null) {
+                data.setTerritoryId(here.id());
+                data.setNationId(here.nationId());
+            }
             NpcManager.INSTANCE.registerNpc(data);
             entity.setCitizenId(data.getId());
             entity.moveTo(x, player.getY(), z, player.getYRot(), 0.0F);
@@ -680,8 +718,7 @@ public final class KingdomCommands {
         if (trace.waypoints().isEmpty()) {
             return 0;
         }
-        npc.setHighRtsTarget(requested, false);
-        npc.applyPath(trace.waypoints());
+        npc.startTestFollow(trace.waypoints());
         source.sendSuccess(() -> Component.literal("已开始执行，共 " + trace.waypoints().size() + " 个航点"), true);
         return 1;
     }

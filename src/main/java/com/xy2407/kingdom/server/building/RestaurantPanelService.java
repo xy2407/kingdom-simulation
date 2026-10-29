@@ -40,10 +40,31 @@ public final class RestaurantPanelService {
                     "餐厅家具方块 id 尚未配置，暂时无法布置座位"), true);
             return;
         }
+        BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(building);
+        if (meta == null || meta.menu().isEmpty()) {
+            player.displayClientMessage(Component.literal(
+                    "开业失败：菜单至少要配置 1 道菜品"), true);
+            return;
+        }
+        NpcRestaurantService.Roles roles = NpcRestaurantService.rolesOf(building.id());
+        if (!roles.open()) {
+            player.displayClientMessage(Component.literal(
+                    "开业失败：需要 1 名厨师和至少 1 名服务员"), true);
+            return;
+        }
         int seats = RestaurantSeatStore.INSTANCE.rescan(player.getServer(), building);
-        player.displayClientMessage(Component.literal(seats > 0
-                ? "餐厅已开业：登记 " + seats + " 个座位"
-                : "餐厅开业失败：范围内没有识别到椅子与桌子"), true);
+        if (seats <= 0) {
+            player.displayClientMessage(Component.literal(
+                    "开业失败：范围内没有识别到椅子与桌子"), true);
+            return;
+        }
+        if (!RestaurantSeatStore.INSTANCE.hasTableSeat(building.id())) {
+            player.displayClientMessage(Component.literal(
+                    "开业失败：至少需要 1 把椅子紧邻 1 张桌子"), true);
+            return;
+        }
+        player.displayClientMessage(Component.literal(
+                "餐厅已开业：登记 " + seats + " 个座位"), true);
         sendMenu(player);
     }
 

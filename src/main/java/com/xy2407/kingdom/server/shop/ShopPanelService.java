@@ -35,9 +35,21 @@ public final class ShopPanelService {
         if (building == null) {
             return;
         }
+        if (open && workerName(building.id()).isBlank()) {
+            player.displayClientMessage(Component.literal(
+                    "开业失败：需要先雇佣 1 名营业员"), true);
+            respond(player);
+            return;
+        }
         int shelves = ShopStore.INSTANCE.setOpen(player.getServer(), building, open);
+        if (open && shelves < 0) {
+            player.displayClientMessage(Component.literal(
+                    "开业失败：建筑内至少需要 " + ShopStore.MIN_SHELVES + " 个商品展示架"), true);
+            respond(player);
+            return;
+        }
         player.displayClientMessage(Component.literal(open
-                ? (shelves > 0 ? "商铺已开业：登记 " + shelves + " 个货架" : "商铺已开业，但范围内没有货架方块")
+                ? "商铺已开业：登记 " + shelves + " 个货架"
                 : "商铺已打烊"), true);
         respond(player);
     }

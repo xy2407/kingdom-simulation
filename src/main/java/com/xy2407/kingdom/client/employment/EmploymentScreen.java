@@ -223,7 +223,7 @@ public final class EmploymentScreen extends ApricityScreen {
         int offset = page * PER_PAGE;
         StringBuilder html = new StringBuilder();
         boolean full = packet.limit() > 0 && chosen.size() >= packet.limit();
-        for (int index = 0; index < visible.size() && index < PER_PAGE; index++) {
+        for (int index = 0; index < PER_PAGE && offset + index < visible.size(); index++) {
             EmploymentPanelStatePacket.Entry entry = visible.get(offset + index);
             boolean picked = chosenSet.contains(entry.id());
             String style = picked ? CARD_ON : (full ? CARD + " busy" : CARD);
@@ -246,7 +246,7 @@ public final class EmploymentScreen extends ApricityScreen {
             html.append("<div class=\"ep-empty\">没有符合条件的市民</div>");
         }
         grid.setInnerHTML(html.toString());
-        for (int index = 0; index < visible.size() && index < PER_PAGE; index++) {
+        for (int index = 0; index < PER_PAGE && offset + index < visible.size(); index++) {
             EmploymentPanelStatePacket.Entry entry = visible.get(offset + index);
             Element card = boundDocument == null ? null
                     : boundDocument.getElementById("ep-card-" + index);
@@ -265,7 +265,11 @@ public final class EmploymentScreen extends ApricityScreen {
             setText(pages, "/ " + pagesTotal);
         }
         if (pageInput instanceof Input input) {
-            shownPage = input.getValue();
+            String want = String.valueOf(page + 1);
+            if (!want.equals(input.getValue())) {
+                input.setValue(want);
+            }
+            shownPage = want;
         }
         if (hint != null) {
             setText(hint, "已选 " + chosen.size()

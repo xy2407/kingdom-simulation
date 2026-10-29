@@ -7,11 +7,9 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * NPC 垂直移动执行：攀爬速度、台阶起跳与可攀爬/下行判定。
+ * NPC 垂直移动执行：仅处理攀爬速度与可攀爬下行，台阶交给原生 step_height。
  */
 final class NpcVerticalMovement {
-
-    private static final int CLIMB_INTERVAL_TICKS = 10;
 
     private final NpcEntity npc;
     private boolean climbState;
@@ -48,12 +46,6 @@ final class NpcVerticalMovement {
             return;
         }
         switch (waypoint.move()) {
-            case STEP_UP -> {
-                if (npc.onGround() && climbCooldown <= 0 && npc.getDeltaMovement().y <= 0.02D) {
-                    climbCooldown = CLIMB_INTERVAL_TICKS;
-                    npc.getJumpControl().jump();
-                }
-            }
             case CLIMB -> climbMove(climbDirection);
             default -> {
             }

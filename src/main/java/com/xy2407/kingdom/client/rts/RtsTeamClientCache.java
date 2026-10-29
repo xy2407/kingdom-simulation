@@ -9,7 +9,9 @@ import net.neoforged.api.distmarker.OnlyIn;
 import java.util.List;
 import java.util.UUID;
 
-/** 客户端队伍缓存：接收服务端同步的队伍列表，供左侧栏与阵型编辑器读取。 */
+/**
+ * 客户端队伍缓存：接收服务端同步的队伍列表，供队伍面板与阵型编辑器读取
+ */
 @OnlyIn(Dist.CLIENT)
 public final class RtsTeamClientCache {
 
@@ -44,6 +46,22 @@ public final class RtsTeamClientCache {
             }
         }
         return null;
+    }
+
+    public static RtsTeamSyncPacket.Entry byMember(UUID member) {
+        if (member == null) {
+            return null;
+        }
+        for (RtsTeamSyncPacket.Entry entry : teams) {
+            if (entry.members().contains(member)) {
+                return entry;
+            }
+        }
+        return null;
+    }
+
+    public static boolean isInTeam(UUID member) {
+        return byMember(member) != null;
     }
 
     public static String describe() {

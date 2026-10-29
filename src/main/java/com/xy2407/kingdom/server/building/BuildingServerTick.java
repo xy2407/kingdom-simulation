@@ -9,6 +9,10 @@ import com.xy2407.kingdom.server.ranch.RanchPenManager;
 import com.xy2407.kingdom.server.restaurant.RestaurantOrderStore;
 import com.xy2407.kingdom.server.restaurant.RestaurantSeatStore;
 import com.xy2407.kingdom.server.shop.ShopStore;
+import com.xy2407.kingdom.server.faction.MoneyLedgerStore;
+import com.xy2407.kingdom.server.faction.PlayerGrantService;
+import com.xy2407.kingdom.server.faction.PlayerGrantStore;
+import com.xy2407.kingdom.server.faction.TerritoryTreasuryStore;
 import com.xy2407.kingdom.server.task.RegionTaskService;
 
 import net.minecraft.server.MinecraftServer;
@@ -39,7 +43,11 @@ public final class BuildingServerTick {
         RanchPenManager.INSTANCE.tick(event.getServer());
         RestaurantOrderStore.INSTANCE.tick(event.getServer());
         RestaurantSeatStore.INSTANCE.tick(event.getServer());
+        com.xy2407.kingdom.server.faction.WildTerritoryService.INSTANCE.tick(event.getServer());
         ShopStore.INSTANCE.tick(event.getServer());
+        TerritoryTreasuryStore.INSTANCE.tick(event.getServer());
+        MoneyLedgerStore.INSTANCE.tick(event.getServer());
+        PlayerGrantStore.INSTANCE.tick(event.getServer());
         if (++industryAssignCounter % INDUSTRY_ASSIGN_INTERVAL_TICKS == 0) {
             NpcIndustryService.assignWorkers(event.getServer());
             NpcRestaurantService.assignWorkers(event.getServer());
@@ -51,6 +59,7 @@ public final class BuildingServerTick {
     public static void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             BuildingConstructionService.INSTANCE.syncTo(player);
+            PlayerGrantService.grantIfNeeded(player);
         }
     }
 }
