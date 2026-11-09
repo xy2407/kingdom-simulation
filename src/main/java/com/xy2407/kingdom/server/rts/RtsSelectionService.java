@@ -59,6 +59,29 @@ public final class RtsSelectionService {
         rebuildSelectedNpcs();
     }
 
+    /** 实体死亡/被移除：从所有玩家的选中集合里摘掉，避免残留幽灵 UUID。 */
+    public static void onEntityRemoved(UUID entityId) {
+        if (entityId == null) {
+            return;
+        }
+        java.util.Set<UUID> affected = new java.util.HashSet<>();
+        for (Map.Entry<UUID, Set<UUID>> entry : SELECTED.entrySet()) {
+            if (entry.getValue().contains(entityId)) {
+                affected.add(entry.getKey());
+            }
+        }
+        for (UUID playerId : affected) {
+            Set<UUID> ids = new HashSet<>(SELECTED.getOrDefault(playerId, Set.of()));
+            ids.remove(entityId);
+            if (ids.isEmpty()) {
+                SELECTED.remove(playerId);
+            } else {
+                SELECTED.put(playerId, Set.copyOf(ids));
+            }
+        }
+        rebuildSelectedNpcs();
+    }
+
     public static void clearAll() {
         SELECTED.clear();
         SELECTED_NPCS.clear();
@@ -106,7 +129,13 @@ public final class RtsSelectionService {
         String territoryId = data.getTerritoryId();
         if (!territoryId.isBlank()) {
             Territory territory = TerritoryRegistry.INSTANCE.byId(territoryId);
-            return territory != null && player.getUUID().equals(territory.owner());
+            if (territory == null) {
+                // 领土注册表还没加载完（重进世界/刚开服）或该领土已被删除时，不能把市民锁死：
+                // 以前这里直接返回 false，客户端每次框选都会被纠正包清空，表现就是"退出一次之后
+                // 自家 NPC 再也选不中"。owner 已经空着，这里按无主处理放行。
+                return true;
+            }
+            return player.getUUID().equals(territory.owner());
         }
         return true;
     }

@@ -26,6 +26,12 @@ public final class RtsTeamClientCache {
 
     private static void accept(List<RtsTeamSyncPacket.Entry> synced) {
         teams = synced == null ? List.of() : List.copyOf(synced);
+        // 队伍被删/解散后，把它的坐标缓存一起收掉（否则阵型编辑器会留着找不到队伍的坐标表）
+        List<UUID> alive = new java.util.ArrayList<>(teams.size());
+        for (RtsTeamSyncPacket.Entry entry : teams) {
+            alive.add(entry.teamId());
+        }
+        RtsTeamPosCache.retain(alive);
     }
 
     public static List<RtsTeamSyncPacket.Entry> teams() {

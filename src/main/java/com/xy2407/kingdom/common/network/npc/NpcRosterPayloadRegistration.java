@@ -23,5 +23,7 @@ public final class NpcRosterPayloadRegistration {
                 NpcRosterRequestPacket.STREAM_CODEC, NpcRosterRequestPacket::handle);
         registrar.playToClient(NpcRosterPacket.TYPE,
                 NpcRosterPacket.STREAM_CODEC, NpcRosterPacket::handle);
+        registrar.playToClient(NpcRemovalPacket.TYPE,
+                NpcRemovalPacket.STREAM_CODEC, NpcRemovalPacket::handle);
     }
 }

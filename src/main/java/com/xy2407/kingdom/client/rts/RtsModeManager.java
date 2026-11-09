@@ -8,6 +8,7 @@ import com.xy2407.kingdom.common.network.rts.RtsMoveCommandPacket;
 import com.xy2407.kingdom.common.network.rts.RtsSelectionSyncPacket;
 
 import com.xy2407.kingdom.common.network.mapoverlay.MapOverlayRequestPacket;
+import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
@@ -15,7 +16,6 @@ import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.joml.Matrix4f;
 import org.lwjgl.glfw.GLFW;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -184,6 +184,7 @@ public final class RtsModeManager {
         middleMouseDown = false;
 
         RtsWaypointState.clear();
+        RtsPatrolState.clear();
         BuildingPlacementManager.cancel();
         FarmAreaSelector.cancel();
         RegionSelectionState.reset();
@@ -192,6 +193,8 @@ public final class RtsModeManager {
             RtsFormationEditorState.close();
         }
         RtsTeamPanelState.close();
+        com.xy2407.kingdom.client.rts.RtsOpsPanel.close();
+        RtsAttackTargetState.clear();
         if (minecraft.getConnection() != null) {
             PacketDistributor.sendToServer(RtsFakePlayerClearPacket.INSTANCE);
         }
@@ -204,7 +207,26 @@ public final class RtsModeManager {
     public static void onLogout() {
         if (active) {
             exit();
+            // 指挥面板是临时指挥所：断开就整块清空，重进不会保留旧编组与旧头像
+            RtsOpsPanel.reset();
+            RtsAttackTargetState.clear();
+            return;
         }
+        // 不在 RTS 里退出世界：把可能残留的静态状态一并清掉。
+        // 否则下次进世界时相机/选中集合还带着上一局的残值，框选会莫名其妙地失灵。
+        subMode = RtsSubMode.NONE;
+        orthoEnabled = false;
+        cameraPos = null;
+        prevCameraPos = null;
+        selectedEntities.clear();
+        moveTargets.clear();
+        selectionLocked = false;
+        boxSelecting = false;
+        ctrlBoxSelecting = false;
+        leftMouseDown = false;
+        middleMouseDown = false;
+        RtsOpsPanel.reset();
+        RtsAttackTargetState.clear();
     }
 
     public static void onPlayerDeath() {
@@ -279,13 +301,21 @@ public final class RtsModeManager {
     }
 
     public static void teleportCameraTo(Vec3 pos) {
+        teleportCameraTo(pos, 30.0F);
+    }
+
+    /**
+     * 跳到某个坐标上方。{@code pitch} 是俯仰角：30 = 原来的斜视（看远处、脚下目标会跑到画面外），
+     * 89 = 几乎垂直向下的俯视（相机就在目标正上方，画面中心正对目标脚下的地面）。
+     */
+    public static void teleportCameraTo(Vec3 pos, float pitch) {
         if (pos == null) {
             return;
         }
         cameraPos = pos.add(0.0D, ENTER_HEIGHT_OFFSET, 0.0D);
         prevCameraPos = cameraPos;
         zoomTargetY = cameraPos.y;
-        cameraPitch = 30.0F;
+        cameraPitch = Math.max(-89.0F, Math.min(89.0F, pitch));
         prevCameraPitch = cameraPitch;
     }
 
@@ -355,6 +385,9 @@ public final class RtsModeManager {
         if (!active) {
             return;
         }
+        // 每帧对齐物理 Ctrl：打开 AUI 面板/窗口失焦时收不到 RELEASE，缓存位会一直停在 true，
+        // 之后就出现"没按 Ctrl 也是红框"的怪象。
+        ctrlHeld = isCtrlPhysicallyDown();
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.player == null || cameraPos == null || minecraft.screen != null) {
             return;
@@ -480,7 +513,10 @@ public final class RtsModeManager {
 
     public static void onLeftMouseDown() {
         leftMouseDown = true;
-        ctrlBoxSelecting = ctrlHeld;
+        // 按下当刻直接读物理按键，不用缓存的 ctrlHeld：
+        // 缓存值会被「打开面板时收不到 RELEASE 事件」卡在 true，导致之后每次框选都莫名其妙变红框。
+        ctrlBoxSelecting = isCtrlPhysicallyDown();
+        ctrlHeld = ctrlBoxSelecting;
         double[] pos = getGuiScaledMouse();
         boxStartX = pos[0];
         boxStartY = pos[1];
@@ -509,16 +545,37 @@ public final class RtsModeManager {
         }
         leftMouseDown = false;
         boolean dragged = boxSelecting;
+        boolean attackTargeting = dragged && ctrlBoxSelecting;
         boxSelecting = false;
         ctrlBoxSelecting = false;
         if (isSelectionLocked()) {
             return;
         }
         if (dragged) {
-            RtsPicker.boxSelect(boxStartX, boxStartY, boxEndX, boxEndY);
+            if (attackTargeting) {
+                RtsPicker.attackBoxSelect(boxStartX, boxStartY, boxEndX, boxEndY);
+            } else {
+                RtsPicker.boxSelect(boxStartX, boxStartY, boxEndX, boxEndY);
+            }
         } else {
             RtsPicker.clickSelect(boxEndX, boxEndY);
         }
+    }
+
+    public static boolean isAttackBoxSelecting() {
+        // 必须真的在拖拽，否则缓存里残留的 ctrl 位会让普通点选也画红框
+        return boxSelecting && ctrlBoxSelecting;
+    }
+
+    /** 实时读取左右 Ctrl 的物理按下状态（不依赖事件缓存）。 */
+    private static boolean isCtrlPhysicallyDown() {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.getWindow() == null) {
+            return false;
+        }
+        long handle = minecraft.getWindow().getWindow();
+        return InputConstants.isKeyDown(handle, GLFW.GLFW_KEY_LEFT_CONTROL)
+                || InputConstants.isKeyDown(handle, GLFW.GLFW_KEY_RIGHT_CONTROL);
     }
 
     public static void issueMoveCommand() {
@@ -530,6 +587,14 @@ public final class RtsModeManager {
             return;
         }
         double[] mouse = getGuiScaledMouse();
+        // 巡逻路线录制优先：按住 V 时右键只追加节点，不会误发普通移动指令
+        if (RtsPatrolState.isRecording()) {
+            Vec3 node = RtsPicker.pickTargetBlock(mouse[0], mouse[1]);
+            if (node != null) {
+                RtsPatrolState.append(node);
+            }
+            return;
+        }
         if (RtsWaypointState.isActive()) {
             Vec3 node = RtsPicker.pickTargetBlock(mouse[0], mouse[1]);
             if (node != null) {
@@ -617,6 +682,7 @@ public final class RtsModeManager {
             moveTargets.clear();
         }
         syncSelectionToServer();
+        com.xy2407.kingdom.client.rts.RtsOpsPanel.onWorldSelection();
     }
 
     public static void applyServerSelection(Set<UUID> ids) {
@@ -637,6 +703,21 @@ public final class RtsModeManager {
         PacketDistributor.sendToServer(new RtsSelectionSyncPacket(new HashSet<>(selectedEntities)));
     }
 
+    /**
+     * 实体死亡/被移除：从选中与移动目的地里摘掉。
+     * 服务端已经会把死人过滤掉，但客户端 HUD 的「已选 N」和目的地标记会一直带着幽灵成员。
+     */
+    public static void removeEntity(java.util.UUID id) {
+        if (id == null) {
+            return;
+        }
+        boolean changed = selectedEntities.remove(id);
+        moveTargets.remove(id);
+        if (changed && active) {
+            syncSelectionToServer();
+        }
+    }
+
     public static void clearSelection() {
         if (selectedEntities.isEmpty() && moveTargets.isEmpty()) {
             return;
@@ -644,6 +725,16 @@ public final class RtsModeManager {
         selectedEntities.clear();
         moveTargets.clear();
         syncSelectionToServer();
+    }
+
+    public static void clearAggro() {
+        RtsAttackTargetState.clear();
+        Set<UUID> ids = new HashSet<>(selectedEntities);
+        if (ids.isEmpty() || Minecraft.getInstance().getConnection() == null) {
+            return;
+        }
+        PacketDistributor.sendToServer(
+                new com.xy2407.kingdom.common.network.rts.RtsClearAggroPacket(new ArrayList<>(ids)));
     }
 
     public static boolean isSelectionLocked() {

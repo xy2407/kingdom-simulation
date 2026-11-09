@@ -33,9 +33,11 @@ public record MapStandTogglePacket(BlockPos standPos, List<UUID> buildingIds, bo
     public static void encode(RegistryFriendlyByteBuf buf, MapStandTogglePacket packet) {
         buf.writeBlockPos(packet.standPos());
         buf.writeBoolean(packet.govern());
-        buf.writeInt(packet.buildingIds().size());
-        for (UUID id : packet.buildingIds()) {
-            buf.writeUUID(id);
+        List<UUID> ids = packet.buildingIds() == null ? List.of() : packet.buildingIds();
+        int count = Math.min(ids.size(), 512);
+        buf.writeInt(count);
+        for (int index = 0; index < count; index++) {
+            buf.writeUUID(ids.get(index));
         }
     }
 

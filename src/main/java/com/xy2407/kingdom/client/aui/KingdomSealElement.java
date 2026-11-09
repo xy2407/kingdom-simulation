@@ -4,9 +4,11 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.sighs.apricityui.element.Canvas;
 import com.sighs.apricityui.init.Document;
 import com.sighs.apricityui.layout.Box;
+import com.sighs.apricityui.layout.Position;
 import com.sighs.apricityui.layout.Size;
 import com.sighs.apricityui.registry.annotation.ElementRegister;
 import com.sighs.apricityui.render.Base;
+import com.sighs.apricityui.render.DevicePixelGrid;
 import com.sighs.apricityui.render.ImageDrawer;
 import com.sighs.apricityui.render.Rect;
 import net.neoforged.api.distmarker.Dist;
@@ -25,7 +27,11 @@ public class KingdomSealElement extends Canvas {
     public static final String TAG_NAME = "KINGDOM-SEAL";
 
     private static final int ART_SIZE = 52;
-    private static final int RASTER_SCALE = 4;
+    /**
+     * 超采样倍数：印章在页面里是 104×104 CSS px，乘 2 得到 208 的设计画布，
+     * 再乘设备缩放才是真实光栅。倍数再大只是白白吃显存（4 倍会到 1200+ 见方）。
+     */
+    private static final int RASTER_SCALE = 2;
 
     private static final int[] C_OUTER = {0x4A, 0x0A, 0x0A};
     private static final int[] C_MID = {0x7A, 0x14, 0x14};
@@ -38,8 +44,7 @@ public class KingdomSealElement extends Canvas {
 
     private double layoutWidth = -1;
     private double layoutHeight = -1;
-    private int surfaceWidth = -1;
-    private int surfaceHeight = -1;
+    private String paintedSignature;
 
     public KingdomSealElement(Document document) {
         super(document);
@@ -67,35 +72,41 @@ public class KingdomSealElement extends Canvas {
         }
         layoutWidth = contentSize.width();
         layoutHeight = contentSize.height();
-        int wantedWidth = Math.max(1, (int) Math.ceil(contentSize.width() * RASTER_SCALE));
-        int wantedHeight = Math.max(1, (int) Math.ceil(contentSize.height() * RASTER_SCALE));
-        if (wantedWidth == getWidth() && wantedHeight == getHeight()
-                && surfaceWidth == wantedWidth && surfaceHeight == wantedHeight) {
+        // 与盾徽同一套算法：内容盒 × 超采样 = 设计尺寸，AUI 再乘设备缩放得到光栅。
+        int cssWidth = Math.max(1, (int) Math.ceil(contentSize.width() * RASTER_SCALE));
+        int cssHeight = Math.max(1, (int) Math.ceil(contentSize.height() * RASTER_SCALE));
+        resizeSurface(cssWidth, cssHeight, false);
+        // 真光栅尺寸进签名：设备缩放变化时强制重画，否则内容会缩在左上角。
+        String signature = cssWidth + "x" + cssHeight
+                + "@" + getBitmapWidth() + "x" + getBitmapHeight();
+        if (signature.equals(paintedSignature)) {
             return;
         }
-        resizeSurface(wantedWidth, wantedHeight, false);
-        surfaceWidth = wantedWidth;
-        surfaceHeight = wantedHeight;
-
-        renderOperation(graphics -> paint(graphics, wantedWidth, wantedHeight));
+        paintedSignature = signature;
+        renderOperation(graphics -> {
+            double device = getDeviceScale();
+            if (device > 0.0D && Double.isFinite(device)) {
+                graphics.scale(device, device);
+            }
+            paintSeal(graphics, cssWidth, cssHeight);
+        });
     }
 
     @Override
     protected void drawCanvas(PoseStack poseStack, Rect rectRenderer) {
         syncTexture();
-        if (textureLocation == null) {
+        if (textureLocation == null || layoutWidth <= 0 || layoutHeight <= 0) {
             return;
         }
-        if (layoutWidth <= 0 || layoutHeight <= 0) {
-            return;
-        }
+        double device = getDeviceScale();
+        Position contentPos = rectRenderer.getContentPosition();
         ImageDrawer.draw(poseStack, textureLocation,
-                (float) rectRenderer.getContentPosition().x,
-                (float) rectRenderer.getContentPosition().y,
+                DevicePixelGrid.snap(contentPos.x, device),
+                DevicePixelGrid.snap(contentPos.y, device),
                 (float) layoutWidth, (float) layoutHeight, true);
     }
 
-    private static void paint(Graphics2D graphics, int surfaceWidth, int surfaceHeight) {
+    private static void paintSeal(Graphics2D graphics, int surfaceWidth, int surfaceHeight) {
         BufferedImage image = new BufferedImage(ART_SIZE, ART_SIZE, BufferedImage.TYPE_INT_ARGB);
         double center = (ART_SIZE - 1) / 2.0;
         double outerRadius = ART_SIZE / 2.0 - 1.0;

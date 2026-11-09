@@ -1,10 +1,13 @@
 package com.xy2407.kingdom.client.building;
 
+import java.util.ArrayList;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.sighs.apricityui.init.Document;
 import com.sighs.apricityui.init.Element;
+import com.sighs.apricityui.init.Node;
 import com.sighs.apricityui.screen.ApricityContainerScreen;
 import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.common.network.building.BuildingStorageClientHooks;
@@ -29,8 +32,10 @@ public final class BuildingStorageScreenDriver {
 
     private static final String ID_TITLE = "storageTitle";
     private static final String ID_CAPACITY = "storageCapacity";
+    private static final String CONTAINER_ID = "saved_data";
     private static final String SLOT_ID_PREFIX = "bslot";
     private static final String OFF_CLASS = "is-off";
+    private static final int SLOT_SIZE = 46;
 
     private static final Logger LOGGER = LoggerFactory.getLogger("xy2407_kingdom/building_storage");
 
@@ -83,6 +88,7 @@ public final class BuildingStorageScreenDriver {
 
     private static void apply(Document document, BuildingStorageOpenPacket packet) {
         appliedSnapshot = packet;
+        ensureSlots(document, packet.maxSlots());
         String name = packet.buildingName();
         text(document, ID_TITLE, name == null || name.isBlank() ? "仓 库" : name);
         text(document, ID_CAPACITY, packet.capacity() + " / " + packet.maxSlots() + " 格");
@@ -100,6 +106,41 @@ public final class BuildingStorageScreenDriver {
         }
         LOGGER.info("仓库页数据已填入: {} 可用 {}/{} 格（隐藏 {} 格）",
                 name, packet.capacity(), packet.maxSlots(), hidden);
+    }
+
+    /**
+     * 按蓝图声明的格数补齐槽位元素：页面只画了基础 54 格，多出来的在这里追加，
+     * AUI 会通过 shouldRebindSlotsFromDom 检测到数量变化后自动重绑。
+     */
+    private static void ensureSlots(Document document, int needed) {
+        Element container = document.getElementById(CONTAINER_ID);
+        if (container == null || needed <= 0) {
+            return;
+        }
+        int existing = 0;
+        while (document.getElementById(SLOT_ID_PREFIX + existing) != null) {
+            existing++;
+        }
+        if (existing >= needed) {
+            return;
+        }
+        container.setAttribute("size", String.valueOf(needed));
+        StringBuilder html = new StringBuilder("<div>");
+        for (int index = existing; index < needed; index++) {
+            html.append("<slot id=\"").append(SLOT_ID_PREFIX).append(index)
+                    .append("\" class=\"slot\" slot-index=\"").append(index)
+                    .append("\" slot-size=\"").append(SLOT_SIZE).append("\">")
+                    .append("<item class=\"slot-icon\"></item></slot>");
+        }
+        html.append("</div>");
+        Element wrapper = document.createHTML(html.toString());
+        if (wrapper == null) {
+            return;
+        }
+        for (Node child : new ArrayList<>(wrapper.childNodes)) {
+            container.appendChild(child);
+        }
+        LOGGER.info("仓库页补齐槽位: {} → {} 格", existing, needed);
     }
 
     private static void text(Document document, String id, String value) {

@@ -37,8 +37,11 @@ public record BuildingSyncPacket(List<Entry> entries) implements CustomPacketPay
     }
 
     private static void encode(RegistryFriendlyByteBuf buf, BuildingSyncPacket packet) {
-        buf.writeInt(packet.entries().size());
-        for (Entry entry : packet.entries()) {
+        List<Entry> list = packet.entries() == null ? List.of() : packet.entries();
+        int count = Math.min(list.size(), MAX_ENTRIES);
+        buf.writeInt(count);
+        for (int index = 0; index < count; index++) {
+            Entry entry = list.get(index);
             buf.writeUUID(entry.id());
             buf.writeUtf(entry.name() == null ? "" : entry.name(), 128);
             buf.writeBlockPos(entry.min());

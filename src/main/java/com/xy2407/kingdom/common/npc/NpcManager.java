@@ -69,6 +69,17 @@ public final class NpcManager {
         return npc == null ? null : liveByCitizen.get(npc.getId());
     }
 
+    /**
+     * 力量值变更：只对正在加载的那只实体重算属性。
+     * 这是事件驱动的同步，刻意不放进每 tick 的 brain/tick 流程里。
+     */
+    public void onTalentChanged(NpcData npc) {
+        NpcEntity live = liveEntity(npc);
+        if (live != null && !live.isRemoved()) {
+            live.syncTalent(npc);
+        }
+    }
+
     public BlockPos positionOf(NpcData npc) {
         NpcEntity entity = liveEntity(npc);
         return entity == null || entity.isRemoved() ? null : entity.blockPosition();
@@ -183,6 +194,8 @@ public final class NpcManager {
 
     public void removeNpc(UUID id) {
         byId.remove(id);
+        // live 索引也要一起摘：否则 liveEntity() 还会返回一个已经死掉的实体
+        liveByCitizen.remove(id);
         KingdomPersistence.delete(NpcSchema.TABLE_NPC, NpcSchema.COL_UUID, id.toString());
     }
 
@@ -283,6 +296,7 @@ public final class NpcManager {
         npc.setWorkRecipeId(rs.getString(NpcSchema.COL_WORK_RECIPE_ID));
         npc.setInventoryJson(rs.getString(NpcSchema.COL_INVENTORY));
         npc.setSkin(rs.getString(NpcSchema.COL_SKIN));
+        npc.setCombatMode(rs.getString(NpcSchema.COL_COMBAT_MODE));
         return npc;
     }
 

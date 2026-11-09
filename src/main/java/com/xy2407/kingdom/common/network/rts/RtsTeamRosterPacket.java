@@ -43,8 +43,11 @@ public record RtsTeamRosterPacket(List<Member> members) implements CustomPacketP
     }
 
     private static void encode(RegistryFriendlyByteBuf buf, RtsTeamRosterPacket packet) {
-        buf.writeInt(packet.members().size());
-        for (Member member : packet.members()) {
+        List<Member> members = packet.members() == null ? List.of() : packet.members();
+        int count = Math.min(members.size(), 256);
+        buf.writeInt(count);
+        for (int index = 0; index < count; index++) {
+            Member member = members.get(index);
             buf.writeUUID(member.uuid());
             buf.writeUtf(member.name(), 64);
             buf.writeUtf(member.skin(), 200);

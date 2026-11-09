@@ -39,8 +39,11 @@ public record RestaurantMenuPacket(int chefCount, int waiterCount, List<Dish> di
     private static void encode(RegistryFriendlyByteBuf buf, RestaurantMenuPacket packet) {
         buf.writeInt(packet.chefCount());
         buf.writeInt(packet.waiterCount());
-        buf.writeInt(packet.dishes().size());
-        for (Dish dish : packet.dishes()) {
+        List<Dish> dishes = packet.dishes() == null ? List.of() : packet.dishes();
+        int dishCount = Math.min(dishes.size(), MAX_DISHES);
+        buf.writeInt(dishCount);
+        for (int index = 0; index < dishCount; index++) {
+            Dish dish = dishes.get(index);
             buf.writeUtf(dish.id() == null ? "" : dish.id(), 64);
             buf.writeUtf(dish.name() == null ? "" : dish.name(), 128);
             buf.writeUtf(dish.outputItem() == null ? "" : dish.outputItem(), 128);

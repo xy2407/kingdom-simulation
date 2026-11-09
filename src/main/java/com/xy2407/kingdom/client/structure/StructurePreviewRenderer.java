@@ -23,6 +23,8 @@ public final class StructurePreviewRenderer {
         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) {
             return;
         }
+        // 卡片网格改由 StructurePreviewElement 绘制时驱动（那边一定在渲染线程上），
+        // 这里不再重复驱动
         StructureDebugChat.once("hook-fire", "渲染钩子已触发：stage=%s", event.getStage());
         if (Minecraft.getInstance().level == null) {
             StructureDebugChat.once("hook-nolevel", "渲染钩子跳过：当前没有世界");

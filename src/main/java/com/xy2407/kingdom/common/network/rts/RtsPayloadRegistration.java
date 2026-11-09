@@ -47,6 +47,14 @@ public final class RtsPayloadRegistration {
                 RtsTeamFocusPacket.STREAM_CODEC, RtsTeamFocusPacket::handle);
         registrar.playToServer(RtsTeamMovePacket.TYPE,
                 RtsTeamMovePacket.STREAM_CODEC, RtsTeamMovePacket::handle);
+        registrar.playToServer(RtsPatrolOrderPacket.TYPE,
+                RtsPatrolOrderPacket.STREAM_CODEC, RtsPatrolOrderPacket::handle);
+        registrar.playToServer(RtsOpsCommandPacket.TYPE,
+                RtsOpsCommandPacket.STREAM_CODEC, RtsOpsCommandPacket::handle);
+        registrar.playToServer(RtsAttackOrderPacket.TYPE,
+                RtsAttackOrderPacket.STREAM_CODEC, RtsAttackOrderPacket::handle);
+        registrar.playToServer(RtsClearAggroPacket.TYPE,
+                RtsClearAggroPacket.STREAM_CODEC, RtsClearAggroPacket::handle);
         registrar.playToClient(RtsTeamMemberPosPacket.TYPE,
                 RtsTeamMemberPosPacket.STREAM_CODEC, RtsTeamMemberPosPacket::handle);
         registrar.playToClient(RtsTeamOpResultPacket.TYPE,

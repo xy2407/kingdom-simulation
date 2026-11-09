@@ -26,7 +26,11 @@ public enum NpcDetail {
     GOING_HOME(NpcSubState.MOVING),
     FOLLOWING(NpcSubState.MOVING),
     DELIVERING(NpcSubState.MOVING),
-    COMMANDED_MOVE(NpcSubState.MOVING);
+    COMMANDED_MOVE(NpcSubState.MOVING),
+    ARMED_IDLE(NpcSubState.FIGHTING),
+    PATROLLING(NpcSubState.FIGHTING),
+    HOLDING_GROUND(NpcSubState.FIGHTING),
+    ATTACKING(NpcSubState.FIGHTING);
 
     private final NpcSubState subState;
 
@@ -63,6 +67,10 @@ public enum NpcDetail {
             case FOLLOWING -> "跟随";
             case DELIVERING -> "送货";
             case COMMANDED_MOVE -> "执行指令";
+            case ARMED_IDLE -> "手持武器待命";
+            case PATROLLING -> "巡逻中";
+            case HOLDING_GROUND -> "坚守中";
+            case ATTACKING -> "进攻中";
         };
     }
 

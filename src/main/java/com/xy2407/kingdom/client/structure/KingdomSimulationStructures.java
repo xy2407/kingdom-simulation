@@ -85,24 +85,9 @@ public final class KingdomSimulationStructures {
         Set<String> seen = new HashSet<>();
         Path dir = structuresDir();
         if (Files.isDirectory(dir)) {
-            for (String buildName : BuildingMetaLoader.allBuildNames()) {
-                BuildingMeta meta = BuildingMetaLoader.byBuildName(buildName);
-                if (meta == null || !seen.add(buildName)) {
-                    continue;
-                }
-                Path file = BuildingBlueprints.fileOf(meta.file());
-                Summary summary = Files.isRegularFile(file) ? readSummary(file) : null;
-                if (summary == null) {
-                    continue;
-                }
-                entries.add(new Entry(buildName, meta, summary.size(), summary.beds(),
-                        meta.type() == null ? "" : meta.type().folder()));
-            }
+            // 以本地文件为唯一真源：一个 nbt 一张卡，id 用相对路径，先收录再占名
             for (Path file : listLocal(dir)) {
                 String id = stripExtension(dir.relativize(file).toString().replace('\\', '/'));
-                if (!seen.add(id)) {
-                    continue;
-                }
                 Summary summary = readSummary(file);
                 if (summary == null) {
                     StructureDebugChat.chat("剔除无法解析的结构文件：%s", dir.relativize(file));
@@ -110,12 +95,56 @@ public final class KingdomSimulationStructures {
                 }
                 BuildingMeta meta = BuildingMetaLoader.load(file, id);
                 entries.add(new Entry(id, meta, summary.size(), summary.beds(),
-                        meta.type() == null ? "" : meta.type().folder()));
+                        folderOf(id, meta), summary.iconItem()));
+                seen.add(id);
+                if (meta.buildName() != null) {
+                    seen.add(meta.buildName());
+                }
+                if (meta.file() != null && !meta.file().isBlank()) {
+                    seen.add(meta.file());
+                }
+            }
+            // 补充：json 的 file 指向别处、本地扫描没收录到的（不覆盖已有 id）
+            for (String buildName : BuildingMetaLoader.allBuildNames()) {
+                BuildingMeta meta = BuildingMetaLoader.byBuildName(buildName);
+                if (meta == null) {
+                    continue;
+                }
+                String fileId = meta.file();
+                if (fileId == null || fileId.isBlank() || seen.contains(fileId)) {
+                    continue;
+                }
+                Path file = BuildingBlueprints.fileOf(fileId);
+                if (!Files.isRegularFile(file)) {
+                    continue;
+                }
+                Summary summary = readSummary(file);
+                if (summary == null) {
+                    continue;
+                }
+                entries.add(new Entry(fileId, meta, summary.size(), summary.beds(),
+                        folderOf(fileId, meta), summary.iconItem()));
+                seen.add(fileId);
             }
         }
         scanBundled(entries, seen);
         entries.sort(Comparator.comparing(Entry::id));
         return entries;
+    }
+
+    /**
+     * 分类归属：蓝图声明优先，缺失时按所在目录推断，未知目录统一归到「其它」
+     */
+    private static String folderOf(String id, BuildingMeta meta) {
+        if (meta != null && meta.type() != null) {
+            return meta.type().folder();
+        }
+        int slash = id.lastIndexOf('/');
+        if (slash <= 0) {
+            return BuildingType.OTHER.folder();
+        }
+        BuildingType byFolder = BuildingType.parse(id.substring(0, slash));
+        return byFolder == null ? BuildingType.OTHER.folder() : byFolder.folder();
     }
 
     private static List<Path> listLocal(Path dir) {
@@ -163,10 +192,9 @@ public final class KingdomSimulationStructures {
             if (summary == null) {
                 continue;
             }
-            int slash = id.lastIndexOf('/');
-            String folder = slash < 0 ? "" : id.substring(0, slash);
             BuildingMeta meta = BuildingMeta.fallback(id, null);
-            entries.add(new Entry(id, meta, summary.size(), summary.beds(), folder));
+            entries.add(new Entry(id, meta, summary.size(), summary.beds(),
+                    folderOf(id, meta), summary.iconItem()));
         }
     }
 
@@ -175,7 +203,7 @@ public final class KingdomSimulationStructures {
         return dot < 0 ? relativePath : relativePath.substring(0, dot);
     }
 
-    private record Summary(Vec3i size, int beds) {
+    private record Summary(Vec3i size, int beds, String iconItem) {
     }
 
     private static Summary readSummary(Path file) {
@@ -205,7 +233,44 @@ public final class KingdomSimulationStructures {
         if (x <= 0 || y <= 0 || z <= 0 || blockTags.isEmpty()) {
             return null;
         }
-        return new Summary(new Vec3i(x, y, z), countBeds(root, blockTags));
+        return new Summary(new Vec3i(x, y, z), countBeds(root, blockTags),
+                dominantItem(root, blockTags));
+    }
+
+    /**
+     * 取使用次数最多的非空气方块当卡片图标，读一次缓存进 Entry，避免渲染期再碰 palette
+     */
+    private static String dominantItem(CompoundTag root, ListTag blockTags) {
+        ListTag paletteTag = root.getList("palette", Tag.TAG_COMPOUND);
+        if (paletteTag.isEmpty()) {
+            return "";
+        }
+        int[] counts = new int[paletteTag.size()];
+        for (int index = 0; index < blockTags.size(); index++) {
+            int stateIndex = blockTags.getCompound(index).getInt("state");
+            if (stateIndex >= 0 && stateIndex < counts.length) {
+                counts[stateIndex]++;
+            }
+        }
+        HolderGetter<Block> blockLookup = BuiltInRegistries.BLOCK.asLookup();
+        int best = -1;
+        int bestCount = 0;
+        for (int index = 0; index < counts.length; index++) {
+            if (counts[index] <= bestCount) {
+                continue;
+            }
+            BlockState state = NbtUtils.readBlockState(blockLookup, paletteTag.getCompound(index));
+            if (state.isAir() || state.getBlock().asItem() == net.minecraft.world.item.Items.AIR) {
+                continue;
+            }
+            best = index;
+            bestCount = counts[index];
+        }
+        if (best < 0) {
+            return "";
+        }
+        BlockState state = NbtUtils.readBlockState(blockLookup, paletteTag.getCompound(best));
+        return BuiltInRegistries.ITEM.getKey(state.getBlock().asItem()).toString();
     }
 
     private static int countBeds(CompoundTag root, ListTag blockTags) {
@@ -231,7 +296,8 @@ public final class KingdomSimulationStructures {
     }
 
     @OnlyIn(Dist.CLIENT)
-    public record Entry(String id, BuildingMeta meta, Vec3i size, int beds, String folder) {
+    public record Entry(String id, BuildingMeta meta, Vec3i size, int beds, String folder,
+                        String iconItem) {
 
         public String displayName() {
             return meta.name();

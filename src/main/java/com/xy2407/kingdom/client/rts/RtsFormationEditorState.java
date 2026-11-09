@@ -129,11 +129,15 @@ public final class RtsFormationEditorState {
             return;
         }
         PacketDistributor.sendToServer(new RtsTeamEditPacket(teamId, selectedMember, offX, offZ));
+        // 传送出去就取消选中：否则下次点网格还是同一个人，玩家没法再挑别的队员改位置
+        selectedMember = null;
     }
 
     public static void save() {
         if (teamId != null) {
             PacketDistributor.sendToServer(new RtsTeamOpPacket(teamId, RtsTeamOpPacket.ACTION_SAVE, 0));
+            // 必须有回执，否则点完没反应，看起来像按钮点不动
+            com.xy2407.kingdom.client.structure.StructureDebugChat.chat("阵型已保存");
         }
     }
 

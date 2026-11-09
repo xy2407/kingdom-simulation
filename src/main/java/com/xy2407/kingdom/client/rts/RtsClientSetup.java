@@ -57,6 +57,8 @@ public final class RtsClientSetup {
                         com.xy2407.kingdom.client.block.ShopShelfHud.ID),
                 com.xy2407.kingdom.client.block.ShopShelfHud.INSTANCE);
 
+        com.xy2407.kingdom.common.network.npc.NpcRosterHooks.removedSink =
+                RtsEntityLifecycle::onNpcRemoved;
         RtsTeamClientCache.install();
         RtsTeamPosCache.install();
         RtsTeamRosterCache.install();

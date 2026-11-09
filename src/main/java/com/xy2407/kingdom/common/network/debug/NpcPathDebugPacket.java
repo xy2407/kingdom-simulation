@@ -37,8 +37,11 @@ public record NpcPathDebugPacket(UUID npcId, List<Entry> entries) implements Cus
 
     private static void encode(RegistryFriendlyByteBuf buf, NpcPathDebugPacket packet) {
         buf.writeUUID(packet.npcId() == null ? new UUID(0L, 0L) : packet.npcId());
-        buf.writeVarInt(packet.entries().size());
-        for (Entry entry : packet.entries()) {
+        List<Entry> entries = packet.entries() == null ? List.of() : packet.entries();
+        int count = Math.min(entries.size(), MAX_ENTRIES);
+        buf.writeVarInt(count);
+        for (int index = 0; index < count; index++) {
+            Entry entry = entries.get(index);
             buf.writeBlockPos(entry.pos());
             buf.writeByte(entry.move());
             buf.writeVarInt(entry.index());

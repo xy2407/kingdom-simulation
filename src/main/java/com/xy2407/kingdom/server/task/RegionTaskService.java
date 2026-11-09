@@ -46,6 +46,8 @@ public final class RegionTaskService {
     public static final int SWING_INTERVAL = 20;
     private static final int LOAD_RETRY_DELAY_TICKS = 200;
     private static final int MAX_MATERIAL_ROWS = 16;
+    private static final int DEPOSIT_RADIUS = 32;
+    private static final int DEPOSIT_RETRY_TICKS = 200;
 
     public record Employee(UUID id, String name, String skin, int hiredDay) {
     }
@@ -55,6 +57,8 @@ public final class RegionTaskService {
     private final Map<UUID, Integer> swingTimers = new HashMap<>();
     private final Map<UUID, List<BlockPos>> hutStands = new HashMap<>();
     private final Map<UUID, UUID> hutChoice = new HashMap<>();
+    private final Map<UUID, BlockPos> deposits = new HashMap<>();
+    private final Map<UUID, Long> depositRetry = new HashMap<>();
 
     private boolean loaded;
     private int loadRetryCooldown;
@@ -69,6 +73,8 @@ public final class RegionTaskService {
         swingTimers.clear();
         hutStands.clear();
         hutChoice.clear();
+        deposits.clear();
+        depositRetry.clear();
         loaded = false;
         loadRetryCooldown = 0;
         tickCounter = 0;
@@ -156,7 +162,7 @@ public final class RegionTaskService {
         return new BuilderBoardDataPacket.TaskEntry(task.id(), kind, titleOf(task), task.dimension(),
                 task.min().getX(), task.min().getY(), task.min().getZ(),
                 task.max().getX(), task.max().getY(), task.max().getZ(),
-                task.status().name(), task.cursor(), task.total(), npcs, materials);
+                task.status().name(), task.cursor(), task.scanLimit(), npcs, materials);
     }
 
     private static String titleOf(RegionTask task) {
@@ -217,7 +223,6 @@ public final class RegionTaskService {
                 level.dimension().location().toString(), min, max, fillItem,
                 materials, total, DateSystem.totalDay(level));
         tasks.put(task.id(), task);
-        persist(task);
         UUID candidate = pickHireCandidate(level, task.min());
         if (candidate != null) {
             hireBySystem(candidate);
@@ -226,6 +231,7 @@ public final class RegionTaskService {
             player.displayClientMessage(net.minecraft.network.chat.Component.literal(
                     "附近建筑工棚没有空闲建筑工，请在建筑工面板手动雇佣并指派"), false);
         }
+        persist(task);
         ModMain.LOGGER.info("[建筑工] 新建{}任务 {} 范围 {} ~ {} 共 {} 格",
                 kind == RegionTask.Kind.FILL ? "填充" : "拆除", task.id(), min, max, total);
         BuilderBoardService.broadcastAll(level.getServer());
@@ -457,6 +463,9 @@ public final class RegionTaskService {
                 task.advance();
                 return;
             }
+            if (!consumeFill(level, task)) {
+                return;
+            }
             Block fillBlock = BuiltInRegistries.BLOCK
                     .getOptional(ResourceLocation.parse(task.fillItem())).orElse(Blocks.DIRT);
             int flags = Block.UPDATE_CLIENTS | Block.UPDATE_NEIGHBORS;
@@ -473,6 +482,72 @@ public final class RegionTaskService {
             level.setBlock(pos, Blocks.AIR.defaultBlockState(), flags);
         }
         task.advance();
+    }
+
+    /**
+     * 填充扣料：从离任务最近的建筑工方块材料箱取一格，没有材料箱时保持免料施工
+     */
+    private boolean consumeFill(ServerLevel level, RegionTask task) {
+        if (!com.xy2407.kingdom.common.building.BuildRequirements.required()) {
+            return true;
+        }
+        BlockPos deposit = depositOf(level, task);
+        if (deposit == null) {
+            return true;
+        }
+        if (level.getBlockEntity(deposit) instanceof com.xy2407.kingdom.common.block.BuilderBlockEntity box) {
+            return box.consume(task.fillItem(), 1);
+        }
+        deposits.remove(task.id());
+        return true;
+    }
+
+    private BlockPos depositOf(ServerLevel level, RegionTask task) {
+        BlockPos cached = deposits.get(task.id());
+        if (cached != null) {
+            if (level.getBlockEntity(cached)
+                    instanceof com.xy2407.kingdom.common.block.BuilderBlockEntity) {
+                return cached;
+            }
+            deposits.remove(task.id());
+        }
+        long now = level.getGameTime();
+        Long next = depositRetry.get(task.id());
+        if (next != null && now < next) {
+            return null;
+        }
+        depositRetry.put(task.id(), now + DEPOSIT_RETRY_TICKS);
+        BlockPos found = findBuilderBlock(level, task.min());
+        if (found != null) {
+            deposits.put(task.id(), found);
+        }
+        return found;
+    }
+
+    private static BlockPos findBuilderBlock(ServerLevel level, BlockPos near) {
+        BlockPos best = null;
+        double bestDistance = Double.MAX_VALUE;
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        for (int dx = -DEPOSIT_RADIUS; dx <= DEPOSIT_RADIUS; dx++) {
+            for (int dz = -DEPOSIT_RADIUS; dz <= DEPOSIT_RADIUS; dz++) {
+                for (int dy = -8; dy <= 8; dy++) {
+                    cursor.set(near.getX() + dx, near.getY() + dy, near.getZ() + dz);
+                    if (!level.isLoaded(cursor)) {
+                        continue;
+                    }
+                    if (!level.getBlockState(cursor).is(
+                            com.xy2407.kingdom.common.block.ModBlocks.BUILDER_BLOCK.get())) {
+                        continue;
+                    }
+                    double distance = cursor.distSqr(near);
+                    if (distance < bestDistance) {
+                        bestDistance = distance;
+                        best = cursor.immutable();
+                    }
+                }
+            }
+        }
+        return best;
     }
 
     private void moveWorkers(ServerLevel level, RegionTask task, boolean swingDue) {
@@ -676,6 +751,8 @@ public final class RegionTaskService {
         }
         task.assigned().clear();
         swingTimers.remove(task.id());
+        deposits.remove(task.id());
+        depositRetry.remove(task.id());
     }
 
     private void release(UUID npcId, RegionTask except) {

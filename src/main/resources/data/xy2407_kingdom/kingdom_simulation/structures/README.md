@@ -115,5 +115,11 @@ residential/house_small.json   元数据（可省略）
 
 ## 当前状态
 
-运行时蓝图仍从游戏目录的 `kingdom simulation/structures/` 读取。
-本目录是随包发布用的**预留位置**，接上读取/部署逻辑之前，放在这里的文件不会生效。
+运行时蓝图**两处合并读取**，同 id 时游戏目录优先：
+
+1. 游戏目录 `kingdom simulation/structures/`（玩家自建、热改，改动立即可见）；
+2. 模组内置 `data/xy2407_kingdom/kingdom_simulation/structures/`（随包发布的风格包蓝图）。
+
+两处都是两层结构：`<分类目录>/<名称>.nbt`（可选同名 `.json`）。
+**内置目录不读 json**：类型按所在目录推断、显示名用文件名，其余走默认值；
+游戏目录那份仍按上面各节完整解析 json。

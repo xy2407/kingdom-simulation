@@ -43,6 +43,7 @@ public final class RtsHudLayer implements LayeredDraw.Layer {
         RtsModeManager.onLeftMouseDrag();
         RtsModeManager.onMiddleDrag();
         RtsWaypointState.pollKey();
+        RtsPatrolState.pollKey();
         BuildingPlacementManager.tickRtsFollow();
         BuildingPlacementManager.tickPendingDrag();
     }

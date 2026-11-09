@@ -42,7 +42,10 @@
   text-rendering:geometricPrecision;
   font-feature-settings:"kern" 0,"liga" 0,"calt" 0;font-variant-ligatures:none;}
 
-html,body{overflow-x:hidden;overflow-y:hidden;}
+/* html/body 必须显式定高：body 上的 justify-content:center 只在 body 高度大于内容时才生效，
+   只写 overflow 会让 body 高度塌成内容高度，整个卡片贴到文档顶部、下方空出一大块
+   （看上去就是"整体偏上"）。其余 fixed 页（builder/city_hall/identify）都写了这一句。 */
+html,body{height:100%;overflow-x:hidden;overflow-y:hidden;}
 
 body{
   display:flex;
@@ -298,6 +301,19 @@ npc-bar{display:block;width:100%;height:22px;}
   margin-bottom:6px;
 }
 
+/* 主副手与四件护甲之间留明显空档，避免看成同一条"装备栏" */
+.equip-gap{
+  height:14px;
+  flex:0 0 auto;
+}
+
+/* 护甲空槽剪影：直接烘进槽位底图（原版背包的空装备位也是画在背景上的），
+   有物品时被物品图标盖住，不需要逐帧判断空/满 */
+.slot.equip.armor-head{background-image:url('/tex/slot_armor_head.png');}
+.slot.equip.armor-chest{background-image:url('/tex/slot_armor_chest.png');}
+.slot.equip.armor-legs{background-image:url('/tex/slot_armor_legs.png');}
+.slot.equip.armor-feet{background-image:url('/tex/slot_armor_feet.png');}
+
 .pane-bio{flex:1 1 auto;min-height:0;overflow:hidden;}
 
 /* 行囊（玩家背包）面板：原稿没有这块，为物品存取补上；视觉语言与大卡一致
@@ -464,45 +480,47 @@ npc-bar{display:block;width:100%;height:22px;}
         <!-- 原稿由 JS 往 #bagGrid 塞 24 个 .slot div；AUI 需要真实 <slot> 元素。
              原稿靠 8 列 grid 自动换行；AUI grid 不可靠 → 3 个显式行，每行 8 个 -->
         <container id="entity" class="bag-grid" bind="entity" size="30" primary="true">
+          <!-- 槽位布局：0 主手 / 1 副手 / 2-5 头胸腿靴 / 6-29 背包 24 格 -->
           <div class="slot-row">
-            <slot id="slot0" class="slot" slot-index="0" slot-size="74"><item class="slot-icon"></item></slot>
-            <slot id="slot1" class="slot" slot-index="1" slot-size="74"><item class="slot-icon"></item></slot>
-            <slot id="slot2" class="slot" slot-index="2" slot-size="74"><item class="slot-icon"></item></slot>
-            <slot id="slot3" class="slot" slot-index="3" slot-size="74"><item class="slot-icon"></item></slot>
-            <slot id="slot4" class="slot" slot-index="4" slot-size="74"><item class="slot-icon"></item></slot>
-            <slot id="slot5" class="slot" slot-index="5" slot-size="74"><item class="slot-icon"></item></slot>
             <slot id="slot6" class="slot" slot-index="6" slot-size="74"><item class="slot-icon"></item></slot>
             <slot id="slot7" class="slot" slot-index="7" slot-size="74"><item class="slot-icon"></item></slot>
-          </div>
-          <div class="slot-row">
             <slot id="slot8" class="slot" slot-index="8" slot-size="74"><item class="slot-icon"></item></slot>
             <slot id="slot9" class="slot" slot-index="9" slot-size="74"><item class="slot-icon"></item></slot>
             <slot id="slot10" class="slot" slot-index="10" slot-size="74"><item class="slot-icon"></item></slot>
             <slot id="slot11" class="slot" slot-index="11" slot-size="74"><item class="slot-icon"></item></slot>
             <slot id="slot12" class="slot" slot-index="12" slot-size="74"><item class="slot-icon"></item></slot>
             <slot id="slot13" class="slot" slot-index="13" slot-size="74"><item class="slot-icon"></item></slot>
-            <slot id="slot14" class="slot" slot-index="14" slot-size="74"><item class="slot-icon"></item></slot>
-            <slot id="slot15" class="slot" slot-index="15" slot-size="74"><item class="slot-icon"></item></slot>
           </div>
           <div class="slot-row">
+            <slot id="slot14" class="slot" slot-index="14" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot15" class="slot" slot-index="15" slot-size="74"><item class="slot-icon"></item></slot>
             <slot id="slot16" class="slot" slot-index="16" slot-size="74"><item class="slot-icon"></item></slot>
             <slot id="slot17" class="slot" slot-index="17" slot-size="74"><item class="slot-icon"></item></slot>
             <slot id="slot18" class="slot" slot-index="18" slot-size="74"><item class="slot-icon"></item></slot>
             <slot id="slot19" class="slot" slot-index="19" slot-size="74"><item class="slot-icon"></item></slot>
             <slot id="slot20" class="slot" slot-index="20" slot-size="74"><item class="slot-icon"></item></slot>
             <slot id="slot21" class="slot" slot-index="21" slot-size="74"><item class="slot-icon"></item></slot>
+          </div>
+          <div class="slot-row">
             <slot id="slot22" class="slot" slot-index="22" slot-size="74"><item class="slot-icon"></item></slot>
             <slot id="slot23" class="slot" slot-index="23" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot24" class="slot" slot-index="24" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot25" class="slot" slot-index="25" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot26" class="slot" slot-index="26" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot27" class="slot" slot-index="27" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot28" class="slot" slot-index="28" slot-size="74"><item class="slot-icon"></item></slot>
+            <slot id="slot29" class="slot" slot-index="29" slot-size="74"><item class="slot-icon"></item></slot>
           </div>
-          <!-- 装备栏：6 格竖排，绝对定位到左侧模型框内的左边缘（不参与背包流式布局，
-               也不会挡住模型本体）。slot-index 对应 NpcInventory 的 26/27/28/29/25/24 -->
+          <!-- 装备栏：竖排挂在左侧模型框内。0/1 是主副手，空 14px 后接四件护甲。
+               背包格与装备格索引见 NpcInventory -->
           <div class="equip-col">
-            <slot id="slot26" class="slot equip" slot-index="26" slot-size="48"><item class="slot-icon"></item></slot>
-            <slot id="slot27" class="slot equip" slot-index="27" slot-size="48"><item class="slot-icon"></item></slot>
-            <slot id="slot28" class="slot equip" slot-index="28" slot-size="48"><item class="slot-icon"></item></slot>
-            <slot id="slot29" class="slot equip" slot-index="29" slot-size="48"><item class="slot-icon"></item></slot>
-            <slot id="slot25" class="slot equip" slot-index="25" slot-size="48"><item class="slot-icon"></item></slot>
-            <slot id="slot24" class="slot equip" slot-index="24" slot-size="48"><item class="slot-icon"></item></slot>
+            <slot id="slot0" class="slot equip" slot-index="0" slot-size="48"><item class="slot-icon"></item></slot>
+            <slot id="slot1" class="slot equip" slot-index="1" slot-size="48"><item class="slot-icon"></item></slot>
+            <div class="equip-gap"></div>
+            <slot id="slot2" class="slot equip armor-head" slot-index="2" slot-size="48"><item class="slot-icon"></item></slot>
+            <slot id="slot3" class="slot equip armor-chest" slot-index="3" slot-size="48"><item class="slot-icon"></item></slot>
+            <slot id="slot4" class="slot equip armor-legs" slot-index="4" slot-size="48"><item class="slot-icon"></item></slot>
+            <slot id="slot5" class="slot equip armor-feet" slot-index="5" slot-size="48"><item class="slot-icon"></item></slot>
           </div>
         </container>
       </section>

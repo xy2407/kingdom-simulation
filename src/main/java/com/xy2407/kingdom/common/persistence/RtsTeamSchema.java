@@ -22,10 +22,14 @@ public final class RtsTeamSchema implements Migration {
     public static final String COL_TERRITORY_ID = "territory_id";
     public static final String COL_FORMATION_SAVED = "formation_saved";
     public static final String COL_CREATED_AT = "created_at";
+    public static final String COL_PATROL_NODES = "patrol_nodes";
+    public static final String COL_PATROL_INDEX = "patrol_index";
+    public static final String COL_PATROL_FORWARD = "patrol_forward";
+    public static final String COL_PATROL_ACTIVE = "patrol_active";
 
     @Override
     public int version() {
-        return 32;
+        return 37;
     }
 
     @Override
@@ -89,13 +93,19 @@ public final class RtsTeamSchema implements Migration {
         defs.put(COL_TERRITORY_ID, "TEXT NOT NULL DEFAULT ''");
         defs.put(COL_FORMATION_SAVED, "INTEGER NOT NULL DEFAULT 0");
         defs.put(COL_CREATED_AT, "INTEGER NOT NULL DEFAULT 0");
+        // 巡逻是队伍的常驻任务：路线序列化成 "x,y,z;x,y,z;..."，加下标与折返方向
+        defs.put(COL_PATROL_NODES, "TEXT NOT NULL DEFAULT ''");
+        defs.put(COL_PATROL_INDEX, "INTEGER NOT NULL DEFAULT 0");
+        defs.put(COL_PATROL_FORWARD, "INTEGER NOT NULL DEFAULT 1");
+        defs.put(COL_PATROL_ACTIVE, "INTEGER NOT NULL DEFAULT 0");
         return defs;
     }
 
     public static String columns() {
         return String.join(", ", new String[] {
                 COL_TEAM_ID, COL_LEADER_UUID, COL_OWNER_UUID, COL_TERRITORY_ID,
-                COL_FORMATION_SAVED, COL_CREATED_AT
+                COL_FORMATION_SAVED, COL_CREATED_AT,
+                COL_PATROL_NODES, COL_PATROL_INDEX, COL_PATROL_FORWARD, COL_PATROL_ACTIVE
         });
     }
 }

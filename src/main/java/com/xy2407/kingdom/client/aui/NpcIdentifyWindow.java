@@ -1,8 +1,6 @@
 package com.xy2407.kingdom.client.aui;
 
-import com.mojang.blaze3d.platform.InputConstants;
 import com.sighs.apricityui.ApricityUI;
-import com.xy2407.kingdom.client.rts.RtsModeManager;
 import com.sighs.apricityui.init.Document;
 import com.sighs.apricityui.init.Element;
 import com.sighs.apricityui.world.WorldWindow;
@@ -13,7 +11,6 @@ import com.xy2407.kingdom.common.npc.NpcIdentifyInfo;
 import com.xy2407.kingdom.common.npc.NpcManager;
 import com.xy2407.kingdom.common.npc.NpcTalent;
 
-import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
@@ -32,16 +29,12 @@ import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
-import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
-import net.neoforged.neoforge.client.settings.KeyConflictContext;
-import net.neoforged.neoforge.client.settings.KeyModifier;
 import net.neoforged.neoforge.event.level.LevelEvent;
 import org.joml.Matrix4f;
-import org.lwjgl.glfw.GLFW;
 
 /**
- * 准星对准市民时在其侧边显示身份卡片，另提供调试用的空卡片开关。
+ * 准星对准市民时在其侧边显示身份卡片。
  */
 @EventBusSubscriber(modid = ModMain.MOD_ID, value = Dist.CLIENT)
 @OnlyIn(Dist.CLIENT)
@@ -56,7 +49,6 @@ public final class NpcIdentifyWindow {
     private static final double HEIGHT_RATIO = 0.55D;
     private static final double MIN_SIDE_LENGTH = 1.0E-4D;
     private static final double PARK_DISTANCE = 1024.0D;
-    private static final int EMPTY_DISPLAY_RANGE = 64;
 
     private static final String ID_NAME = "npc-name";
     private static final String ID_NATION = "npc-nation";
@@ -84,40 +76,13 @@ public final class NpcIdentifyWindow {
     private static final String MAX_PREFIX = "MAX ";
     private static final String SLASH = "/";
 
-    public static final KeyMapping SPAWN_EMPTY_CARD = new KeyMapping(
-            "key.xy2407_kingdom.identify_spawn_empty",
-            KeyConflictContext.IN_GAME,
-            KeyModifier.NONE,
-            InputConstants.Type.KEYSYM,
-            GLFW.GLFW_KEY_V,
-            "key.categories.xy2407_kingdom"
-    );
-
-    public static final KeyMapping CLEAR_EMPTY_CARD = new KeyMapping(
-            "key.xy2407_kingdom.identify_clear_empty",
-            KeyConflictContext.IN_GAME,
-            KeyModifier.NONE,
-            InputConstants.Type.KEYSYM,
-            GLFW.GLFW_KEY_C,
-            "key.categories.xy2407_kingdom"
-    );
-
     private static WorldWindow window;
     private static NpcEntity target;
     private static int lostTicks;
     private static NpcIdentifyInfo shown;
     private static Element probe;
 
-    private static WorldWindow emptyCard;
-    private static Document emptyBound;
-
     private NpcIdentifyWindow() {
-    }
-
-    @SubscribeEvent
-    public static void registerKeyMappings(RegisterKeyMappingsEvent event) {
-        event.register(SPAWN_EMPTY_CARD);
-        event.register(CLEAR_EMPTY_CARD);
     }
 
     @SubscribeEvent
@@ -128,7 +93,6 @@ public final class NpcIdentifyWindow {
             destroy();
             return;
         }
-        handleEmptyCard(player);
         NpcEntity aimed = pick(player);
         if (aimed == null) {
             if (window != null && ++lostTicks >= HIDE_DELAY_TICKS) {
@@ -150,13 +114,9 @@ public final class NpcIdentifyWindow {
             return;
         }
         WorldWindow identified = window;
-        WorldWindow spawned = emptyCard;
         if (stage == RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) {
             if (identified != null) {
                 draw(identified, event);
-            }
-            if (spawned != null) {
-                draw(spawned, event);
             }
             return;
         }
@@ -222,45 +182,6 @@ public final class NpcIdentifyWindow {
         if (current != null && current.document != null) {
             ApricityUI.removeWorldWindow(current);
         }
-        removeEmptyCard();
-    }
-
-    private static void handleEmptyCard(LocalPlayer player) {
-        if (SPAWN_EMPTY_CARD.consumeClick()) {
-            spawnEmptyCard(player);
-        }
-        if (CLEAR_EMPTY_CARD.consumeClick() && !RtsModeManager.isActive()) {
-            removeEmptyCard();
-        }
-        WorldWindow card = emptyCard;
-        if (card != null && card.document != null && card.document != emptyBound) {
-            bindEmpty(card);
-        }
-    }
-
-    public static void spawnEmptyCard(LocalPlayer player) {
-        removeEmptyCard();
-        WorldWindow card = new WorldWindow(PAGE, player.getEyePosition(), EMPTY_DISPLAY_RANGE);
-        card.setScale(CARD_SCALE);
-        card.setFacing(true);
-        card.setDepthTest(true);
-        card.setMaxDisplayDistance(EMPTY_DISPLAY_RANGE);
-        emptyCard = card;
-        bindEmpty(card);
-    }
-
-    public static void removeEmptyCard() {
-        WorldWindow current = emptyCard;
-        emptyCard = null;
-        emptyBound = null;
-        if (current != null && current.document != null) {
-            ApricityUI.removeWorldWindow(current);
-        }
-    }
-
-    private static void bindEmpty(WorldWindow card) {
-        emptyBound = card.document;
-        bind(card.document, NpcIdentifyInfo.EMPTY);
     }
 
     private static Vec3 park(Vec3 eye) {

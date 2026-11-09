@@ -52,6 +52,13 @@ public final class NpcLumberService {
 
     private static final Map<UUID, Work> WORKS = new HashMap<>();
 
+    /** 市民死亡/被移除：把它的采伐状态摘掉，避免 UUID 永久留在表里。 */
+    public static void onNpcRemoved(UUID entityId) {
+        if (entityId != null) {
+            WORKS.remove(entityId);
+        }
+    }
+
     private static final Map<Block, Item> SAPLINGS = buildSaplings();
 
     private NpcLumberService() {
@@ -370,7 +377,7 @@ public final class NpcLumberService {
     }
 
     private static boolean inventoryHasRoom(NpcInventory inventory) {
-        for (int slot = 0; slot < inventory.getSlots(); slot++) {
+        for (int slot = NpcInventory.BAG_START; slot < NpcInventory.SLOT_COUNT; slot++) {
             ItemStack stack = inventory.getStackInSlot(slot);
             if (stack.isEmpty() || stack.getCount() < stack.getMaxStackSize()) {
                 return true;

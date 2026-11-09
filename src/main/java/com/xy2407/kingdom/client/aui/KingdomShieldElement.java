@@ -5,10 +5,12 @@ import com.sighs.apricityui.element.Canvas;
 import com.sighs.apricityui.init.Document;
 import com.sighs.apricityui.init.Element;
 import com.sighs.apricityui.layout.Box;
+import com.sighs.apricityui.layout.Position;
 import com.sighs.apricityui.layout.Size;
 import com.sighs.apricityui.parser.Color;
 import com.sighs.apricityui.registry.annotation.ElementRegister;
 import com.sighs.apricityui.render.Base;
+import com.sighs.apricityui.render.DevicePixelGrid;
 import com.sighs.apricityui.render.ImageDrawer;
 import com.sighs.apricityui.render.Rect;
 import net.neoforged.api.distmarker.Dist;
@@ -31,7 +33,11 @@ public class KingdomShieldElement extends Canvas {
 
     private static final int ART_WIDTH = 40;
     private static final int ART_HEIGHT = 48;
-    private static final int RASTER_SCALE = 3;
+    /**
+     * 超采样倍数：卡片里的盾徽是 80×96 CSS px，乘 2 得 160×192 的设计画布，
+     * AUI 再乘设备缩放成光栅。12 张卡同时存在时，倍数就是显存账单。
+     */
+    private static final int RASTER_SCALE = 2;
     private static final int SOLID_ROWS = 26;
 
     private static final int OUTLINE = 0xFF2A1A08;
@@ -107,17 +113,29 @@ public class KingdomShieldElement extends Canvas {
         }
         layoutWidth = contentSize.width();
         layoutHeight = contentSize.height();
-        int wantedWidth = Math.max(1, (int) Math.ceil(contentSize.width() * RASTER_SCALE));
-        int wantedHeight = Math.max(1, (int) Math.ceil(contentSize.height() * RASTER_SCALE));
-        String signature = wantedWidth + "x" + wantedHeight + "|" + colorLeft + "|" + colorRight;
+        // 画布按「内容盒 × 超采样倍数」建设计尺寸，AUI 再乘设备缩放得到光栅：
+        // 这样屏上仍是 80×96 CSS px，但纹理有多倍采样，缩小后边缘不糊。
+        int cssWidth = Math.max(1, (int) Math.ceil(contentSize.width() * RASTER_SCALE));
+        int cssHeight = Math.max(1, (int) Math.ceil(contentSize.height() * RASTER_SCALE));
+        // 幂等：AUI 内部比较光栅尺寸与设备缩放，都没变时是空操作。
+        // 窗口缩放/改 GUI 缩放会让光栅尺寸变化，这里跟着重建，不会停留在旧分辨率。
+        resizeSurface(cssWidth, cssHeight, false);
+        // 签名必须带上真实光栅尺寸：设备缩放变了但逻辑尺寸没变时，
+        // 旧写法会认为「已经画过」而跳过重绘，结果只剩左上角一块内容。
+        String signature = cssWidth + "x" + cssHeight
+                + "@" + getBitmapWidth() + "x" + getBitmapHeight()
+                + "|" + colorLeft + "|" + colorRight;
         if (signature.equals(paintedSignature)) {
             return;
         }
         paintedSignature = signature;
-        if (wantedWidth != getWidth() || wantedHeight != getHeight()) {
-            resizeSurface(wantedWidth, wantedHeight, false);
-        }
-        renderOperation(graphics -> paint(graphics, wantedWidth, wantedHeight));
+        renderOperation(graphics -> {
+            double device = getDeviceScale();
+            if (device > 0.0D && Double.isFinite(device)) {
+                graphics.scale(device, device);
+            }
+            paint(graphics, cssWidth, cssHeight);
+        });
     }
 
     @Override
@@ -126,9 +144,13 @@ public class KingdomShieldElement extends Canvas {
         if (textureLocation == null || layoutWidth <= 0 || layoutHeight <= 0) {
             return;
         }
+        // 与原生 Canvas 一致：原点吸到设备像素网格，否则纹理会落在半个像素上，
+        // 表现为整体轻微偏移 + 变糊。
+        double device = getDeviceScale();
+        Position contentPos = rectRenderer.getContentPosition();
         ImageDrawer.draw(poseStack, textureLocation,
-                (float) rectRenderer.getContentPosition().x,
-                (float) rectRenderer.getContentPosition().y,
+                DevicePixelGrid.snap(contentPos.x, device),
+                DevicePixelGrid.snap(contentPos.y, device),
                 (float) layoutWidth, (float) layoutHeight, true);
     }
 

@@ -28,6 +28,7 @@ public final class EmploymentScreen extends ApricityScreen {
 
     public static final String PAGE = "buildings/employment.html";
 
+    /** 与 employment.html 的 4 列 × 3 行配对 */
     private static final int PER_PAGE = 12;
 
     private static final String CARD_ON = "ep-card on";
@@ -89,6 +90,12 @@ public final class EmploymentScreen extends ApricityScreen {
             if (chosenSet.add(id)) {
                 chosen.add(id);
             }
+        }
+        if (title != null) {
+            setText(title, next.kindLabel());
+        }
+        if (limitText != null) {
+            setText(limitText, next.limit() <= 0 ? "上限：不限" : "上限：" + next.limit());
         }
         paint();
     }
@@ -194,8 +201,10 @@ public final class EmploymentScreen extends ApricityScreen {
 
     private List<EmploymentPanelStatePacket.Entry> filtered() {
         List<EmploymentPanelStatePacket.Entry> result = new ArrayList<>();
+        String keyword = filter == null ? "" : filter.toLowerCase(java.util.Locale.ROOT);
         for (EmploymentPanelStatePacket.Entry entry : packet.entries()) {
-            if (!filter.isEmpty() && !entry.name().contains(filter)) {
+            if (!keyword.isEmpty()
+                    && !entry.name().toLowerCase(java.util.Locale.ROOT).contains(keyword)) {
                 continue;
             }
             result.add(entry);
@@ -257,7 +266,11 @@ public final class EmploymentScreen extends ApricityScreen {
                 Element fire = boundDocument == null ? null
                         : boundDocument.getElementById("ep-fire-" + index);
                 if (fire != null) {
-                    fire.addEventListener("click", event -> dismiss(entry));
+                    fire.addEventListener("click", event -> {
+                        // 解雇按钮是卡片子元素，不拦住会继续冒泡去切换选中
+                        event.cancelBubble = true;
+                        dismiss(entry);
+                    });
                 }
             }
         }
@@ -283,6 +296,13 @@ public final class EmploymentScreen extends ApricityScreen {
     }
 
     private void toggle(EmploymentPanelStatePacket.Entry entry) {
+        if (entry.hired()) {
+            // 已在此处任职的人只能走 ✕ 解雇，点卡片不该改选中集合
+            if (hint != null) {
+                setText(hint, entry.name() + " 已在此处任职，点右侧 ✕ 解雇");
+            }
+            return;
+        }
         if (chosenSet.contains(entry.id())) {
             chosenSet.remove(entry.id());
             chosen.remove(entry.id());

@@ -10,13 +10,14 @@ import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
- * 打开建筑仓库界面：先灌数据再开屏；容器格数固定，能用几格由蓝图决定。
+ * 打开建筑仓库界面：先灌数据再开屏；格数取蓝图声明的 storage_slots，上限只做防溢出保护。
  */
 public final class BuildingStorageMenu {
 
     public static final String PAGE = "buildings/storage.html";
 
-    public static final int MAX_SLOTS = 54;
+    /** 安全上限：防止蓝图写错把界面和存档撑爆，正常建筑用不到这么大 */
+    public static final int MAX_SLOTS = 512;
 
     private BuildingStorageMenu() {
     }
@@ -51,11 +52,11 @@ public final class BuildingStorageMenu {
         if (server == null) {
             return false;
         }
-        BuildingStorageStore.INSTANCE.handlerOf(server, building.id(), MAX_SLOTS);
+        BuildingStorageStore.INSTANCE.handlerOf(server, building.id(), usable);
         PacketDistributor.sendToPlayer(player,
-                new BuildingStorageOpenPacket(building.name(), usable, MAX_SLOTS));
+                new BuildingStorageOpenPacket(building.name(), usable, usable));
         new PendingMenu(player, PAGE).bind(binding -> binding
-                .saveddata(BuildingStorageStore.dataName(building.id()), MAX_SLOTS)
+                .saveddata(BuildingStorageStore.dataName(building.id()), usable)
                 .player());
         return true;
     }

@@ -41,6 +41,9 @@ public final class RtsEntityGlowRenderer {
     private static final float SELECTED_NPC_R = 0.0F;
     private static final float SELECTED_NPC_G = 1.0F;
     private static final float SELECTED_NPC_B = 0.0F;
+    private static final float ATTACK_TARGET_R = 1.0F;
+    private static final float ATTACK_TARGET_G = 0.25F;
+    private static final float ATTACK_TARGET_B = 0.2F;
     private static final double MARK_HALF = 0.35D;
     private static final double MARK_PILLAR = 1.5D;
     private static final double SEARCH_RADIUS = 200.0D;
@@ -69,10 +72,16 @@ public final class RtsEntityGlowRenderer {
 
         VertexConsumer consumer = minecraft.renderBuffers().bufferSource().getBuffer(RenderType.lines());
         Set<UUID> selected = RtsModeManager.getSelectedEntities();
-        if (!selected.isEmpty()) {
+        Set<UUID> attackTargets = RtsAttackTargetState.ids();
+        if (!selected.isEmpty() || !attackTargets.isEmpty()) {
             Frustum frustum = event.getFrustum();
-            drawSelectedBoxes(poseStack, consumer, minecraft, camPos, partialTick, selected, frustum);
-            drawMoveTargets(poseStack, consumer, minecraft, partialTick, frustum);
+            if (!attackTargets.isEmpty()) {
+                drawAttackTargetBoxes(poseStack, consumer, minecraft, camPos, partialTick, attackTargets, frustum);
+            }
+            if (!selected.isEmpty()) {
+                drawSelectedBoxes(poseStack, consumer, minecraft, camPos, partialTick, selected, frustum);
+                drawMoveTargets(poseStack, consumer, minecraft, partialTick, frustum);
+            }
         }
         minecraft.renderBuffers().bufferSource().endBatch(RenderType.lines());
         minecraft.renderBuffers().bufferSource().endLastBatch();
@@ -92,6 +101,27 @@ public final class RtsEntityGlowRenderer {
         }
         if (selected.contains(minecraft.player.getUUID()) && minecraft.player.isAlive()) {
             renderBox(poseStack, consumer, minecraft.player, partialTick, frustum);
+        }
+    }
+
+    private static void drawAttackTargetBoxes(PoseStack poseStack, VertexConsumer consumer, Minecraft minecraft,
+                                              Vec3 camPos, float partialTick, Set<UUID> targets, Frustum frustum) {
+        AABB searchBox = new AABB(
+                camPos.x - SEARCH_RADIUS, camPos.y - SEARCH_RADIUS, camPos.z - SEARCH_RADIUS,
+                camPos.x + SEARCH_RADIUS, camPos.y + SEARCH_RADIUS, camPos.z + SEARCH_RADIUS);
+        for (Entity entity : minecraft.level.getEntities(minecraft.player, searchBox)) {
+            if (!targets.contains(entity.getUUID()) || !entity.isAlive()) {
+                continue;
+            }
+            Vec3 pos = interpolatedPos(entity, partialTick);
+            AABB box = entity.getBoundingBox()
+                    .move(pos.x - entity.getX(), pos.y - entity.getY(), pos.z - entity.getZ())
+                    .inflate(0.08D);
+            if (!frustum.isVisible(box)) {
+                continue;
+            }
+            LevelRenderer.renderLineBox(poseStack, consumer, box,
+                    ATTACK_TARGET_R, ATTACK_TARGET_G, ATTACK_TARGET_B, 1.0F);
         }
     }
 

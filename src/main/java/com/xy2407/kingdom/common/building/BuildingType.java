@@ -13,7 +13,7 @@ public enum BuildingType {
     INDUSTRY("工业", "industry", "industrial", "factory", "workshop"),
     COMMERCIAL("商业", "commercial", "commerce", "shop", "market", "store"),
     MILITARY("军事", "military", "army", "barracks", "defense"),
-    OTHER("其它", "other", "misc", "utility", "common"),
+    OTHER("其它", "other", "misc", "utility", "common", "storage", "warehouse", "depot"),
     DECORATION("装饰", "decoration", "decor", "ornament");
 
     private final String label;

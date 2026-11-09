@@ -44,14 +44,20 @@ public record EmploymentPanelStatePacket(String buildingId, String targetId, int
         return new EmploymentPanelStatePacket("", "", 0, "", 0, List.of(), List.of());
     }
 
+    /** 名单上限，两端必须一致：encode 写多少、decode 就必须读多少 */
+    private static final int MAX_ENTRIES = 512;
+    private static final int MAX_SELECTED = 512;
+
     public static void encode(RegistryFriendlyByteBuf buffer, EmploymentPanelStatePacket packet) {
         buffer.writeUtf(packet.buildingId, 64);
         buffer.writeUtf(packet.targetId, 64);
         buffer.writeVarInt(packet.kind);
         buffer.writeUtf(packet.kindLabel, 32);
         buffer.writeVarInt(packet.limit);
-        buffer.writeVarInt(packet.entries.size());
-        for (Entry entry : packet.entries) {
+        int entryCount = Math.min(packet.entries.size(), MAX_ENTRIES);
+        buffer.writeVarInt(entryCount);
+        for (int index = 0; index < entryCount; index++) {
+            Entry entry = packet.entries.get(index);
             buffer.writeUUID(entry.id);
             buffer.writeUtf(entry.name, 64);
             buffer.writeUtf(entry.skin, 256);
@@ -59,9 +65,10 @@ public record EmploymentPanelStatePacket(String buildingId, String targetId, int
             buffer.writeUtf(entry.note, 64);
             buffer.writeBoolean(entry.hired);
         }
-        buffer.writeVarInt(packet.selected.size());
-        for (UUID id : packet.selected) {
-            buffer.writeUUID(id);
+        int selectedCount = Math.min(packet.selected.size(), MAX_SELECTED);
+        buffer.writeVarInt(selectedCount);
+        for (int index = 0; index < selectedCount; index++) {
+            buffer.writeUUID(packet.selected.get(index));
         }
     }
 
@@ -71,13 +78,13 @@ public record EmploymentPanelStatePacket(String buildingId, String targetId, int
         int kind = buffer.readVarInt();
         String kindLabel = buffer.readUtf(32);
         int limit = buffer.readVarInt();
-        int count = buffer.readVarInt();
+        int count = Math.min(Math.max(buffer.readVarInt(), 0), MAX_ENTRIES);
         List<Entry> entries = new ArrayList<>(count);
         for (int index = 0; index < count; index++) {
             entries.add(new Entry(buffer.readUUID(), buffer.readUtf(64), buffer.readUtf(256),
                     buffer.readUtf(64), buffer.readUtf(64), buffer.readBoolean()));
         }
-        int chosen = buffer.readVarInt();
+        int chosen = Math.min(Math.max(buffer.readVarInt(), 0), MAX_SELECTED);
         List<UUID> selected = new ArrayList<>(chosen);
         for (int index = 0; index < chosen; index++) {
             selected.add(buffer.readUUID());

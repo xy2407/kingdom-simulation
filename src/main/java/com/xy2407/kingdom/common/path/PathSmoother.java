@@ -6,11 +6,11 @@ import java.util.List;
 import net.minecraft.core.BlockPos;
 
 /**
- * 路径后处理拉直：仅同层内向后最多 7 格合并直线段，贴合道路表现且限制开销。
+ * 路径后处理拉直：仅同层内向后最多 4 格合并直线段，贴合道路表现且限制开销。
  */
 public final class PathSmoother {
 
-    private static final int MAX_SPAN = 7;
+    private static final int MAX_SPAN = 4;
 
     private PathSmoother() {
     }

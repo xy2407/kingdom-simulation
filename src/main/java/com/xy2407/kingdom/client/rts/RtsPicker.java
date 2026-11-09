@@ -23,7 +23,9 @@ import org.joml.Quaternionf;
 import org.joml.Vector4f;
 import org.joml.Vector3f;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -107,6 +109,66 @@ public final class RtsPicker {
                     && minecraft.player.getUUID().equals(fake.getOwnerUUID());
         }
         return false;
+    }
+
+    public static boolean isAttackTarget(Entity entity) {
+        if (!(entity instanceof net.minecraft.world.entity.monster.Enemy)) {
+            return false;
+        }
+        if (entity instanceof NpcEntity || entity instanceof RtsFakePlayerEntity) {
+            return false;
+        }
+        return entity.isAlive();
+    }
+
+    public static void attackBoxSelect(double x1, double y1, double x2, double y2) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.level == null || minecraft.player == null) {
+            return;
+        }
+        Camera camera = minecraft.gameRenderer.getMainCamera();
+        Vec3 camPos = camera.getPosition();
+        double minX = Math.min(x1, x2);
+        double maxX = Math.max(x1, x2);
+        double minY = Math.min(y1, y2);
+        double maxY = Math.max(y1, y2);
+        AABB searchBox = new AABB(
+                camPos.x - BOX_SEARCH_RADIUS, camPos.y - BOX_SEARCH_RADIUS, camPos.z - BOX_SEARCH_RADIUS,
+                camPos.x + BOX_SEARCH_RADIUS, camPos.y + BOX_SEARCH_RADIUS, camPos.z + BOX_SEARCH_RADIUS);
+
+        Set<UUID> found = new LinkedHashSet<>();
+        for (Entity entity : minecraft.level.getEntities(minecraft.player, searchBox)) {
+            if (!isAttackTarget(entity)) {
+                continue;
+            }
+            Vec3 center = entity.getBoundingBox().getCenter();
+            double[] screen = projectToScreen(center);
+            if (screen == null) {
+                continue;
+            }
+            if (screen[0] < minX || screen[0] > maxX || screen[1] < minY || screen[1] > maxY) {
+                continue;
+            }
+            if (isOccludedByBlocks(minecraft.level, camPos, entity, minecraft.player)) {
+                continue;
+            }
+            found.add(entity.getUUID());
+        }
+        Set<UUID> npcIds = new LinkedHashSet<>();
+        for (UUID id : RtsModeManager.getSelectedEntities()) {
+            Entity entity = ClientEntities.byUuid(minecraft.level, id);
+            if (entity instanceof NpcEntity npc && !npc.isTouristEntity()) {
+                npcIds.add(id);
+            }
+        }
+        if (found.isEmpty() || npcIds.isEmpty()) {
+            RtsAttackTargetState.clear();
+            return;
+        }
+        RtsAttackTargetState.set(found);
+        net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                new com.xy2407.kingdom.common.network.rts.RtsAttackOrderPacket(
+                        new ArrayList<>(npcIds), new ArrayList<>(found)));
     }
 
     private static boolean canControlLocally(NpcEntity npc) {
@@ -382,6 +444,12 @@ public final class RtsPicker {
     private static boolean blockedFromCamera(Level level, Vec3 camPos, Vec3 to, Entity context) {
         double distance = camPos.distanceTo(to);
         if (distance < 1.0E-4D) {
+            return false;
+        }
+        // 相机贴在方块里时（重新进 RTS 会把相机放到玩家头顶 12 格，屋顶/树冠下就正好卡在方块内），
+        // raycast 会在起点立刻命中，于是所有实体都被判成"被遮挡"→ 整个框选落空、谁也选不中。
+        BlockPos camBlock = BlockPos.containing(camPos);
+        if (level.getBlockState(camBlock).blocksMotion()) {
             return false;
         }
         BlockHitResult hit = level.clip(new ClipContext(

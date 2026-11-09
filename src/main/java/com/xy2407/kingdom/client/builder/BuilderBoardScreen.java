@@ -48,7 +48,7 @@ public final class BuilderBoardScreen extends ApricityScreen {
 
     private static Document boundDocument;
 
-    private final Set<Integer> expanded = new HashSet<>();
+    private final Set<UUID> expanded = new HashSet<>();
     private final List<BuilderBoardDataPacket.TaskEntry> cards = new ArrayList<>();
     private final List<UUID> cardIds = new ArrayList<>();
     private Drag drag;
@@ -286,7 +286,7 @@ public final class BuilderBoardScreen extends ApricityScreen {
         }
         StringBuilder html = new StringBuilder();
         for (int index = 0; index < tasks.size(); index++) {
-            html.append(taskHtml(tasks.get(index), index, expanded.contains(index)));
+            html.append(taskHtml(tasks.get(index), index, expanded.contains(tasks.get(index).id())));
         }
         host.setInnerHTML(html.toString());
         for (int index = 0; index < tasks.size(); index++) {
@@ -352,11 +352,10 @@ public final class BuilderBoardScreen extends ApricityScreen {
 
     private static String materialsHtml(BuilderBoardDataPacket.TaskEntry task) {
         StringBuilder html = new StringBuilder();
-        if (task.kind() == BuilderBoardDataPacket.KIND_BUILDING
-                || task.materials() == null || task.materials().isEmpty()) {
+        if (task.materials() == null || task.materials().isEmpty()) {
             html.append("<div class=\"bb-mat-row\"><span class=\"bb-mat-text\">")
                     .append(task.kind() == BuilderBoardDataPacket.KIND_BUILDING
-                            ? "蓝图施工，无需材料" : "暂无材料数据")
+                            ? "材料已备齐" : "暂无材料数据")
                     .append("</span></div>");
             return html.toString();
         }
@@ -395,14 +394,17 @@ public final class BuilderBoardScreen extends ApricityScreen {
         Element toggle = document.getElementById("bb-toggle-" + index);
         if (toggle != null) {
             toggle.addEventListener("click", event -> {
-                if (expanded.contains(index)) {
-                    expanded.remove(index);
+                boolean open;
+                if (expanded.contains(task.id())) {
+                    expanded.remove(task.id());
+                    open = false;
                 } else {
-                    expanded.add(index);
+                    expanded.add(task.id());
+                    open = true;
                 }
                 Element detail = document.getElementById("bb-detail-" + index);
                 if (detail != null) {
-                    detail.getClassList().toggle("bb-detail-open", expanded.contains(index));
+                    detail.getClassList().toggle("bb-detail-open", open);
                 }
             });
         }

@@ -17,6 +17,11 @@ public final class NpcData {
     private static final Gson GSON = new Gson();
     public static final double HUNGER_MAX = 20.0;
 
+    /** 战斗指令：只存玩家显式下达的坚守/进攻，自动索敌、反击等瞬时状态不入库。 */
+    public static final String COMBAT_STANDBY = "STANDBY";
+    public static final String COMBAT_HOLD = "HOLD";
+    public static final String COMBAT_ATTACK = "ATTACK";
+
     private final UUID id;
     private UUID entityUuid;
     private String name = "";
@@ -44,6 +49,20 @@ public final class NpcData {
     private String territoryId = "";
 
     private String nationId = "";
+
+    private String combatMode = COMBAT_STANDBY;
+
+    public String getCombatMode() {
+        return combatMode == null ? COMBAT_STANDBY : combatMode;
+    }
+
+    public void setCombatMode(String value) {
+        String next = COMBAT_HOLD.equals(value) || COMBAT_ATTACK.equals(value) ? value : COMBAT_STANDBY;
+        if (!next.equals(getCombatMode())) {
+            combatMode = next;
+            markDirty();
+        }
+    }
 
     public String getOwnerId() {
         return ownerId == null ? "" : ownerId;
@@ -360,8 +379,13 @@ public final class NpcData {
     }
 
     public void setStrength(int strength) {
+        if (this.strength == strength) {
+            return;
+        }
         this.strength = strength;
         markDirty();
+        // 值真的变了才通知活着的实体重算属性（不进 tick）
+        NpcManager.INSTANCE.onTalentChanged(this);
     }
 
     public int getIntelligence() {
@@ -667,6 +691,7 @@ public final class NpcData {
         values.put(NpcSchema.COL_SUB_STATE, subState.name());
         values.put(NpcSchema.COL_DETAIL, detail.name());
         values.put(NpcSchema.COL_SHIFT, shift.name());
+        values.put(NpcSchema.COL_COMBAT_MODE, getCombatMode());
         return values;
     }
 }

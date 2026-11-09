@@ -4,9 +4,11 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.sighs.apricityui.element.Canvas;
 import com.sighs.apricityui.init.Document;
 import com.sighs.apricityui.layout.Box;
+import com.sighs.apricityui.layout.Position;
 import com.sighs.apricityui.layout.Size;
 import com.sighs.apricityui.registry.annotation.ElementRegister;
 import com.sighs.apricityui.render.Base;
+import com.sighs.apricityui.render.DevicePixelGrid;
 import com.sighs.apricityui.render.ImageDrawer;
 import com.sighs.apricityui.render.Rect;
 import com.xy2407.kingdom.client.entity.NpcEntityRenderer;
@@ -40,13 +42,19 @@ public class KingdomEntityAvatarElement extends Canvas {
     private static final int OVERLAY_U = 40;
     private static final int OVERLAY_V = 8;
     private static final int FACE_SIZE = 8;
-    private static final int RASTER_SCALE = 8;
+    /**
+     * 表面分辨率倍数：按 GUI 缩放取，够 1:1 清晰即可。
+     * 原来固定 8 倍，48px 的头像要一张 384×384 的 BufferedImage + 同样大的 GPU 纹理，
+     * 长列表里 200 个头像就是 100MB 级别的显存/堆开销。
+     */
+    private static final int MAX_RASTER_SCALE = 6;
+    private static final int MAX_SURFACE = 512;
 
     private static final Map<ResourceLocation, BufferedImage> SKIN_CACHE = new ConcurrentHashMap<>();
 
     private double layoutWidth = -1;
     private double layoutHeight = -1;
-    private ResourceLocation renderedSkin;
+    private String paintedSignature;
     private boolean faceReady;
     private String declaredSkinName;
     private ResourceLocation declaredSkinTexture;
@@ -72,17 +80,36 @@ public class KingdomEntityAvatarElement extends Canvas {
 
     @Override
     protected void drawCanvas(PoseStack poseStack, Rect rectRenderer) {
-        if (!faceReady || layoutWidth <= 0 || layoutHeight <= 0) {
+        if (!faceReady) {
             return;
         }
+        // 绘制永远以「这一帧的真实内容盒」为准：缓存值只作为布局未就绪时的兜底，
+        // 否则元素一旦被复用/改尺寸，就可能按上一帧的大尺寸画出去、超出卡片被裁
+        Size live = Box.of(this).innerSize();
+        double width = live.width() > 0 ? live.width() : layoutWidth;
+        double height = live.height() > 0 ? live.height() : layoutHeight;
+        if (width <= 0 || height <= 0) {
+            return;
+        }
+        layoutWidth = width;
+        layoutHeight = height;
         syncTexture();
         if (textureLocation == null) {
             return;
         }
+        double device = getDeviceScale();
+        Position contentPos = rectRenderer.getContentPosition();
         ImageDrawer.draw(poseStack, textureLocation,
-                (float) rectRenderer.getContentPosition().x,
-                (float) rectRenderer.getContentPosition().y,
-                (float) layoutWidth, (float) layoutHeight, true);
+                DevicePixelGrid.snap(contentPos.x, device),
+                DevicePixelGrid.snap(contentPos.y, device),
+                (float) width, (float) height, false);
+    }
+
+    private static int rasterScale() {
+        Minecraft minecraft = Minecraft.getInstance();
+        // 1.21.1 的 Window#getGuiScale() 返回 double，这里要整数倍数
+        int scale = minecraft.getWindow() == null ? 2 : (int) minecraft.getWindow().getGuiScale();
+        return Math.max(2, Math.min(scale, MAX_RASTER_SCALE));
     }
 
     private void renderFace() {
@@ -94,23 +121,36 @@ public class KingdomEntityAvatarElement extends Canvas {
         BufferedImage source = skin == null ? null : skinImage(skin);
         if (source == null) {
             faceReady = false;
-            renderedSkin = null;
+            paintedSignature = null;
             return;
         }
 
         layoutWidth = contentSize.width();
         layoutHeight = contentSize.height();
-        int wantedWidth = Math.max(1, (int) Math.ceil(contentSize.width() * RASTER_SCALE));
-        int wantedHeight = Math.max(1, (int) Math.ceil(contentSize.height() * RASTER_SCALE));
-        if (wantedWidth == getWidth() && wantedHeight == getHeight()
-                && skin.equals(renderedSkin)) {
+        int scale = rasterScale();
+        double longSide = Math.max(contentSize.width(), contentSize.height()) * scale;
+        if (longSide > MAX_SURFACE) {
+            scale = Math.max(1, (int) (MAX_SURFACE / Math.max(contentSize.width(), contentSize.height())));
+        }
+        int wantedWidth = Math.max(1, (int) Math.ceil(contentSize.width() * scale));
+        int wantedHeight = Math.max(1, (int) Math.ceil(contentSize.height() * scale));
+        resizeSurface(wantedWidth, wantedHeight, false);
+        // 真光栅尺寸与皮肤一起进签名：换皮肤、改尺寸、改设备缩放都会重画。
+        String signature = wantedWidth + "x" + wantedHeight
+                + "@" + getBitmapWidth() + "x" + getBitmapHeight()
+                + "|" + skin;
+        if (signature.equals(paintedSignature)) {
             faceReady = true;
             return;
         }
-
-        resizeSurface(wantedWidth, wantedHeight, false);
-        renderedSkin = skin;
-        renderOperation(graphics -> paintFace(graphics, source, wantedWidth, wantedHeight));
+        paintedSignature = signature;
+        renderOperation(graphics -> {
+            double device = getDeviceScale();
+            if (device > 0.0D && Double.isFinite(device)) {
+                graphics.scale(device, device);
+            }
+            paintFace(graphics, source, wantedWidth, wantedHeight);
+        });
         faceReady = true;
     }
 

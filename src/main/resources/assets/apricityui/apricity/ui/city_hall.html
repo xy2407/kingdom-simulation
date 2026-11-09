@@ -868,11 +868,12 @@ npc-bar,kingdom-entity-avatar,world-map,img{
 /* ============================================================
    日期选择：一格一天，可滚动
    ============================================================ */
-/* 原稿 grid repeat(6,1fr) + gap:8px。
-   AUI 的 grid 只支持无单位整数当列数（等距阵列），间距用子元素 margin。【替换 8/10】 */
+/* 原稿 grid repeat(6,1fr) + gap:8px；间距改用子元素 margin。
+   AUI 1.2.9 里 grid-template-columns 必须写真实轨道列表，裸整数会被判非法、
+   整条声明丢弃 → 退化成单列（《AUI 使用总结》坑 69）。 */
 .day-grid{
   display:grid;
-  grid-template-columns:6;
+  grid-template-columns:repeat(6,1fr);
 }
 
 .day-cell{

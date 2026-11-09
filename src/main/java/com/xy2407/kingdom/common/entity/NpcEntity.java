@@ -9,8 +9,13 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
 import com.xy2407.kingdom.common.block.WoodenChairBlock;
+import com.xy2407.kingdom.common.combat.CombatWeapons;
 import com.xy2407.kingdom.common.home.HomeBeds;
 import com.xy2407.kingdom.common.network.debug.NpcPathDebugBroadcast;
+import com.xy2407.kingdom.common.network.npc.NpcRemovalPacket;
+import com.xy2407.kingdom.server.lumber.NpcLumberService;
+import com.xy2407.kingdom.server.rts.RtsOpsService;
+import com.xy2407.kingdom.server.rts.RtsSelectionService;
 import com.xy2407.kingdom.common.npc.*;
 import com.xy2407.kingdom.common.path.*;
 import com.xy2407.kingdom.server.path.RoadRouteService;
@@ -19,6 +24,8 @@ import com.xy2407.kingdom.server.task.RegionTaskService;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.persistence.NpcSchema;
 
+import net.neoforged.neoforge.common.ItemAbilities;
+import net.neoforged.neoforge.network.PacketDistributor;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
@@ -26,8 +33,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
-import net.minecraft.resources.ResourceKey;
-import net.minecraft.server.level.ServerLevel;
+import net.minecraft.resources.ResourceKey;import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
@@ -39,10 +45,12 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.PathfinderMob;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.tags.BlockTags;
+import net.minecraft.util.Mth;
 import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
@@ -60,6 +68,8 @@ import net.minecraft.world.phys.Vec3;
  */
 public class NpcEntity extends PathfinderMob {
     private static final String KEY_CITIZEN_ID = "CitizenId";
+    /** 力量随实体一起存：属性基础值不进 NBT，重载时得靠它先把血量上限还原，别等数据库。 */
+    private static final String KEY_STRENGTH = "KingdomStrength";
     private static final EntityDataAccessor<Boolean> DATA_SITTING =
             SynchedEntityData.defineId(NpcEntity.class, EntityDataSerializers.BOOLEAN);
     private static final EntityDataAccessor<Float> DATA_HUNGER =
@@ -90,6 +100,10 @@ public class NpcEntity extends PathfinderMob {
     private final NpcInventory npcInventory = createInventory();
     private boolean inventoryLoading;
     private static final double WALK_SPEED = 0.5D;
+    private static final double BASE_ATTACK_DAMAGE = 2.0D;
+    private static final double BASE_MAX_HEALTH = 20.0D;
+    /** 力量是百分比：100 力量 = +100% 基础值。 */
+    private static final double STRENGTH_PERCENT = 100.0D;
     private static final double ARRIVE_SQR = 1.0D;
     private static final double WORK_ARRIVE_SQR = 1.0D;
     private static final double HOME_ARRIVE_SQR = 1.0D;
@@ -130,6 +144,9 @@ public class NpcEntity extends PathfinderMob {
     private BlockPos seatPos;
     private final NpcPathRetry pathRetry = new NpcPathRetry();
     private final NpcRtsController rts = new NpcRtsController(this);
+    private final NpcCombatController combat = new NpcCombatController(this);
+    /** 战斗指令（坚守/进攻）是否已经从存档还原过：只在首次拿到市民数据时做一次，避免和后续的巡逻等临时态打架。 */
+    private boolean combatOrderRestored;
     private Future<NpcPathfinder.PathResult> workPathFuture;
     private boolean workPathJoined;
     private NpcPathfinder.Session workSession;
@@ -138,6 +155,8 @@ public class NpcEntity extends PathfinderMob {
     private boolean followCompleted;
     private BlockPos followEndPos;
     private boolean testFollowing;
+    /** 客户端专用：最近一次挥击动画的起始 tick，供模型摆动手臂用（原版 attackTime 在这个模型上不生效）。 */
+    private int swingAnimStart = -100;
     private long sharedPathUsedKey = Long.MIN_VALUE;
     private int workRepathCooldown;
     private long workPathDeadlineNanos;
@@ -177,6 +196,19 @@ public class NpcEntity extends PathfinderMob {
 
     public void setRtsWaypoints(List<BlockPos> waypoints) {
         rts.setWaypoints(waypoints);
+    }
+
+    /**
+     * 用预计算路点直接下达 RTS 指令：跳过寻路搜索，巡逻的缓存路线走这条通道。
+     * 语义与 {@link #setRtsTarget} 一致，只是路径来源不同。
+     */
+    public void setRtsCachedPath(BlockPos target, List<NpcPathfinder.Waypoint> path) {
+        rts.setCachedPath(target, path);
+    }
+
+    /** 当前正在跟随的路点（只读，内部已是不可变列表，别改）。 */
+    public List<NpcPathfinder.Waypoint> currentPath() {
+        return followPath;
     }
 
     public List<BlockPos> getRtsWaypoints() {
@@ -320,17 +352,20 @@ public class NpcEntity extends PathfinderMob {
                     pathPaddingStage = 0;
                     applyPath(trimmed);
                 } else if (result.missingChunks() > 0) {
-                    workRepathCooldown = 10;
+                    // 缺快照的惩罚从 10 tick 压到 1：快照在 ServerTickEvent.Post 构建，
+                    // 请求当 tick 的 Post 就建好了，等 10 纯属空转——这就是静止 NPC
+                    // 从收到指令到迈步要 1~2 秒的主因（移动中的 NPC 快照热，一次就中）。
+                    workRepathCooldown = 1;
                 } else {
                     pathPaddingStage++;
-                    workRepathCooldown = 10;
+                    workRepathCooldown = 2;
                     escalateWork(stand, WORK_SEARCH_FAIL_LIMIT);
                 }
             } else if (result != null && result.missingChunks() > 0) {
-                workRepathCooldown = 10;
+                workRepathCooldown = 1;
             } else {
                 pathPaddingStage++;
-                workRepathCooldown = 10;
+                workRepathCooldown = 2;
                 escalateWork(stand, WORK_SEARCH_FAIL_LIMIT);
             }
             return false;
@@ -344,9 +379,11 @@ public class NpcEntity extends PathfinderMob {
         }
         BlockPos from = blockPosition();
         Future<NpcPathfinder.PathResult> future = null;
+        // 玩家硬指令走紧急寻路通道（独立配额+线程池），不被全城日常寻路排队挤掉
+        boolean urgent = rts.isUrgentOrder();
         if (rts.target() != null) {
             RtsSharedPath.Join join = RtsSharedPath.get(level.getServer())
-                    .joinOrSubmit(level, from, stand, NpcPathfinder.paddingOf(pathPaddingStage), getId());
+                    .joinOrSubmit(level, from, stand, NpcPathfinder.paddingOf(pathPaddingStage), getId(), urgent);
             if (join != null) {
                 if (join.readyPath() != null) {
                     List<NpcPathfinder.Waypoint> trimmed = trimForLanding(join.readyPath());
@@ -375,6 +412,12 @@ public class NpcEntity extends PathfinderMob {
                 applyPath(roadRoute);
                 return false;
             }
+        }
+        if (future == null) {
+            // preferRoad 只决定「是否先试路网」，不能决定「能不能寻路」。
+            // 以前写成 if (future == null && preferRoad)，于是所有传 false 的调用
+            //（战斗追击、RTS 共享路径没命中时的兜底）永远提交不了寻路任务，
+            // 表现就是原地不动、只把头转过去盯着目标。
             SnapshotRepository repository = SnapshotRepository.get(level.getServer());
             if (repository == null) {
                 return false;
@@ -386,11 +429,13 @@ public class NpcEntity extends PathfinderMob {
             }
             session.preferRoad(preferRoad);
             future = repository.submitSessionSearch(level, session, from, stand,
-                    NpcPathfinder.paddingOf(pathPaddingStage));
+                    NpcPathfinder.paddingOf(pathPaddingStage), urgent);
             workPathJoined = false;
         }
         if (future == null) {
-            workRepathCooldown = 10;
+            // 提交失败（本 tick 搜索配额被日常寻路吃光/仓库未就绪）：短冷却快速重试，
+            // 以前等 10 tick，叠加起来就是玩家看到的"静止 NPC 响应要 2 秒"。
+            workRepathCooldown = 2;
             escalateWork(stand, WORK_SEARCH_FAIL_LIMIT);
             return false;
         }
@@ -703,7 +748,13 @@ public class NpcEntity extends PathfinderMob {
             double dz = getZ() - (pos.getZ() + 0.5D);
             double arrive = switch (waypoint.move()) {
                 case CLIMB -> 1.15D;
-                case WALK -> isCorner(followIndex) ? CORNER_ARRIVE : 0.5D;
+                case WALK -> {
+                    // 精确模式（阵型编辑）的最后一段收紧到 0.1；其余情况一律保持原行为
+                    if (rts.isPrecise() && followIndex >= followPath.size() - 1) {
+                        yield rts.lastHopRadius();
+                    }
+                    yield isCorner(followIndex) ? CORNER_ARRIVE : 0.5D;
+                }
                 default -> 1.0D;
             };
             if (dx * dx + dz * dz <= arrive * arrive
@@ -1152,6 +1203,19 @@ public class NpcEntity extends PathfinderMob {
         return source.is(DamageTypes.CRAMMING) || super.isInvulnerableTo(source);
     }
 
+    @Override
+    public boolean hurt(DamageSource source, float amount) {
+        // 受击即记仇：被谁打就立刻把战斗目标换成谁（远程被突脸必须马上掉头还手）。
+        // 只在服务端做；source.getEntity() 是伤害归属者——被箭射中时是射手而不是箭。
+        if (!level().isClientSide() && !isRemoved()) {
+            Entity attacker = source.getEntity();
+            if (attacker != null && attacker != this) {
+                combat.onHurtBy(attacker);
+            }
+        }
+        return super.hurt(source, amount);
+    }
+
     private int farTravelStride() {
         if (--farTravelCheckTimer > 0) {
             return farTravelStrideCache;
@@ -1184,8 +1248,10 @@ public class NpcEntity extends PathfinderMob {
 
     public static AttributeSupplier.Builder createAttributes() {
         return PathfinderMob.createMobAttributes()
+                .add(Attributes.MAX_HEALTH, BASE_MAX_HEALTH)
                 .add(Attributes.MOVEMENT_SPEED, WALK_SPEED)
-                .add(Attributes.STEP_HEIGHT, 1.0D);
+                .add(Attributes.STEP_HEIGHT, 1.0D)
+                .add(Attributes.ATTACK_DAMAGE, BASE_ATTACK_DAMAGE);
     }
 
     @Override
@@ -1254,6 +1320,114 @@ public class NpcEntity extends PathfinderMob {
         return entityData.get(DATA_STATUS);
     }
 
+    public boolean isArmed() {
+        if (CombatWeapons.isCombatWeapon(npcInventory.getStackInSlot(NpcInventory.MAIN_HAND))) {
+            return true;
+        }
+        if (bagWeaponPresent) {
+            return true;
+        }
+        // 兜底：实体装备槽里已有武器（外部直接 setItemSlot / 装备同步的路径）
+        return CombatWeapons.isCombatWeapon(getItemBySlot(EquipmentSlot.MAINHAND));
+    }
+
+    public ItemStack weaponStack() {
+        ItemStack main = npcInventory.getStackInSlot(NpcInventory.MAIN_HAND);
+        if (CombatWeapons.isCombatWeapon(main)) {
+            return main;
+        }
+        return firstBagWeapon();
+    }
+
+    public void setCombatHold(boolean hold) {
+        if (hold) {
+            combat.setHoldPoint(blockPosition());
+            persistCombatMode(NpcData.COMBAT_HOLD);
+        } else {
+            combat.clearOrders();
+            persistCombatMode(NpcData.COMBAT_STANDBY);
+        }
+    }
+
+    public void setCombatAttack() {
+        combat.beginAttack();
+        persistCombatMode(NpcData.COMBAT_ATTACK);
+    }
+
+    /**
+     * 进入巡逻态：自身不索敌，只执行队伍共享目标。
+     * 巡逻是队伍级常驻任务（路线存在队伍上），个体只记「当前在巡逻」这层临时态，
+     * 所以入库的是「待命」，重启后由巡逻服务按队伍记录重新挂回巡逻。
+     */
+    public void setCombatPatrol() {
+        combat.beginPatrol();
+        persistCombatMode(NpcData.COMBAT_STANDBY);
+    }
+
+    /** 当前是不是巡逻态（巡逻服务用它把重载回来的队员重新挂回巡逻）。 */
+    public boolean isPatrolCombatMode() {
+        return combat.mode() == NpcCombatController.CombatMode.PATROL;
+    }
+
+    /** 回到「手持武器待命」：坚守/进攻/巡逻是三个并列指令，解除巡逻就是回待命。 */
+    public void setCombatStandby() {
+        combat.setMode(NpcCombatController.CombatMode.STANDBY);
+        persistCombatMode(NpcData.COMBAT_STANDBY);
+    }
+
+    /** 玩家显式下达的战斗指令落库：重启/区块重载后靠它把状态还原回去。 */
+    private void persistCombatMode(String mode) {
+        if (level() == null || level().isClientSide() || citizenId == null) {
+            return;
+        }
+        NpcData data = NpcManager.INSTANCE.getNpc(citizenId);
+        if (data != null) {
+            data.setCombatMode(mode);
+        }
+    }
+
+    public void assignPatrolTarget(Entity target) {
+        combat.assignPatrolTarget(target);
+    }
+
+    public void clearPatrolTarget() {
+        combat.clearPatrolTarget();
+    }
+
+    /** 是否还挂着巡逻共享目标。 */
+    public boolean hasPatrolTarget() {
+        return combat.hasPatrolTarget();
+    }
+
+    public boolean hasRtsOrder() {
+        return rts.hasOrder();
+    }
+
+    public void cancelRtsOrder() {
+        rts.release();
+    }
+
+    /** 当前 RTS 指令是不是「软指令」（队伍跟随/阵型站位），战斗可以打断它去追击。 */
+    public boolean isSoftRtsOrder() {
+        return rts.isSoftOrder();
+    }
+
+    public boolean combatEngaged() {
+        return combat.hasTarget();
+    }
+
+    public void assignCombatTarget(Entity target) {
+        combat.assignTarget(target);
+    }
+
+    public void clearCombatAggro() {
+        combat.clearAggro();
+    }
+
+    public NpcDetail combatDetail() {
+        return combat.detail();
+    }
+
     public void setHeldItem(ItemStack stack) {
         ItemStack value = stack == null || stack.isEmpty() ? ItemStack.EMPTY : stack.copyWithCount(1);
         if (ItemStack.isSameItemSameComponents(entityData.get(DATA_HELD_ITEM), value)) {
@@ -1268,7 +1442,17 @@ public class NpcEntity extends PathfinderMob {
             return;
         }
         ItemStack workItem = entityData.get(DATA_HELD_ITEM);
-        ItemStack main = workItem.isEmpty() ? npcInventory.getStackInSlot(NpcInventory.MAIN_HAND) : workItem;
+        ItemStack main = npcInventory.getStackInSlot(NpcInventory.MAIN_HAND);
+        // 武装优先：主手没有武器就从背包里取一把显示（不动背包内容），
+        // 否则工作工具会把武器盖掉，看上去仍是农民。
+        if (!CombatWeapons.isCombatWeapon(main)) {
+            ItemStack bagWeapon = firstBagWeapon();
+            if (!bagWeapon.isEmpty()) {
+                main = bagWeapon;
+            } else if (!workItem.isEmpty()) {
+                main = workItem;
+            }
+        }
         setItemSlot(EquipmentSlot.MAINHAND, main);
         setItemSlot(EquipmentSlot.OFFHAND, npcInventory.getStackInSlot(NpcInventory.OFF_HAND));
         setItemSlot(EquipmentSlot.HEAD, npcInventory.getStackInSlot(NpcInventory.HEAD));
@@ -1281,12 +1465,94 @@ public class NpcEntity extends PathfinderMob {
         entityData.set(DATA_SWING, entityData.get(DATA_SWING) + 1);
     }
 
-    public void syncTalent(NpcData data) {
-        if (data == null) {
+    // ------------------------------------------------------------------ 盾牌
+
+    /** 副手拿的是不是能格挡的盾（标签/原件判定走原版 ItemAbilities）。 */
+    public boolean hasShield() {
+        return npcInventory.getStackInSlot(NpcInventory.OFF_HAND)
+                .canPerformAction(ItemAbilities.SHIELD_BLOCK);
+    }
+
+    /** 现在举着的是不是盾（用于跟弓/弩的“使用中”状态区分）。 */
+    public boolean isUsingShield() {
+        return isUsingItem() && getUseItem().canPerformAction(ItemAbilities.SHIELD_BLOCK);
+    }
+
+    /**
+     * 盾牌姿态同步：近战 + 副手有盾 → 举盾（原版右键盾的举盾姿态，客户端靠 isUsingItem 渲染），
+     * 拿弓/弩或没有盾 → 放下。
+     * <p>
+     * 只比较几个状态位，不扫世界；调用点都在已有的战斗分支里，没有额外的每 tick 扫描。
+     */
+    public void syncShieldPose(boolean rangedWeapon) {
+        if (level() == null || level().isClientSide()) {
             return;
         }
-        if (entityData.get(DATA_STRENGTH) != data.getStrength()) {
-            entityData.set(DATA_STRENGTH, data.getStrength());
+        boolean want = !rangedWeapon && hasShield();
+        boolean holdingShield = isUsingShield();
+        if (want) {
+            if (holdingShield) {
+                return;
+            }
+            // 先把弓/弩的使用状态收掉：原版 startUsingItem 在 isUsingItem() 时直接返回，抢不过来
+            if (isUsingItem()) {
+                stopUsingItem();
+            }
+            if (!isUsingItem()) {
+                startUsingItem(InteractionHand.OFF_HAND);
+            }
+            return;
+        }
+        if (holdingShield) {
+            stopUsingItem();
+        }
+    }
+
+    public void lowerShield() {
+        if (level() != null && !level().isClientSide() && isUsingShield()) {
+            stopUsingItem();
+        }
+    }
+
+    /**
+     * 盾牌挡下伤害后的耐久损耗：原版口径，单次伤害 ≥3 才磨盾，损耗 1 + floor(伤害)。
+     * 盾在背包的副手格里，磨完要回写背包（装备槽是同一个 ItemStack 引用），否则不落库。
+     */
+    @Override
+    protected void hurtCurrentlyUsedShield(float damage) {
+        if (damage < 3.0F) {
+            return;
+        }
+        ItemStack shield = npcInventory.getStackInSlot(NpcInventory.OFF_HAND);
+        if (!shield.canPerformAction(ItemAbilities.SHIELD_BLOCK) || !shield.isDamageableItem()) {
+            return;
+        }
+        shield.hurtAndBreak(1 + Mth.floor(damage), this, EquipmentSlot.OFFHAND);
+        boolean broke = shield.isEmpty();
+        npcInventory.setStackInSlot(NpcInventory.OFF_HAND, broke ? ItemStack.EMPTY : shield);
+        if (broke && isUsingItem()) {
+            // 盾碎了就别继续摆着举盾姿势
+            stopUsingItem();
+        }
+        applyEquipment();
+    }
+
+    /**
+     * 力量 → 属性：最大生命 = 20 + 20 × 力量/100，基础攻击伤害 = 2 + 2 × 力量/100。
+     * <p>
+     * 这里只写「属性」这一层，具体一刀打多少还要再叠手持武器/附魔（后续做）；
+     * 所有数值只保留 1 位小数。
+     * <p>
+     * 调用时机是**事件驱动**：市民数据到位（进世界/设 citizenId）和力量值真的变了才调，
+     * 不在 tick 里逐帧刷。
+     */
+    public void syncTalent(NpcData data) {
+        if (data == null || level() == null || level().isClientSide()) {
+            return;
+        }
+        int strength = data.getStrength();
+        if (entityData.get(DATA_STRENGTH) != strength) {
+            entityData.set(DATA_STRENGTH, strength);
         }
         if (entityData.get(DATA_INTELLIGENCE) != data.getIntelligence()) {
             entityData.set(DATA_INTELLIGENCE, data.getIntelligence());
@@ -1294,6 +1560,42 @@ public class NpcEntity extends PathfinderMob {
         if (entityData.get(DATA_AGILITY) != data.getAgility()) {
             entityData.set(DATA_AGILITY, data.getAgility());
         }
+        applyStrength(strength);
+    }
+
+    /** 力量 → 最大生命 / 基础攻击伤害（只算属性，不含武器；数值保留 1 位小数）。 */
+    private void applyStrength(int strength) {
+        double maxHealth = roundTalent(BASE_MAX_HEALTH + BASE_MAX_HEALTH * strength / STRENGTH_PERCENT);
+        double attackDamage = roundTalent(BASE_ATTACK_DAMAGE
+                + BASE_ATTACK_DAMAGE * strength / STRENGTH_PERCENT);
+        applyMaxHealth(maxHealth);
+        AttributeInstance attack = getAttribute(Attributes.ATTACK_DAMAGE);
+        if (attack != null && Math.abs(attack.getBaseValue() - attackDamage) > 1.0E-4D) {
+            attack.setBaseValue(attackDamage);
+        }
+    }
+
+    /**
+     * 力量会改血量上限。只做两件事：
+     * 原本满血的（刚生成/刚加载且没受过伤）跟着补满；上限变小而当前血量超了才夹住。
+     * 带着伤重载世界不会被“免费治疗”。
+     */
+    private void applyMaxHealth(double maxHealth) {
+        AttributeInstance attribute = getAttribute(Attributes.MAX_HEALTH);
+        if (attribute == null || Math.abs(attribute.getBaseValue() - maxHealth) <= 1.0E-4D) {
+            return;
+        }
+        boolean wasFull = getHealth() >= attribute.getBaseValue() - 1.0E-3D;
+        attribute.setBaseValue(maxHealth);
+        if (wasFull) {
+            setHealth((float) maxHealth);
+        } else if (getHealth() > maxHealth) {
+            setHealth((float) maxHealth);
+        }
+    }
+
+    private static double roundTalent(double value) {
+        return Math.round(value * 10.0D) / 10.0D;
     }
 
     public int getSyncedStrength() {
@@ -1316,8 +1618,14 @@ public class NpcEntity extends PathfinderMob {
             return;
         }
         if (DATA_SWING.equals(key) && level().isClientSide()) {
+            swingAnimStart = tickCount;
             swing(InteractionHand.MAIN_HAND);
         }
+    }
+
+    /** 客户端挥击动画的起始 tick；模型用 (当前年龄 - 这个值) 算摆动进度。 */
+    public int swingAnimStart() {
+        return swingAnimStart;
     }
 
     @Override
@@ -1325,6 +1633,10 @@ public class NpcEntity extends PathfinderMob {
         super.addAdditionalSaveData(tag);
         if (citizenId != null) {
             tag.putUUID(KEY_CITIZEN_ID, citizenId);
+            NpcData data = NpcManager.INSTANCE.getNpc(citizenId);
+            if (data != null) {
+                tag.putInt(KEY_STRENGTH, data.getStrength());
+            }
         }
     }
 
@@ -1333,6 +1645,10 @@ public class NpcEntity extends PathfinderMob {
         super.readAdditionalSaveData(tag);
         if (tag.contains(KEY_CITIZEN_ID)) {
             citizenId = tag.getUUID(KEY_CITIZEN_ID);
+        }
+        // 必须在读完血量之后、任何 clamp 之前把上限还原，否则带伤重载会被按 20 血上限截断
+        if (tag.contains(KEY_STRENGTH)) {
+            applyStrength(tag.getInt(KEY_STRENGTH));
         }
         loadInventory();
     }
@@ -1344,6 +1660,11 @@ public class NpcEntity extends PathfinderMob {
     public void setCitizenId(UUID citizenId) {
         this.citizenId = citizenId;
         loadInventory();
+        NpcData data = citizenId == null ? null : NpcManager.INSTANCE.getNpc(citizenId);
+        if (data != null) {
+            // 事件驱动：市民数据一挂上就把力量属性落一次，不靠 tick 刷
+            syncTalent(data);
+        }
     }
 
     public NpcInventory getNpcInventory() {
@@ -1352,8 +1673,39 @@ public class NpcEntity extends PathfinderMob {
 
     private NpcInventory createInventory() {
         NpcInventory inventory = new NpcInventory();
-        inventory.setChangeListener(changed -> saveInventory());
+        inventory.setChangeListener(changed -> {
+            refreshArmedCache();
+            saveInventory();
+        });
         return inventory;
+    }
+
+    /**
+     * 背包里有没有战斗武器（任意格）。
+     * 玩家给市民发武器基本都塞背包格，只认主手槽会让"给了剑还是农民"；
+     * 这里缓存成布尔，避免 brain 每 tick 对每个市民扫 24 格。
+     */
+    private boolean bagWeaponPresent;
+
+    private void refreshArmedCache() {
+        bagWeaponPresent = false;
+        for (int slot = NpcInventory.BAG_START; slot < NpcInventory.SLOT_COUNT; slot++) {
+            if (CombatWeapons.isCombatWeapon(npcInventory.getStackInSlot(slot))) {
+                bagWeaponPresent = true;
+                return;
+            }
+        }
+    }
+
+    /** 背包里第一把战斗武器，没有则空。 */
+    private ItemStack firstBagWeapon() {
+        for (int slot = NpcInventory.BAG_START; slot < NpcInventory.SLOT_COUNT; slot++) {
+            ItemStack stack = npcInventory.getStackInSlot(slot);
+            if (CombatWeapons.isCombatWeapon(stack)) {
+                return stack;
+            }
+        }
+        return ItemStack.EMPTY;
     }
 
     private void saveInventory() {
@@ -1380,6 +1732,8 @@ public class NpcEntity extends PathfinderMob {
         } finally {
             inventoryLoading = false;
         }
+        // 反序列化直接写内部数组，不会触发 onContentsChanged，武装缓存要手动同步
+        refreshArmedCache();
         applyEquipment();
     }
 
@@ -1398,16 +1752,14 @@ public class NpcEntity extends PathfinderMob {
         for (EquipmentSlot equipmentSlot : EquipmentSlot.values()) {
             setItemSlot(equipmentSlot, ItemStack.EMPTY);
         }
+        refreshArmedCache();
     }
 
     @Override
     public void die(DamageSource cause) {
         super.die(cause);
         if (!level().isClientSide()) {
-            if (level() instanceof ServerLevel serverLevel) {
-                com.xy2407.kingdom.server.rts.RtsTeamManager.removeMemberOnDeath(
-                        serverLevel, getUUID());
-            }
+            // 所有按实体 UUID 索引的运行时缓存统一在 purgeCitizenData 里收口
             purgeCitizenData();
         }
     }
@@ -1426,7 +1778,11 @@ public class NpcEntity extends PathfinderMob {
         if (id == null) {
             return;
         }
+        // 先摘 live 索引（它按 citizenId 存），再清空 citizenId
+        NpcManager.INSTANCE.unregisterLive(this);
         citizenId = null;
+        // 市民 id 与实体 UUID 不是同一个：前者是数据层主键，后者的各类运行时缓存必须在这里清
+        UUID entityId = getUUID();
         clearSocialPartner();
         if (isSitting()) {
             setSitting(false);
@@ -1434,7 +1790,23 @@ public class NpcEntity extends PathfinderMob {
         NpcManager.INSTANCE.removeNpc(id);
         RegionTaskService.INSTANCE.onCitizenRemoved(id);
         if (level() instanceof ServerLevel serverLevel && serverLevel.getServer() != null) {
+            com.xy2407.kingdom.server.rts.RtsTeamManager.removeMemberOnDeath(serverLevel, entityId);
+            com.xy2407.kingdom.server.rts.RtsOpsService.clearHolding(entityId);
+            RtsSelectionService.onEntityRemoved(entityId);
+            NpcLumberService.onNpcRemoved(entityId);
+            notifyClientRemoval(serverLevel, entityId);
             BuilderBoardService.broadcastAll(serverLevel.getServer());
+        }
+    }
+
+    /** 通知所有客户端把这个市民从编组/红框/选中里摘掉（纯客户端缓存，服务端替不了）。 */
+    private static void notifyClientRemoval(ServerLevel level, UUID entityId) {
+        if (entityId == null || level.getServer() == null) {
+            return;
+        }
+        NpcRemovalPacket packet = new NpcRemovalPacket(entityId);
+        for (ServerPlayer player : level.getServer().getPlayerList().getPlayers()) {
+            PacketDistributor.sendToPlayer(player, packet);
         }
     }
 
@@ -1460,6 +1832,26 @@ public class NpcEntity extends PathfinderMob {
         data.setDimension(entity.level().dimension().location().toString());
         data.setChunk(entity.chunkPosition().toLong());
         NpcManager.INSTANCE.registerLive(entity);
+        entity.syncTalent(data);
+        entity.restoreCombatOrder(data);
+    }
+
+    /**
+     * 还原玩家上次下达的战斗指令（坚守/进攻）。
+     * 只还原 STANDBY 之外的显式命令；当前会话已有活动指令时不覆盖，避免重复加入世界把状态打回原型。
+     */
+    private void restoreCombatOrder(NpcData data) {
+        if (combat.mode() != NpcCombatController.CombatMode.STANDBY) {
+            return;
+        }
+        String mode = data.getCombatMode();
+        if (NpcData.COMBAT_HOLD.equals(mode)) {
+            // 坚守点就是存档时的脚下位置：重载后就地钉住，等玩家再下新指令
+            combat.setHoldPoint(blockPosition());
+            RtsOpsService.markHolding(getUUID());
+        } else if (NpcData.COMBAT_ATTACK.equals(mode)) {
+            combat.beginAttack();
+        }
     }
 
     public static void onLeaveWorld(NpcEntity entity) {
@@ -1487,6 +1879,11 @@ public class NpcEntity extends PathfinderMob {
             stopSitting();
             getNavigation().stop();
             return;
+        }
+        if (!combatOrderRestored) {
+            // 市民数据是懒加载的：加入世界那一拍可能还没读到库，这里补一次还原（只会成功一次）
+            combatOrderRestored = true;
+            restoreCombatOrder(data);
         }
         float hunger = (float) data.getHunger();
         if (entityData.get(DATA_HUNGER) != hunger) {
@@ -1525,10 +1922,15 @@ public class NpcEntity extends PathfinderMob {
         if (data.getEntityUuid() == null) {
             data.setEntityUuid(getUUID());
         }
-        syncTalent(data);
+        // 力量/天赋属性不在这里刷：进世界、设 citizenId、力量值变更时事件驱动同步
         NpcBrain brain = data.getBrain();
         if (testFollowing) {
             tickTestFollow();
+            return;
+        }
+        if (brain.getState() == NpcState.COMBAT) {
+            rts.tick();
+            combat.tick();
             return;
         }
         if (brain.getState() == NpcState.COMMANDED) {

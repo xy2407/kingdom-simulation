@@ -38,7 +38,12 @@ public final class RtsTeamManager {
     private static final Map<UUID, Long> LAST_STAND = new ConcurrentHashMap<>();
 
     private static final double FOLLOW_ARRIVE_SQR = 4.0D;
+    /** 巡逻纵队的到达半径更紧（1 格），否则 3 列纵队会挤成一团。 */
+    private static final double PATROL_ARRIVE_SQR = 1.0D;
     private static final double SPACING = 2.0D;
+    public static final double TEAM_LEASH = 12.0D;
+    private static final double TEAM_PULLBACK = 14.0D;
+    private static final Map<UUID, BlockPos> ANCHORS = new ConcurrentHashMap<>();
 
     private RtsTeamManager() {
     }
@@ -137,9 +142,12 @@ public final class RtsTeamManager {
 
     private static void clearMembers(ServerLevel level, RtsTeam team) {
         EDITING.remove(team.teamId());
+        // 队伍解散/成员清空时一并撤掉巡逻安排，否则会留下没有队伍的幽灵路线
+        RtsPatrolService.stop(level, team.teamId());
         for (UUID member : new ArrayList<>(team.members())) {
             MEMBER_TEAM.remove(member);
             LAST_STAND.remove(member);
+            ANCHORS.remove(member);
             restoreEditSpeed(findAcrossLevels(level.getServer(), member));
         }
     }
@@ -151,17 +159,35 @@ public final class RtsTeamManager {
             MEMBER_TEAM.remove(memberUuid);
             return false;
         }
-        if (memberUuid.equals(team.leaderUuid())) {
-            dissolveTeam(level, teamId);
-            return true;
-        }
-        team.remove(memberUuid);
         MEMBER_TEAM.remove(memberUuid);
         LAST_STAND.remove(memberUuid);
+        ANCHORS.remove(memberUuid);
         restoreEditSpeed(findAcrossLevels(level.getServer(), memberUuid));
+        // 队长阵亡：RtsTeam.remove 会自动把队内下一个成员顶上队长位，队伍不解散
+        team.remove(memberUuid);
+        if (team.members().isEmpty()) {
+            // 全队死光 → 自动解散，并明确告诉玩家（否则队伍会凭空消失）
+            clearMembers(level, team);
+            RtsTeamStorage.delete(level.getServer(), teamId);
+            TEAMS.remove(teamId);
+            notifyTeamWiped(level, team);
+            return true;
+        }
         RtsTeamStorage.save(level.getServer(), team);
         RtsTeamService.syncToOwner(level, team);
         return true;
+    }
+
+    /** 队伍全员阵亡自动解散的提示：只发给还活着的队主。 */
+    private static void notifyTeamWiped(ServerLevel level, RtsTeam team) {
+        if (level == null || team == null || level.getServer() == null) {
+            return;
+        }
+        ServerPlayer owner = level.getServer().getPlayerList().getPlayer(team.ownerUuid());
+        if (owner != null) {
+            owner.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                    "你的 RTS 队伍全员阵亡，队伍已自动解散"), false);
+        }
     }
 
     public static RtsTeam get(UUID teamId) {
@@ -212,6 +238,8 @@ public final class RtsTeamManager {
         EDIT_MEMBERS.clear();
         EDIT_SPEED.clear();
         LAST_STAND.clear();
+        ANCHORS.clear();
+        RtsPatrolService.clearAll();
     }
 
     public static boolean setMemberOffset(UUID teamId, UUID member, float offX, float offZ) {
@@ -260,12 +288,20 @@ public final class RtsTeamManager {
         if (team == null || team.members().isEmpty()) {
             return;
         }
+        // 进阵型编辑就撤掉巡逻：编辑期速度被钉成 0，巡逻路线推进会与摆格子互相干扰。
+        // 只暂停任务、保留路线，编辑完还能接着巡逻。
+        if (RtsPatrolService.interrupt(level, teamId)) {
+            RtsTeamService.syncToOwner(level, team);
+        }
         EDITING.add(teamId);
         WORLD_OPS.remove(teamId);
         for (UUID member : team.members()) {
             EDIT_MEMBERS.add(member);
             Entity entity = findAcrossLevels(level.getServer(), member);
             if (entity instanceof NpcEntity npc) {
+                // 编辑期间（含世界空间模式）的移动一律用精确抵达（< 0.1 格）：
+                // 玩家是在摆格子，停在半格或三格外没有意义。退出编辑时恢复普通 RTS 阈值。
+                npc.setRtsPrecise(true);
                 alignToBlockCenter(npc);
                 if (npc.getAttribute(Attributes.MOVEMENT_SPEED) != null) {
                     EDIT_SPEED.putIfAbsent(member,
@@ -317,6 +353,29 @@ public final class RtsTeamManager {
         npc.clearNavTarget();
     }
 
+    /**
+     * 把成员直接放到目标格的中心（阵型编辑专用）。
+     *
+     * <p>编辑期间移动速度被钉成 0（见 {@link #freezeTeamForEdit}），靠 setRtsTarget 让 NPC 自己走过去
+     * 是走不动的；玩家的意图是"把小方块摆进这一格"，所以必须瞬移，而不是下发寻路指令。
+     */
+    public static void teleportMemberToCell(ServerLevel level, NpcEntity npc, BlockPos cell) {
+        if (npc == null || cell == null) {
+            return;
+        }
+        double x = cell.getX() + 0.5D;
+        double y = cell.getY();
+        double z = cell.getZ() + 0.5D;
+        stopEntity(npc);
+        npc.getNavigation().stop();
+        npc.clearMoveTargets();
+        npc.setDeltaMovement(Vec3.ZERO);
+        // teleportTo 走实体传送流程，位置能立刻同步给客户端
+        npc.teleportTo(x, y, z);
+        npc.setPos(x, y, z);
+        npc.setDeltaMovement(Vec3.ZERO);
+    }
+
     public static void releaseTeamAfterEdit(ServerLevel level, UUID teamId) {
         RtsTeam team = teamId == null ? null : TEAMS.get(teamId);
         if (team == null) {
@@ -329,6 +388,8 @@ public final class RtsTeamManager {
             NpcEntity npc = findAcrossLevels(level.getServer(), member);
             restoreEditSpeed(npc);
             if (npc != null) {
+                // 退出编辑：回到普通 RTS 的抵达阈值（3 格），精确模式只服务于摆格子
+                npc.setRtsPrecise(false);
                 npc.clearMoveTargets();
             }
             LAST_STAND.remove(member);
@@ -431,6 +492,7 @@ public final class RtsTeamManager {
         team.remove(memberUuid);
         MEMBER_TEAM.remove(memberUuid);
         LAST_STAND.remove(memberUuid);
+        ANCHORS.remove(memberUuid);
         restoreEditSpeed(findAcrossLevels(level.getServer(), memberUuid));
         if (!RtsTeamStorage.save(level.getServer(), team)) {
             return "退出失败：数据库写入失败";
@@ -469,6 +531,7 @@ public final class RtsTeamManager {
                     : spiralOffset(team.members().indexOf(member));
             BlockPos stand = BlockPos.containing(leader.getX() + offset[0],
                     leader.getY(), leader.getZ() + offset[1]);
+            ANCHORS.put(member, stand);
             LAST_STAND.put(member, stand.asLong());
             npc.setRtsTarget(stand, false);
         }
@@ -498,6 +561,14 @@ public final class RtsTeamManager {
             if (leader == null) {
                 continue;
             }
+            // 巡逻交战中：整队由战斗驱动，队形跟随让位，否则每拍重发的站位指令会把追击的人拽回来
+            if (RtsPatrolService.isEngaged(team.teamId())) {
+                continue;
+            }
+            // 巡逻进行中：站位换成巡逻的 3 列纵队（队长领头），队伍自己保存的阵型偏移一个字都不改，
+            // 巡逻一结束这里就自动回到原阵型。
+            boolean patrolling = RtsPatrolService.isPatrolling(team.teamId());
+            NpcEntity leaderNpc = leader instanceof NpcEntity ? (NpcEntity) leader : null;
             boolean hasFormation = team.formationSaved();
             for (UUID member : team.members()) {
                 if (member.equals(team.leaderUuid())) {
@@ -507,11 +578,29 @@ public final class RtsTeamManager {
                 if (npc == null || npc.isRemoved()) {
                     continue;
                 }
-                float[] offset = hasFormation ? team.offsetOf(member)
-                        : spiralOffset(team.members().indexOf(member));
-                BlockPos stand = BlockPos.containing(leader.getX() + offset[0],
-                        leader.getY(), leader.getZ() + offset[1]);
-                if (npc.blockPosition().distSqr(stand) <= FOLLOW_ARRIVE_SQR) {
+                BlockPos stand;
+                if (patrolling) {
+                    stand = RtsPatrolService.patrolStand(team, leaderNpc, member);
+                } else {
+                    float[] offset = hasFormation ? team.offsetOf(member)
+                            : spiralOffset(team.members().indexOf(member));
+                    stand = BlockPos.containing(leader.getX() + offset[0],
+                            leader.getY(), leader.getZ() + offset[1]);
+                }
+                if (stand == null) {
+                    continue;
+                }
+                ANCHORS.put(member, stand);
+                if (RtsOpsService.isHolding(member)) {
+                    continue;
+                }
+                boolean fighting = npc.combatEngaged();
+                double selfSqr = distanceSqrToStand(npc, stand);
+                if (fighting) {
+                    if (selfSqr <= TEAM_PULLBACK * TEAM_PULLBACK) {
+                        continue;
+                    }
+                } else if (selfSqr <= (patrolling ? PATROL_ARRIVE_SQR : FOLLOW_ARRIVE_SQR)) {
                     continue;
                 }
                 Long previous = LAST_STAND.get(member);
@@ -522,6 +611,17 @@ public final class RtsTeamManager {
                 npc.setRtsTarget(stand, false);
             }
         }
+    }
+
+    public static BlockPos anchorOf(UUID member) {
+        return member == null ? null : ANCHORS.get(member);
+    }
+
+    private static double distanceSqrToStand(NpcEntity npc, BlockPos stand) {
+        double dx = npc.getX() - (stand.getX() + 0.5D);
+        double dy = npc.getY() - stand.getY();
+        double dz = npc.getZ() - (stand.getZ() + 0.5D);
+        return dx * dx + dy * dy + dz * dz;
     }
 
     private static boolean controlledByRts(NpcEntity npc) {

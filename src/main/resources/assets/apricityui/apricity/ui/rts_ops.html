@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="aui-viewport" content="mode=gui">
+    <meta name="aui-mouse-events" content="intercept">
+    <style>
+        @font-face {
+            font-family: 'Zpix';
+            src: url('/font/zpix.ttf') format('truetype');
+            font-display: block;
+        }
+
+        /* 主题令牌内联自 pixel-medieval.css（与 viewer.html 同源），别另造色值 */
+        :root {
+            --parchment: #c8ac7c;
+            --parchment-lo: #b89868;
+            --parchment-hi: #d6bc94;
+            --parchment-max: #e8d2a8;
+            --border-deep: #3a2814;
+            --border-dark: #4a3218;
+            --border-mid: #6a4a20;
+            --border-light: #8a6e3c;
+            --border-hi: #d8bc8c;
+            --ink: #1a0e04;
+            --ink-2: #4a3218;
+            --gold: #c9a227;
+            --gold-l: #f5e08a;
+            --shine: rgba(255, 240, 200, .45);
+            --shine-soft: rgba(255, 240, 200, .28);
+            --shade-soft: rgba(74, 50, 24, .3);
+            --ring: 2px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        /* 空流 HUD 页：html/body 绝不写 overflow（根盒子高度为 0，写了整页静默不画） */
+        html, body {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+        }
+
+        body {
+            font-family: 'Zpix', monospace;
+            font-size: 12px;
+            color: var(--ink);
+        }
+
+        /* 底部指挥面板：贴边面板配方 = .frame--flat（无硬投影，防溢出视口）。
+           高度由 Java 按视口 1/4 算好写进 inline style，宽度占满左右。 */
+        .ops-dock {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 140px;
+            overflow: hidden;
+
+            display: flex;
+            flex-direction: column;
+
+            background-color: var(--parchment);
+            border: var(--ring) solid var(--border-dark);
+            box-shadow:
+                0 0 0 1px var(--border-mid),
+                inset 0 0 0 1px var(--border-light),
+                inset 2px 2px 0 0 var(--border-hi),
+                inset -2px -2px 0 0 var(--border-mid);
+
+            background-image: url('/tex/parchment_bar.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+
+            transform: translateZ(405px);
+        }
+
+        .ops-title {
+            flex: 0 0 auto;
+            padding: 3px 8px;
+            font-size: 12px;
+            line-height: 16px;
+            color: var(--gold);
+            text-stroke: 1px var(--border-deep);
+            white-space: nowrap;
+            overflow: hidden;
+
+            background-image: url('/tex/parchment_status.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            background-color: var(--parchment-lo);
+            border-bottom: 2px solid var(--border-mid);
+            box-shadow: inset 0 1px 0 var(--shine-soft);
+        }
+
+        /* 7 等分分组框：宽度由 Java 按视口算好写 inline style（AUI 里 % 宽与 flex:1 不可靠） */
+        .ops-boxes {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
+            padding: 6px 8px;
+        }
+
+        .ops-box {
+            flex: 0 0 auto;
+            width: 120px;
+            margin-right: 6px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+
+            background-color: var(--parchment-hi);
+            background-image: url('/tex/card_gen.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            border: 2px solid var(--border-dark);
+            box-shadow:
+                inset 1px 1px 0 0 var(--border-hi),
+                inset -1px -1px 0 0 var(--border-mid);
+            cursor: pointer;
+        }
+
+        .ops-box:last-child {
+            margin-right: 0;
+        }
+
+        .ops-box:hover {
+            border-color: var(--border-hi);
+        }
+
+        /* 当前待录入的分组框：金边高亮 */
+        .ops-box.on {
+            border-color: var(--gold);
+            box-shadow:
+                0 0 0 2px var(--gold),
+                inset 1px 1px 0 0 var(--border-hi),
+                inset -1px -1px 0 0 var(--border-mid);
+        }
+
+        /* 分组战斗姿态：左侧色条常驻（配合框头徽标，一眼认出哪组在守、哪组在攻） */
+        .ops-box.state-hold {
+            border-left-color: var(--gold);
+        }
+
+        .ops-box.state-attack {
+            border-left-color: #a83020;
+        }
+
+        .ops-box-head {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            padding: 2px 6px;
+
+            background-image: url('/tex/parchment_status.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            background-color: var(--parchment-lo);
+            border-bottom: 2px solid var(--border-mid);
+            box-shadow: inset 0 1px 0 var(--shine-soft);
+        }
+
+        .ops-box-name {
+            flex: 1 1 auto;
+            min-width: 0;
+            font-size: 12px;
+            line-height: 15px;
+            color: var(--ink);
+            white-space: nowrap;
+            overflow: hidden;
+        }
+
+        .ops-box-count {
+            flex: 0 0 auto;
+            margin-left: 6px;
+            font-size: 11px;
+            line-height: 14px;
+            color: var(--gold);
+            text-stroke: 1px var(--border-deep);
+        }
+
+        /* 头像墙：固定列 grid（列数由 Java 按框宽算好）；超出高度用滚轮滚动，不再丢弃成员 */
+        .ops-faces {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: grid;
+            grid-template-columns: repeat(4, 28px);
+            gap: 4px;
+            padding: 4px;
+            overflow-x: hidden;
+            overflow-y: auto;
+            align-content: start;
+        }
+
+        .ops-faces-more {
+            font-size: 10px;
+            line-height: 26px;
+            color: var(--ink-2);
+        }
+
+        /* 头像小方框：外框 28×28，内嵌 24×24 皮肤脸（坑 64 配方，class 选择器别用标签选择器）。
+           class 与「chip 内标签」两条规则同时给尺寸：自定义元素若只靠 class 拿不到尺寸，
+           会以 0×0 进入布局，表现为"框在、脸不渲染"。 */
+        .ops-avatar,
+        .ops-chip kingdom-entity-avatar {
+            display: block;
+            width: 24px;
+            height: 24px;
+        }
+
+        /* 头像小方框：外框 28×28，内嵌 24×24 皮肤脸（坑 64 配方） */
+        .ops-chip {
+            flex: 0 0 auto;
+            width: 28px;
+            height: 28px;
+            padding: 0;
+
+            background-color: var(--parchment-max);
+            border: 2px solid var(--border-mid);
+            box-shadow: inset 0 0 0 1px var(--shade-soft);
+            cursor: pointer;
+        }
+
+        .ops-chip.on {
+            border-color: var(--gold);
+            box-shadow:
+                0 0 0 1px var(--gold),
+                inset 0 0 0 1px var(--shade-soft);
+        }
+
+        .ops-empty {
+            grid-column: 1 / -1;
+            padding: 6px 0;
+            font-size: 11px;
+            line-height: 15px;
+            text-align: center;
+            color: var(--ink-2);
+        }
+
+        /* 分组框所处的战斗姿态徽标：坚守 / 进攻，常驻显示（不是点一下闪一下） */
+        .ops-box-state {
+            flex: 0 0 auto;
+            margin-left: 4px;
+            padding: 0 4px;
+            display: none;
+            font-size: 10px;
+            line-height: 13px;
+            color: var(--ink-2);
+            background-color: var(--parchment-max);
+            border: 1px solid var(--border-dark);
+        }
+
+        .ops-box-state.on-hold {
+            display: block;
+            color: #6a4408;
+            background-color: #f0dfa8;
+            border-color: var(--gold);
+        }
+
+        .ops-box-state.on-attack {
+            display: block;
+            color: #7a1414;
+            background-color: #f2c6b8;
+            border-color: #a83020;
+        }
+
+        /* 操作按钮行：移到底框**外面**、水平居中，与底框留一点间距（bottom 由 Java 按底框高度写 inline） */
+        .ops-actions {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 156px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transform: translateZ(406px);
+        }
+
+        .ops-btn {
+            flex: 0 0 auto;
+            padding: 3px 12px;
+            margin-right: 10px;
+            font-size: 12px;
+            line-height: 16px;
+            color: var(--ink);
+
+            background-image: url('/tex/parchment_status.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            background-color: var(--parchment-lo);
+            border: 2px solid var(--border-dark);
+            box-shadow:
+                0 0 0 1px var(--border-mid),
+                inset 0 1px 0 var(--shine-soft);
+            cursor: pointer;
+        }
+
+        .ops-btn:hover {
+            color: var(--gold-l);
+            text-stroke: 1px var(--border-deep);
+        }
+
+        .ops-btn.ops-clear:hover {
+            color: #f0c0a0;
+        }
+
+        .ops-actions .ops-btn:last-child {
+            margin-right: 0;
+        }
+
+        /* 当前分组的战斗姿态：底部「坚守 / 进攻」按钮常驻高亮，切换分组时跟着走 */
+        .ops-btn.on-hold {
+            color: #6a4408;
+            border-color: var(--gold);
+            background-color: #e8d29a;
+            box-shadow:
+                0 0 0 2px var(--gold),
+                inset 0 1px 0 var(--shine);
+        }
+
+        .ops-btn.on-attack {
+            color: #7a1414;
+            border-color: #a83020;
+            background-color: #e8bfae;
+            box-shadow:
+                0 0 0 2px #a83020,
+                inset 0 1px 0 var(--shine);
+        }
+
+        .ops-btn.on-hold:hover {
+            color: #6a4408;
+        }
+
+        .ops-btn.on-attack:hover {
+            color: #7a1414;
+        }
+
+        ::-webkit-scrollbar {
+            width: 7px;
+            height: 7px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(58, 40, 20, .30);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-mid);
+            border: 1px solid var(--border-deep);
+        }
+    </style>
+</head>
+<body>
+
+<div class="ops-dock" id="rtsops-dock">
+    <div class="ops-title" id="rtsops-title">RTS 指挥 · 点击下方分组框后，世界内框选的市民将录入该组</div>
+    <div class="ops-boxes" id="rtsops-boxes"></div>
+</div>
+
+<div class="ops-actions" id="rtsops-foot">
+    <span class="ops-btn" id="rtsops-btn-all">选中全部</span>
+    <span class="ops-btn" id="rtsops-btn-hold">坚守</span>
+    <span class="ops-btn" id="rtsops-btn-attack">进攻</span>
+    <span class="ops-btn ops-clear" id="rtsops-btn-clear">清除记录</span>
+</div>
+
+</body>
+</html>

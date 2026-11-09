@@ -18,10 +18,14 @@ import com.xy2407.kingdom.client.map.WorldRoadScreen;
 import com.xy2407.kingdom.client.rts.ClientBuildingStore;
 import com.xy2407.kingdom.client.rts.RegionSelectionState;
 import com.xy2407.kingdom.client.rts.RtsModeManager;
+import com.xy2407.kingdom.client.rts.RtsPatrolState;
 import com.xy2407.kingdom.client.rts.RtsSubMode;
+import com.xy2407.kingdom.client.rts.RtsTeamClientCache;
 import com.xy2407.kingdom.common.entity.NpcEntity;
 import com.xy2407.kingdom.common.network.npc.NpcRosterPacket;
 import com.xy2407.kingdom.common.network.npc.NpcRosterRequestPacket;
+import com.xy2407.kingdom.common.network.rts.RtsPatrolOrderPacket;
+import com.xy2407.kingdom.common.network.rts.RtsTeamSyncPacket;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -68,7 +72,7 @@ public final class StructureDebugKeybind {
     private static final String SIDE_BACK_ID = "side-back";
     private static final String TIP_ID = "building-tip";
 
-    private static final String OTHER_KEY = "OTHER";
+    private static final String OTHER_KEY = BuildingType.OTHER.folder();
 
     private static final int FIELD_NONE = 0;
     private static final int FIELD_DOCK = 1;
@@ -107,6 +111,9 @@ public final class StructureDebugKeybind {
 
     private static final Map<String, KingdomSimulationStructures.Entry> cardIndex = new LinkedHashMap<>();
 
+    private static int activeCardIndex = -1;
+    private static KingdomSimulationStructures.Entry activeEntry;
+
     private static final StringBuilder SEARCH_BUFFER = new StringBuilder();
     private static final StringBuilder SIDE_SEARCH_BUFFER = new StringBuilder();
     private static final List<NpcRosterPacket.Entry> roster = new ArrayList<>();
@@ -129,6 +136,9 @@ public final class StructureDebugKeybind {
     private static int sectionCounter;
     private static int lastCitizens = -1;
     private static int lastBuildings = -1;
+    /** 队伍页卡片的签名：队伍集合、人数、巡逻开关变了才重建 DOM。 */
+    private static String lastTeamSignature = "";
+    private static int teamRefreshCounter;
 
     private StructureDebugKeybind() {
     }
@@ -144,17 +154,21 @@ public final class StructureDebugKeybind {
         boolean rtsActive = RtsModeManager.isActive();
         if (rtsWasActive && !rtsActive) {
             closeViewer();
+            com.xy2407.kingdom.client.rts.RtsOpsPanel.close();
         }
         rtsWasActive = rtsActive;
 
         while (OPEN_VIEWER.consumeClick()) {
             if (rtsActive) {
-                if (isViewerOpen()) {
+                if (com.xy2407.kingdom.client.rts.RtsOpsPanel.isOpen()) {
+                    com.xy2407.kingdom.client.rts.RtsOpsPanel.close();
+                    StructureDebugChat.chat("RTS 指挥面板已关闭");
+                } else if (isViewerOpen()) {
                     closeViewer();
-                    StructureDebugChat.chat("已隐藏建筑预览 HUD 栏");
-                    continue;
+                    com.xy2407.kingdom.client.rts.RtsOpsPanel.open();
+                } else {
+                    openViewer();
                 }
-                openViewer();
                 continue;
             }
             BuildingPanelClient.requestAtPlayer();
@@ -163,7 +177,9 @@ public final class StructureDebugKeybind {
         layoutViewer();
         pollSearch();
         refreshSections();
+        refreshTeamEntries();
         updateCardTooltip();
+        com.xy2407.kingdom.client.rts.RtsOpsPanel.tick();
     }
 
     public static void closeViewer() {
@@ -172,6 +188,7 @@ public final class StructureDebugKeybind {
         }
         StructurePreviewElement.releaseAll();
         StructurePreviewTarget.clear();
+        StructureIconCache.clear();
         StructureDebugChat.reset();
         StructureSearchInput.uninstall();
         cardIndex.clear();
@@ -194,6 +211,7 @@ public final class StructureDebugKeybind {
         sectionCounter = 0;
         lastCitizens = -1;
         lastBuildings = -1;
+        lastTeamSignature = "";
     }
 
     public static boolean isViewerOpen() {
@@ -381,13 +399,7 @@ public final class StructureDebugKeybind {
             return;
         }
         if (isTroopPage()) {
-            if (com.xy2407.kingdom.client.rts.RtsTeamClientCache.first() != null) {
-                com.xy2407.kingdom.client.rts.RtsFormationEditorState.openFirstTeam();
-                closeViewer();
-            } else {
-                com.xy2407.kingdom.client.rts.RtsFormationEditorState.requestCreate();
-                StructureDebugChat.chat("已用当前框选建队，再次点击「队伍」进入阵型编辑");
-            }
+            renderTeamEntries(document);
             return;
         }
         if (isPopulationPage()) {
@@ -398,6 +410,122 @@ public final class StructureDebugKeybind {
 
     private static boolean isTroopPage() {
         return SECTION_KEYS[2].equals(currentSection);
+    }
+
+    /**
+     * 队伍页：每支队伍一张卡片，卡片上两个按钮 —— 阵型（进阵型编辑器）与 安排巡逻/解除巡逻。
+     * 巡逻入口只在这里，不走 RTS 指挥面板。
+     */
+    private static void renderTeamEntries(Document document) {
+        Element host = document.getElementById(SIDE_LIST_ID);
+        if (host == null) {
+            return;
+        }
+        List<RtsTeamSyncPacket.Entry> teams = RtsTeamClientCache.teams();
+        StringBuilder html = new StringBuilder();
+        if (teams.isEmpty()) {
+            html.append("<div class=\"side-empty\">暂无队伍：用下方按钮把当前框选的市民编成一队</div>");
+        }
+        for (int index = 0; index < teams.size(); index++) {
+            RtsTeamSyncPacket.Entry entry = teams.get(index);
+            html.append("<div class=\"side-item side-team\" id=\"team-card-").append(index).append("\">")
+                    .append("<div class=\"side-team-row\">")
+                    .append("<span class=\"side-name\">队伍 ").append(index + 1).append("</span>")
+                    .append("<span class=\"side-sub\">").append(entry.members().size()).append(" 人</span>")
+                    .append("</div>")
+                    .append("<div class=\"side-team-actions\">")
+                    .append("<span class=\"side-btn\" id=\"team-form-").append(index).append("\">阵型</span>")
+                    .append("<span class=\"side-btn patrol")
+                    .append(entry.patrolling() ? " on" : "")
+                    .append("\" id=\"team-patrol-").append(index).append("\">")
+                    .append(entry.patrolling() ? "解除巡逻" : "安排巡逻")
+                    .append("</span></div></div>");
+        }
+        html.append("<div class=\"side-item side-team\" id=\"team-create-card\">")
+                .append("<div class=\"side-team-actions\">")
+                .append("<span class=\"side-btn\" id=\"team-create-btn\">用当前框选建队</span>")
+                .append("</div></div>");
+        host.setInnerHTML(html.toString());
+        Element create = document.getElementById("team-create-btn");
+        if (create != null) {
+            create.addEventListener("click", event -> onCreateTeam());
+        }
+        for (int index = 0; index < teams.size(); index++) {
+            RtsTeamSyncPacket.Entry entry = teams.get(index);
+            Element form = document.getElementById("team-form-" + index);
+            if (form != null) {
+                form.addEventListener("click", event -> {
+                    com.xy2407.kingdom.client.rts.RtsFormationEditorState.open(entry);
+                    closeViewer();
+                });
+            }
+            Element patrol = document.getElementById("team-patrol-" + index);
+            if (patrol != null) {
+                patrol.addEventListener("click", event -> onPatrolClick(entry));
+            }
+        }
+        Element title = document.getElementById(SIDE_TITLE_ID);
+        if (title != null) {
+            title.setInnerHTML("队伍 " + teams.size());
+        }
+        lastTeamSignature = teamSignature(teams);
+    }
+
+    private static void onCreateTeam() {
+        if (!RtsModeManager.isActive()) {
+            StructureDebugChat.chat("先按 F6 进 RTS 模式，框选市民后再建队");
+            return;
+        }
+        if (RtsModeManager.getSelectedEntities().isEmpty()) {
+            StructureDebugChat.chat("先框选至少两名市民，再点建队");
+            return;
+        }
+        com.xy2407.kingdom.client.rts.RtsFormationEditorState.requestCreate();
+        StructureDebugChat.chat("已用当前框选建队，队伍卡片会自动出现");
+    }
+
+    private static void onPatrolClick(RtsTeamSyncPacket.Entry entry) {        if (entry.patrolling()) {
+            PacketDistributor.sendToServer(new RtsPatrolOrderPacket(
+                    entry.teamId(), RtsPatrolOrderPacket.ACTION_CANCEL, List.of()));
+            StructureDebugChat.chat("已解除队伍巡逻");
+            return;
+        }
+        if (!RtsModeManager.isActive()) {
+            StructureDebugChat.chat("先按 F6 进 RTS 模式，才能安排巡逻");
+            return;
+        }
+        RtsModeManager.setSelectedEntities(new java.util.LinkedHashSet<>(entry.members()));
+        RtsPatrolState.arm(entry.teamId());
+        closeViewer();
+        StructureDebugChat.chat("已选中整队 %d 人：按住 V、右键依次点选巡逻节点（起点 → 终点），松开 V 提交",
+                entry.members().size());
+    }
+
+    private static String teamSignature(List<RtsTeamSyncPacket.Entry> teams) {
+        StringBuilder builder = new StringBuilder();
+        for (RtsTeamSyncPacket.Entry entry : teams) {
+            builder.append(entry.teamId()).append(':').append(entry.members().size())
+                    .append(':').append(entry.patrolling()).append('|');
+        }
+        return builder.toString();
+    }
+
+    /** 队伍同步到达后（成员增减 / 巡逻开关）刷新卡片，不必等玩家重新点分区。 */
+    private static void refreshTeamEntries() {
+        if (!isTroopPage()) {
+            return;
+        }
+        if (++teamRefreshCounter % 10 != 0) {
+            return;
+        }
+        List<RtsTeamSyncPacket.Entry> teams = RtsTeamClientCache.teams();
+        if (teamSignature(teams).equals(lastTeamSignature)) {
+            return;
+        }
+        List<Document> documents = ApricityUI.getDocument(VIEWER_PAGE);
+        if (!documents.isEmpty()) {
+            renderTeamEntries(documents.get(0));
+        }
     }
 
     private static boolean isRoadPage() {
@@ -510,25 +638,37 @@ public final class StructureDebugKeybind {
         if (host == null) {
             return;
         }
+        // 队伍页有独立卡片结构（带巡逻按钮），不能被人口/建筑那套条形列表覆盖
+        if (isTroopPage()) {
+            renderTeamEntries(document);
+            return;
+        }
         sideNpcs.clear();
         sideBuildings.clear();
-        StringBuilder html = new StringBuilder();
         if (isPopulationPage()) {
             for (NpcRosterPacket.Entry entry : roster) {
-                if (!matchesSide(entry.name())) {
-                    continue;
+                if (matchesSide(entry.name())) {
+                    sideNpcs.add(entry);
                 }
-                int index = sideNpcs.size();
-                sideNpcs.add(entry);
-                html.append("<div class=\"side-item").append(entry.id().equals(selectedId) ? " on" : "")
-                        .append("\" id=\"side-npc-").append(index).append("\">")
-                        .append("<kingdom-entity-avatar class=\"side-face\" skin=\"")
-                        .append(escapeAttr(entry.skin())).append("\"></kingdom-entity-avatar>")
-                        .append("<span class=\"side-name\">").append(escapeAttr(entry.name())).append("</span>")
-                        .append("<span class=\"side-sub\">").append(escapeAttr(entry.note())).append("</span>")
-                        .append("</div>");
+            }
+            if (sideNpcs.isEmpty()) {
+                AuiLazyList.clear(host);
+                host.setInnerHTML("<div class=\"side-empty\">没有符合条件的条目</div>");
+            } else {
+                // 市民可能有几千个，一次建几千个 avatar 会直接把客户端拖死，交给分批渲染
+                AuiLazyList.render(host, sideNpcs.size(),
+                        index -> npcRowHtml(sideNpcs.get(index), index),
+                        index -> {
+                            Element row = document.getElementById("side-npc-" + index);
+                            if (row == null) {
+                                return;
+                            }
+                            NpcRosterPacket.Entry entry = sideNpcs.get(index);
+                            row.addEventListener("click", event -> focusNpc(document, entry));
+                        });
             }
         } else {
+            StringBuilder html = new StringBuilder();
             for (ClientBuildingStore.Entry entry : ClientBuildingStore.entries()) {
                 if (!matchesSide(entry.name())) {
                     continue;
@@ -543,18 +683,29 @@ public final class StructureDebugKeybind {
                         .append(size.getY()).append("×").append(size.getZ()).append("</span>")
                         .append("</div>");
             }
+            AuiLazyList.clear(host);
+            if (sideBuildings.isEmpty()) {
+                host.setInnerHTML("<div class=\"side-empty\">没有符合条件的条目</div>");
+            } else {
+                host.setInnerHTML(html.toString());
+                bindBuildingRows(document);
+            }
         }
-        if (sideNpcs.isEmpty() && sideBuildings.isEmpty()) {
-            host.setInnerHTML("<div class=\"side-empty\">没有符合条件的条目</div>");
-        } else {
-            host.setInnerHTML(html.toString());
-        }
-        bindSideRows(document);
         Element title = document.getElementById(SIDE_TITLE_ID);
         if (title != null) {
             int count = isPopulationPage() ? sideNpcs.size() : sideBuildings.size();
             title.setInnerHTML(isPopulationPage() ? "人口 " + count : "建筑 " + count);
         }
+    }
+
+    private static String npcRowHtml(NpcRosterPacket.Entry entry, int index) {
+        return "<div class=\"side-item" + (entry.id().equals(selectedId) ? " on" : "")
+                + "\" id=\"side-npc-" + index + "\">"
+                + "<kingdom-entity-avatar class=\"side-face\" skin=\""
+                + escapeAttr(entry.skin()) + "\"></kingdom-entity-avatar>"
+                + "<span class=\"side-name\">" + escapeAttr(entry.name()) + "</span>"
+                + "<span class=\"side-sub\">" + escapeAttr(entry.note()) + "</span>"
+                + "</div>";
     }
 
     private static boolean matchesSide(String name) {
@@ -564,14 +715,7 @@ public final class StructureDebugKeybind {
         return name != null && name.toLowerCase(Locale.ROOT).contains(sideFilter.trim().toLowerCase(Locale.ROOT));
     }
 
-    private static void bindSideRows(Document document) {
-        for (int index = 0; index < sideNpcs.size(); index++) {
-            NpcRosterPacket.Entry entry = sideNpcs.get(index);
-            Element row = document.getElementById("side-npc-" + index);
-            if (row != null) {
-                row.addEventListener("click", event -> focusNpc(document, entry));
-            }
-        }
+    private static void bindBuildingRows(Document document) {
         for (int index = 0; index < sideBuildings.size(); index++) {
             ClientBuildingStore.Entry entry = sideBuildings.get(index);
             Element row = document.getElementById("side-bld-" + index);
@@ -596,8 +740,13 @@ public final class StructureDebugKeybind {
     }
 
     public static void acceptRoster(NpcRosterPacket packet) {
-        roster.clear();
+        if (packet.first()) {
+            roster.clear();
+        }
         roster.addAll(packet.entries());
+        if (!packet.last()) {
+            return;
+        }
         List<Document> documents = ApricityUI.getDocument(VIEWER_PAGE);
         if (!documents.isEmpty() && isPopulationPage()) {
             renderSideList(documents.get(0));
@@ -685,6 +834,8 @@ public final class StructureDebugKeybind {
             }
         }
         cardIndex.clear();
+        activeCardIndex = -1;
+        activeEntry = null;
         Element title = document.getElementById(CARD_TITLE_ID);
         if (title != null) {
             title.setInnerHTML(escapeAttr(bandLabel(currentFolder)) + " · " + visible.size() + " 座");
@@ -711,27 +862,38 @@ public final class StructureDebugKeybind {
     }
 
     private static String cardHtml(KingdomSimulationStructures.Entry entry, int index) {
-        String id = escapeAttr(entry.id());
         String name = escapeAttr(entry.displayName());
         String open = "<div class=\"viewer-card\" id=\"card-" + index + "\">";
         String load = "<div class=\"card-load\" id=\"load-" + index + "\">[加载]</div>";
         String cap = "<div class=\"card-cap\">" + name + "</div>";
         if (!entry.previewable()) {
-            return open + "<div class=\"card-preview card-toobig\" id=\"big-" + index + "\">"
+            return open + "<div class=\"card-preview card-toobig\" id=\"preview-" + index + "\">"
                     + "<span class=\"toobig-title\">（建筑过大）</span>"
-                    + "<span class=\"toobig-hint\">请点击查看</span>"
+                    + "<span class=\"toobig-hint\">点击加载</span>"
                     + "</div>" + cap + load + "</div>";
         }
-        return open + "<div class=\"card-preview\">"
-                + "<structure-preview structure=\"" + id + "\"></structure-preview>"
+        return open + "<div class=\"card-preview\" id=\"preview-" + index + "\">"
+                + iconHtml(entry)
                 + "</div>" + cap + load + "</div>";
+    }
+
+    /**
+     * 卡片默认形态：整栋建筑等距烘焙成的一张缩略纹理，由元素自己贴图，不做逐方块绘制
+     */
+    /**
+     * 卡片默认形态：交给 <structure-preview icon> 用缓存网格画缩略图；
+     * 网格还没镶嵌好时元素会自己回退到逐方块渲染，不会出现空白卡片
+     */
+    private static String iconHtml(KingdomSimulationStructures.Entry entry) {
+        return "<structure-preview icon=\"true\" structure=\""
+                + escapeAttr(entry.id()) + "\"></structure-preview>";
     }
 
     private static void bindCard(Document document, KingdomSimulationStructures.Entry entry, int index) {
         cardIndex.put("card-" + index, entry);
-        Element tooBig = document.getElementById("big-" + index);
-        if (tooBig != null) {
-            tooBig.addEventListener("click", event -> expandPreview(tooBig, entry.id()));
+        Element preview = document.getElementById("preview-" + index);
+        if (preview != null) {
+            preview.addEventListener("click", event -> activateCard(document, entry, index));
         }
         Element load = document.getElementById("load-" + index);
         if (load != null) {
@@ -739,13 +901,28 @@ public final class StructureDebugKeybind {
         }
     }
 
-    private static void expandPreview(Element preview, String id) {
-        if (id == null || id.isBlank()) {
+    /**
+     * 同一时刻只允许一张卡片做逐方块渲染，切换时把上一张还原成图标
+     */
+    private static void activateCard(Document document, KingdomSimulationStructures.Entry entry,
+                                     int index) {
+        Element preview = document.getElementById("preview-" + index);
+        if (preview == null) {
             return;
         }
-        preview.setAttribute("class", "card-preview");
-        preview.setInnerHTML("<structure-preview structure=\"" + escapeAttr(id) + "\"></structure-preview>");
-        StructureDebugChat.chat("已在卡片内加载预览：%s", id);
+        if (index == activeCardIndex) {
+            return;
+        }
+        if (activeCardIndex >= 0 && activeEntry != null) {
+            Element previous = document.getElementById("preview-" + activeCardIndex);
+            if (previous != null) {
+                previous.setInnerHTML(iconHtml(activeEntry));
+            }
+        }
+        preview.setInnerHTML("<structure-preview structure=\""
+                + escapeAttr(entry.id()) + "\"></structure-preview>");
+        activeCardIndex = index;
+        activeEntry = entry;
     }
 
     private static void injectSections(Document document) {

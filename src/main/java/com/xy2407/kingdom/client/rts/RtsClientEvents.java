@@ -132,7 +132,8 @@ public final class RtsClientEvents {
         for (Node node = element; node instanceof Element current; node = current.getParentNode()) {
             String id = current.getAttribute("id");
             if (id != null && (id.startsWith("viewer-") || id.startsWith("card-")
-                    || id.startsWith("load-") || id.startsWith("big-"))) {
+                    || id.startsWith("load-") || id.startsWith("big-")
+                    || id.startsWith("rtsops-"))) {
                 return true;
             }
         }
@@ -145,16 +146,18 @@ public final class RtsClientEvents {
         if (!RtsModeManager.isActive() || minecraft.screen != null || minecraft.player == null) {
             return;
         }
-        if (event.isCanceled() || overAui()) {
-            event.setCanceled(true);
-            return;
-        }
         boolean press = event.getAction() == InputConstants.PRESS;
         double[] mouse = RtsModeManager.getGuiScaledMouse();
         if (!press) {
             RtsTeamPanelState.endDrag();
         }
+        // 阵型编辑器是自绘 HUD，AUI 不认识它的矩形；必须在「事件是否已被取消 / 是否压在 AUI 上」
+        // 判定之前拦下来，否则指挥面板开着时事件先被 AUI 吃掉，编辑器按钮就点不动。
         if (press && RtsFormationEditorHud.handleClick(mouse[0], mouse[1])) {
+            event.setCanceled(true);
+            return;
+        }
+        if (event.isCanceled() || overAui()) {
             event.setCanceled(true);
             return;
         }
@@ -341,6 +344,8 @@ public final class RtsClientEvents {
             RtsTeamPanelState.toggle();
         } else if (key == GLFW.GLFW_KEY_H) {
             toggleFormationEditor();
+        } else if (key == GLFW.GLFW_KEY_GRAVE_ACCENT) {
+            RtsModeManager.clearAggro();
         }
     }
 

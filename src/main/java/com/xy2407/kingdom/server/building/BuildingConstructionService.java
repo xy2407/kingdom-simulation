@@ -239,7 +239,6 @@ public final class BuildingConstructionService {
         com.xy2407.kingdom.common.npc.NpcBrain brain = npc.getBrain();
         return brain.isStarving()
                 || brain.isRtsControlled()
-                || brain.isConstructionControlled()
                 || brain.isFarmControlled()
                 || brain.isRanchControlled()
                 || brain.isIndustryControlled()
@@ -250,12 +249,30 @@ public final class BuildingConstructionService {
                 || brain.isShopControlled();
     }
 
+    /**
+     * 该市民是否已经挂在某个建筑任务上，用于避免同一人重复接单
+     */
+    private boolean assignedToTask(UUID npcId) {
+        if (npcId == null) {
+            return false;
+        }
+        for (BuildingTask task : tasks.values()) {
+            if (npcId.equals(task.architectId())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private NpcData pickWorker(ServerLevel level, BlockPos origin, boolean employeesOnly) {
         NpcData best = null;
         double bestDist = Double.MAX_VALUE;
         String dimension = level.dimension().location().toString();
         for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
             if (npc.isDead() || !dimension.equals(npc.getDimension()) || busy(npc)) {
+                continue;
+            }
+            if (assignedToTask(npc.getId())) {
                 continue;
             }
             if (employeesOnly && !com.xy2407.kingdom.server.task.RegionTaskService.INSTANCE.isEmployed(npc.getId())) {

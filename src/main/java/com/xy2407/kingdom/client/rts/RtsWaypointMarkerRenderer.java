@@ -28,6 +28,10 @@ public final class RtsWaypointMarkerRenderer {
     private static final float LINE_R = 0.3F;
     private static final float LINE_G = 0.8F;
     private static final float LINE_B = 1.0F;
+    /** 巡逻路线节点：金色，和 C 键的绿色节点区分。 */
+    private static final float PATROL_R = 1.0F;
+    private static final float PATROL_G = 0.82F;
+    private static final float PATROL_B = 0.18F;
     private static final double CELL_HALF = 0.45D;
     private static final double LINE_LIFT = 0.5D;
 
@@ -39,7 +43,9 @@ public final class RtsWaypointMarkerRenderer {
             return;
         }
         List<Vec3> waypoints = RtsWaypointState.getWaypoints();
-        if (waypoints.isEmpty()) {
+        // 巡逻路线录制时也画节点：金色，与 C 键的绿色节点区分开
+        List<Vec3> patrolNodes = RtsPatrolState.isArmed() ? RtsPatrolState.nodes() : List.of();
+        if (waypoints.isEmpty() && patrolNodes.isEmpty()) {
             return;
         }
         Minecraft minecraft = Minecraft.getInstance();
@@ -55,27 +61,38 @@ public final class RtsWaypointMarkerRenderer {
         poseStack.translate(-camPos.x, -camPos.y, -camPos.z);
 
         VertexConsumer consumer = minecraft.renderBuffers().bufferSource().getBuffer(RenderType.lines());
-        for (Vec3 waypoint : waypoints) {
-            renderCell(poseStack, consumer, waypoint);
-        }
-        for (int index = 0; index < waypoints.size() - 1; index++) {
-            Vec3 from = waypoints.get(index).add(0.0D, LINE_LIFT, 0.0D);
-            Vec3 to = waypoints.get(index + 1).add(0.0D, LINE_LIFT, 0.0D);
-            renderLine(poseStack, consumer, from, to);
-        }
+        drawPath(poseStack, consumer, waypoints, CELL_R, CELL_G, CELL_B);
+        drawPath(poseStack, consumer, patrolNodes, PATROL_R, PATROL_G, PATROL_B);
         minecraft.renderBuffers().bufferSource().endBatch(RenderType.lines());
 
         poseStack.popPose();
     }
 
-    private static void renderCell(PoseStack poseStack, VertexConsumer consumer, Vec3 waypoint) {
+    private static void drawPath(PoseStack poseStack, VertexConsumer consumer, List<Vec3> nodes,
+                                 float red, float green, float blue) {
+        if (nodes.isEmpty()) {
+            return;
+        }
+        for (Vec3 node : nodes) {
+            renderCell(poseStack, consumer, node, red, green, blue);
+        }
+        for (int index = 0; index < nodes.size() - 1; index++) {
+            Vec3 from = nodes.get(index).add(0.0D, LINE_LIFT, 0.0D);
+            Vec3 to = nodes.get(index + 1).add(0.0D, LINE_LIFT, 0.0D);
+            renderLine(poseStack, consumer, from, to, red, green, blue);
+        }
+    }
+
+    private static void renderCell(PoseStack poseStack, VertexConsumer consumer, Vec3 waypoint,
+                                   float red, float green, float blue) {
         AABB box = new AABB(
                 waypoint.x - CELL_HALF, waypoint.y - 0.02D, waypoint.z - CELL_HALF,
                 waypoint.x + CELL_HALF, waypoint.y + 0.05D, waypoint.z + CELL_HALF);
-        LevelRenderer.renderLineBox(poseStack, consumer, box, CELL_R, CELL_G, CELL_B, 1.0F);
+        LevelRenderer.renderLineBox(poseStack, consumer, box, red, green, blue, 1.0F);
     }
 
-    private static void renderLine(PoseStack poseStack, VertexConsumer consumer, Vec3 from, Vec3 to) {
+    private static void renderLine(PoseStack poseStack, VertexConsumer consumer, Vec3 from, Vec3 to,
+                                   float red, float green, float blue) {
         Matrix4f matrix = poseStack.last().pose();
         float dx = (float) (to.x - from.x);
         float dy = (float) (to.y - from.y);
@@ -85,10 +102,10 @@ public final class RtsWaypointMarkerRenderer {
         float ny = len > 0.0F ? dy / len : 0.0F;
         float nz = len > 0.0F ? dz / len : 0.0F;
         consumer.addVertex(matrix, (float) from.x, (float) from.y, (float) from.z)
-                .setColor(LINE_R, LINE_G, LINE_B, 1.0F)
+                .setColor(red, green, blue, 1.0F)
                 .setNormal(nx, ny, nz);
         consumer.addVertex(matrix, (float) to.x, (float) to.y, (float) to.z)
-                .setColor(LINE_R, LINE_G, LINE_B, 1.0F)
+                .setColor(red, green, blue, 1.0F)
                 .setNormal(nx, ny, nz);
     }
 }

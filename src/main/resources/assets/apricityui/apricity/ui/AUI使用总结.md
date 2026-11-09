@@ -1,5 +1,100 @@
 # AUI 使用总结（kingdom 工程 · 页面适配 / 踩坑 / AUI 问题清单）
 
+## 0.5 AUI 1.3.1 破坏性变更与我们已做的适配（2026-11-08）
+
+> 升级到 `ApricityUI-neoforge-1.21.1-1.3.1.jar` 后，以下两处是"老代码静默/崩溃"的根因，已修完。
+
+1. **`SlotDataBinder.bindingsByGlobalIndex` 的字段类型从 `Map` 变成了 `LinkedHashMap<Integer, SlotBinding>`。**
+   Mixin 的 `@Accessor` 按字段**描述符**匹配，声明成 `Map` 会直接抛
+   `InvalidAccessorException: No candidates were found`，而它发生在 `ApricityContainerScreen.init()`
+   里 → **任何 AUI 容器屏（NPC 背包、建筑仓库）一打开就炸**。
+   修法：访问器返回类型改成 `LinkedHashMap<Integer, ?>`（`AuiSlotScrollOffsetMixin`）。
+   **判据**：以后 AUI 改字段类型，`@Accessor` 必须跟着改，泛型擦除后的裸类型（`List` / `LinkedHashMap`）才是描述符。
+2. **`<canvas>` 自 1.3.0 起按"内容盒的设备分辨率"栅格化，不再等于 CSS 像素。**
+   - `getWidth()/getHeight()` → **设计（CSS）尺寸**（`logicalWidth/logicalHeight` 取整）
+   - `getBitmapWidth()/getBitmapHeight()` → **光栅像素尺寸**（= 设计尺寸 × `getDeviceScale()`）
+   - `resizeSurface(w,h,false)` 传入设计尺寸，内部已乘设备缩放
+   - `renderOperation(g -> …)` **不会**替你缩放，Graphics2D 坐标就是光栅像素
+   → 旧写法"按 `getWidth()` 建数组、按设计坐标画"会让内容只占左上角 1/scale，表现为
+   **地图大面积空白、头像/印章缩成小方块**。
+   修法三件套：① 像素缓冲用 `getBitmapWidth/Height`；② 像素级坐标（每方块像素数）乘 `getDeviceScale()`；
+   ③ `renderOperation` 里先 `graphics.scale(device, device)` 再按设计坐标画；④ `ImageDrawer` 的 UV 窗口
+   用光栅尺寸并把 UV 偏移乘设备缩放（`WorldMapElement`）。
+3. 其余 API 复核结论（2026-11-08，对 1.3.1 jar 逐个 `javap`）：我们 import 的 **37 个 AUI 类全部存在**；
+   `Document.applyViewport(boolean)` / `screenToDocumentPosition` / `getViewportScaleX` / `inWorld`、
+   `Element.setInnerHTML/addEventListener/setAttribute/isHover/parentElement/getScrollLeft`、
+   `Input.getValue`（`setValue` 继承自 `Element`）、`Base.pushDocumentZOffset/commitDraws/pushDepthTest`、
+   `ApricityUI.createDocument/getDocument/getAllDocument/removeDocument/createWorldWindow/removeWorldWindow`、
+   `ApricityUIRegistry.scanPackage/register`、`WorldWindow.setFacing/setDepthTest/setScale/setPosition/render`
+   均未变；`SlotDataBinder$SlotBinding` 仍是 record，`slotElement()/globalIndex()` 反射取值可用。
+4. 仍待实测：`AuiSlotMenuOffsetMixin` / `AuiScissorOffsetMixin` 的偏移补偿是否与 1.3.1 新增的
+   "resize 复用同一 Document" 冲突（若出现"看得见点不到"或裁剪偏半格，先查这两处）。
+
+### 0.5.1 信封/择旗页（start.html）偏移与错误缩放的三个成因（2026-11-08 已修）
+
+**① 自定义 `<canvas>` 元素：光栅尺寸变了却不重画。**
+判断"要不要重画"用的是 `wantedWidth == getWidth()`，而 `getWidth()` 是**设计尺寸**，设备缩放变化时它不变
+→ 首帧按 `device=1` 画好，之后设备缩放变 2/3，AUI 已把光栅改成 2/3 倍，内容却不再重画，只剩左上角一块。
+**判据**：任何"自己 `resizeSurface` 的超采样画布"，重绘签名里**必须带 `getBitmapWidth/getBitmapHeight`**。
+`KingdomShieldElement` / `KingdomSealElement` / `KingdomEntityAvatarElement` 已改。
+
+**② 自定义 `<canvas>` 元素：绘制原点没做设备像素吸附。**
+原生 `Canvas.drawCanvas` 用 `DevicePixelGrid.snap(x, scale)` 把原点吸到设备像素网格；自定义元素直接拿
+`rectRenderer.getContentPosition()` 画，落在半像素上 → 整块纹理轻微偏移 + 发虚。
+`DevicePixelGrid.snap` 是 public 静态方法，直接用。
+
+**③ 绝对/固定定位元素自身的 `margin` 不参与绘制位置。**
+`Position.forRender` 的循环里只有 `e != element` 时才累加 `Box#getMarginLeft/Top`，也就是**元素自己的外边距
+不会被算进它自己的绘制定位**。于是 `left:50%; margin-left:-52px`（火漆印章、toast）这类"负外边距居中"
+会整体右偏半个宽度。**修法**：改用 `left:calc(50% - 52px)`（`CssLength` 支持百分比+px 的 calc 加法）。
+同类写法在别的页面里也要按这条排查。
+
+**④ `width`/`height` 属性（1.3.0 起是"内在设计尺寸"）必须与 CSS 实际尺寸一致。**
+信封页原来 `kingdom-shield width="40" height="48"` 装在 `80×96` 的 `.shield-wrap` 里、
+`<kingdom-seal width="52" height="52">` 装在 `104×104` 的 `.wax-seal` 里。属性值与 CSS 不一致时，
+布局/`syncDimensionsFromAttributes` 之间会互相打架，表现为"缩一半 + 偏到左上角"。
+**规矩**：给自定义 canvas 元素写属性时，数值 = 它在 CSS 里的实际盒子尺寸；超采样倍数放在 Java 常量里，
+不要用属性值。
+
+**⑤ 按钮栏（`.actionbar`）的三个加固**（针对"按钮偏移"）：
+- 居中从 `margin:0 auto` 改成父级 `display:flex; justify-content:center` + `width:100%; max-width:1100px`；
+- `.btn` / `.actionbar-inner` 显式 `box-sizing:border-box`，不依赖 `*` 通配是否命中；
+- `.sel-info` 的 `flex:1` 展开成 `flex-grow/flex-shrink/flex-basis`（简写没被完整解析时按钮会挤到左边）。
+- `.overlay` 的 `inset:0` 补上 `left/right/top/bottom` 四边（`inset` 简写本身是支持的，这里是双保险）。
+
+### 0.5.2 全量 UI 复核（2026-11-08，10 个页面 + 10 个 mixin + 全部自定义元素）
+
+#### 已修
+
+**① `backpack.html` 的 `html,body` 缺 `height:100%`。**
+body 上的 `justify-content:center` 只在 body 比内容高时才有空间可分配；只写 `overflow` 会让 body 高度塌成内容高度
+→ 卡片贴文档顶部、下方空出一大块，观感就是"整体偏上"。`builder / city_hall / identify` 都有这一句，只有背包漏了。
+**规矩**：fixed 模式页面要在 body 里做居中，`html,body{height:100%}` 是前提。
+
+**② 停用 `AuiSlotScrollOffsetMixin`（已从 mixin 配置移除）。**
+1.3.1 的 `Slot#getSlotVisualBounds()` → `getBoundingClientRect()` → `Rect.position = Position.forRender(element)`，
+而 `forRender` 里对每一层祖先都减了 `getScrollLeft()/getScrollTop()`。**滚动补偿已经在 AUI 内部做完了**，
+我们的 mixin 再减一次等于算两遍 → 容器屏滚动后槽位可点击区与画面错开（滚动越多偏得越远）。
+**判据**：给 AUI 打滚动补丁前，先看 `Position.forRender` 是否已经减掉 scroll。
+
+#### 核对无误、不需要改的
+
+| 检查项 | 结论 |
+|---|---|
+| 10 个 mixin 的注入目标 | `ApricityScreen.render` / `Document.applyViewport` / `ApricityContainerScreen.drawLinkedDocument`(private) / `captureFloatingItem` / `Mask.enableScissor(double×4)` / `SlotDataBinder.syncAllSlotPositions(Document,int,int,boolean)` / `LayoutMeasureCache.begin,end` —— 签名全部匹配，`defaultRequire:1` 下没报错即为注入成功 |
+| `@Accessor` 字段类型 | `floatingItemNodes: List<RenderNode$ItemNode>`、`slotBinder: SlotDataBinder`、`bindingsByGlobalIndex: LinkedHashMap` 均已按 1.3.1 实际类型声明 |
+| `Graph.beginBatch/drawFillRect/endBatch`、`Rect.of/drawShadow/drawBody/drawBorder/getBodyRectPosition/getBodyRectSize/getContentPosition`、`Base.commitDraws/pushDepthTest/popDepthTest`、`Box.of/innerSize`、`Element(Document,String)` | 全部存在，`npc-bar / npc-triangle / structure-preview / kingdom-npc-model` 无需改 |
+| `left:50% + transform:translateX(-50%)`（`city_hall`/`identify` 的分隔菱形） | **正确写法**。`Base.computeWorldTransform` 调 `prepareTransform(e, rect.getShadowSize())`，百分比基准是元素自身尺寸，符合 CSS 规范。**不要**改成 calc |
+| `AuiSlotMenuOffsetMixin` | **必须保留**。`syncAllSlotPositions` 内部只算 `rect.x * viewportScaleX`，**没有**加居中偏移，槽位需要这个 mixin 补 `documentToGuiPosition(0,0)` |
+| `AuiScissorOffsetMixin` | **必须保留**。`Mask.enableScissor` 收的是文档坐标（内部乘 `scissorScale`），文档被整体平移时裁剪框要同样平移 |
+| `AuiMeasureCacheGateMixin` / `AuiSlotSyncMeasureCacheMixin` | 1.3.1 的缓存条目自带 `layoutDependency` 版本校验，跨帧保留不会返回过期值，保留无害 |
+| fixed 页面的居中（`AuiDocumentCenterMixin` + `AuiScreenDocCenterMixin`） | 依然需要：1.3.1 的 `applyViewport` 恒把 offset 写成 0，AUI 自己不居中。窗口 resize 后 `ApricityScreen.init()` 会复用 Document 但**仍会重跑 `applyViewport(false)`**，偏移会跟着更新 |
+| 各页 `mode=fixed` 的 `scale` | `backpack/builder/city_hall` 用 `fit` ✓；`identify` 是 **WorldWindow**（世界内 3D 卡片，`inWorld=true`，渲染走 `CARD_SCALE`），`scale=1` 是文档像素基准，**不能改成 fit** |
+| 自定义元素尺寸 | 除 `start.html` 的盾徽/印章（属性值 40×48 / 52 与 CSS 的 80×96 / 104 不一致，已修）外，其余全部由 CSS `width/height:100%` 决定，`world-map / kingdom-entity-avatar` 不带尺寸属性也没有问题 |
+| `structures/viewer.html` 的 `.dock/.side/.building-tip` | `mode=gui` 下 `position:fixed` 相对视口，`left/right/bottom` 四边齐全，无负 margin |
+
+
+
 本文件是 `assets/原始html/` 里那三份网页稿，适配成 AUI 可运行页面的**完整规范 + 踩坑记录**。
 
 **证据规则**：所有结论来自**实读 AUI 源码 / 反编译产物 / 实测日志**，不凭记忆。证据统一写成
@@ -22,6 +117,22 @@
 > 根元素 `overflow` 是**条件雷**不是绝对禁令（§4.4）；`viewer.html` 就在 kingdom 资源里（§1）；
 > 实体数据源的距离约束在 `EntityDataSource#stillValid`（`distanceToSqr ≤ 64` = 8 格，§7.3）。
 >
+> **最近修订（2026-10-11）**：市政厅「政务处理」区改为渲染可办理的政务行（§11.A 坑 51）；世界地图加入右键**逐格划选**与购买确认弹窗（§11.A 坑 52/53/54）；领地模型改为**区块集合**，支持任意形状，不再按矩形扩张；地图**拖动改为 uv 窗口平移的静态快照**，拖动期间零重绘零上传（§11.A 坑 55）；
+> `structures/viewer.html` 改为**贴边隐藏式双栏**（底栏 + 左栏，鼠标贴边才展开，底栏层级高于左栏、左栏上抬让位，§11.A 坑 56），
+> 底栏 **8 等分**（住宅/农业/养殖/商业/工业/军事/仓库/其它，点一格进该分类）、左栏 **4 等分**（人口/建筑/队伍/道路），等分尺寸由 Java 按视口算好写进 inline style（§11.A 坑 57）；
+> 分类里是**建筑卡片**（3D 预览 + json 的 `name`），左上角搜索框按名称过滤，**分类严格按蓝图所在目录**、不看 json 的 `type`；
+> HUD 覆盖层收不到 AUI 的字符事件，搜索框的输入靠自建 GLFW 输入代理（§11.A 坑 58）；
+> 左栏支持「索引页 ↔ 内容页」两态，人口页（市民条形卡片 + 搜索 + 相机跳转）与建筑页同构，两个搜索框共用一份输入代理（§11.A 坑 59）；
+> 同时修掉建筑迁移投影丢旋转：`BuildingSyncPacket` 补 `rotation` 字段后，投影按建筑原朝向起手（`client/rts/ClientBuildingController#tryPick`）；
+> 新增**世界道路地图页**（`ui/world_road.html` + `WorldRoadScreen`，道路系统阶段 4）：`<world-map>` 右键按页分流（市政厅买地框选 ↔ 世界道路画折线），折线常驻层画在 `drawOverlay`；Screen 页按键要防外部 `InputEvent.Key` 监听双触发（§11.A 坑 61）；
+> 订正了"主题要不要按 §2 大砍一遍"的口径 —— 官方 `ore.css` 自己就在用 `transform` / `@keyframes` / `calc()`，那批清单只针对会卡死的那几条（§11.A 坑 60）；
+> 视觉改走**我们自己的像素中世纪主题**（令牌与组件类内联自 `aui经验/theme/pixel-medieval.css`，见 `aui经验/theme/AUI适配指南.md`）。
+> **最近修订（2026-10-09）**：定稿页面的 `scale` 从**固定数字倍率**统一改成 **`fit`**。
+> 固定数字走 `ApricityViewport#fixed` 的 `else` 分支（不读窗口）⇒ `renderScale` 是常量 ⇒
+> 窗口一缩就"页面不跟着缩 + 居中偏移失义"（文档甚至可能比视口还大被裁）。
+> 涉及 `city_hall.html`（`0.45`）、`backpack.html` / `storage.html`（`0.4864`）三页。
+> 详见 **§11.A 坑 50**；已同步 §0 铁律 1、§3.2、§13.3、§1 表格、§12 checklist。
+>
 > **结构**：**§11 = 踩坑速查表**，分 **11.A 我们自己的坑**（可直接修）与 **11.B AUI 侧行为造成的坑**（只列现象与绕过）；
 > **§16 = AUI 侧问题清单**（D1–D25，含 **§16.6 世界窗口专项**：朝向 / 剔除 / 矩阵 / 登记）；
 > **§15 = 像素风中世纪主题 HTML 编写与 AUI 适配指南**；**§17 = 官方文档核验**（对照 `doc.sighs.cc/ApricityUI/`）；**§18 = 遗留事项**（原 §15）。
@@ -31,8 +142,9 @@
 ## 0. 先看这条：最容易翻车的铁律
 
 1. **像素字体必须接近 1:1**。像素字体（Zpix）被非整数缩放会重采样成"糊/发虚"，像素感消失。
-   普通页面一律 `zoom=1,min-zoom=1,max-zoom=1`；**容器屏整稿**（§13.3）允许一个固定的整稿倍率，
-   见铁律 2 的例外。
+   普通页面一律 `zoom=1,min-zoom=1,max-zoom=1`；**定稿整稿页**（`Screen` / 容器屏，§13.3）用
+   `scale=fit`（倍率随窗口变，见铁律 2 的例外），代价是字会略糊——**这比"窗口一变就错位"值得**：
+   固定数字倍率是绝对倍率，会让页面不随窗口缩放、居中偏移也随之失义（§11.A 坑 50）。
 2. **尺寸必须按"页面形态"分别对待**（以前的版本把这条写成"绝不写死尺寸"，与 §13 的整稿方案自相矛盾）：
    - **普通屏页面**（`start.html`、`identify.html`）：逻辑视口 = `窗口尺寸 ÷ min(GUI Scale, 5)`，
      GUI Scale 2 时 1086×568 的窗口只有 **543×284** 逻辑像素——这类页面的尺寸由 Java 按
@@ -60,10 +172,22 @@
 |---|---|---|---|---|
 | `start.html`（立国建邦） | `start.html` | `ApricityScreen` | `mode=gui,zoom=1,min-zoom=1,max-zoom=1,user-scalable=false` + `aui-mouse-events: intercept` | `client/faction/FactionSelectScreen.java`（`PAGE` 在 `FactionSelectPage.java`） |
 | `identify.html`（NPC 身份卡） | `identify.html` | `WorldWindow`（世界内窗口） | `mode=fixed,width=420,height=704,scale=1,zoom=1,min-zoom=1,max-zoom=1,user-scalable=false` | `client/aui/NpcIdentifyWindow.java`（`WorldWindow(PAGE, anchor, DISPLAY_RANGE)`） |
-| `backpack.html`（市民行装） | `backpack.html`（1:1 还原版，§13） | `ApricityContainerScreen`（真实菜单） | `mode=fixed,width=1200,height=1182,scale=0.4864,zoom=1,min-zoom=0.5,max-zoom=2,zoom-step=0.1,user-scalable=true`（§13.3）；**不写** `aui-mouse-events` | `common/npc/NpcBackpackMenu.java`（`PAGE="ui/backpack.html"` + `new PendingMenu(player, PAGE).bind(b -> b.entity(npc.getId(), NpcInventory.SLOT_COUNT).player())`）、`client/npc/NpcBackpackScreenDriver.java`（只填数据）、`client/npc/NpcBackpackClientState.java`、`common/network/npc/NpcBackpack*` |
+| `backpack.html`（市民行装） | `backpack.html`（1:1 还原版，§13） | `ApricityContainerScreen`（真实菜单） | `mode=fixed,width=1200,height=1182,scale=fit,zoom=1,min-zoom=1,max-zoom=1,user-scalable=false`（§13.3、§11.A 坑 50）；**不写** `aui-mouse-events` | `common/npc/NpcBackpackMenu.java`（`PAGE="ui/backpack.html"` + `new PendingMenu(player, PAGE).bind(b -> b.entity(npc.getId(), NpcInventory.SLOT_COUNT).player())`）、`client/npc/NpcBackpackScreenDriver.java`（只填数据）、`client/npc/NpcBackpackClientState.java`、`common/network/npc/NpcBackpack*` |
 
 - 旧的 `npc_backpack.html`（自适应版）**已删除**，资源目录现只有 `backpack.html` / `identify.html` / `start.html` + 本说明。
-- **建筑预览栏页面在 kingdom 自己的资源里**：`assets/apricityui/apricity/structures/viewer.html`（面板元素仍是 AUI 的；它是"空流 + HUD 栏"形态，版式结论与 §4.4 强相关，改它前先读那条注释）。
+- **建筑预览栏页面在 kingdom 自己的资源里**：`assets/apricityui/apricity/structures/viewer.html`（面板元素仍是 AUI 的；它是"空流 + HUD 栏"形态，版式结论与 §4.4 强相关，改它前先读那条注释）。**2026-10-11 起该页改为"贴边隐藏式双栏"**——底栏两种形态：① 默认 **8 等分分类卡**（住宅/农业/养殖/商业/工业/军事/仓库/其它，格内列出该类结构名，**点整格进该分类**）；② 进分类后是**建筑卡片**（`<structure-preview>` 3D 预览 + json 的 `name` + `[加载]`），左上角搜索框按名称过滤、`[← 返回]` 回分类态，此时底栏钉在展开态（`is-cards`）。左栏同样是两态：**索引态**是 4 等分分区（人口/建筑/队伍/道路），点人口 / 建筑后**整栏换成内容页**（搜索框 + 条形卡片；人口页带 24×24 的 `<kingdom-entity-avatar>` 头像，点一行即把 RTS 相机跳到该市民 / 该建筑）。鼠标贴到屏幕下/左边缘才展开；层级、避让与等分尺寸算法见 §11.A **坑 56 / 坑 57**，搜索框的输入通路见 **坑 58**，两态与双搜索框的焦点分发见 **坑 59**；配色与组件类**内联自 `aui经验/theme/pixel-medieval.css`**（首个"主题 → AUI"的页面，见 `aui经验/theme/AUI适配指南.md`）。改版时**删掉了页首那行 `<link rel="stylesheet" href="/apricityui/theme/ore/ore.css">`**：kingdom 资源里根本没有 `theme/` 目录（`assets/apricityui/apricity/` 下只有 `ui/` 与 `structures/`），它是死链，一直没起作用。
+- **RTS 指挥面板（2026-11-07 新增）**：`assets/apricityui/apricity/ui/rts_ops.html` + `client/rts/RtsOpsPanel.java`。同一 HUD 形态：底部 `#rtsops-dock`（`position:fixed; bottom:0`，高度 = 视口 1/4 由 Java 写 inline style，`translateZ(405px)`），内部 **7 等分分组框**（宽度按视口由 Java 算，等分思路同坑 57）+ 底部四按钮（选中全部 / 坚守 / 进攻 / 清除记录；坚守=原地被动防守，进攻=进入主动索敌状态，两者都是 `NpcState.COMBAT` 下的子状态）。分组框内成员头像用 **固定列 grid**（`grid-template-columns:repeat(N,28px)`，N 由 Java 按框宽算——坑 69 的轨道列表写法）+ `<kingdom-entity-avatar>` 24×24（坑 64 配方，class 选择器不走标签选择器，D7）。**待实测项**：① `:hover` 驱动的 `.ops-btn:hover` 与既有页面同款（只改颜色，低风险）；② grid `gap` 在 HUD 页的表现（坑 19 只实测过 flex 横排 gap，grid gap 按 §13.8 属可用例外）；③ 头像 `<kingdom-entity-avatar>` 出现在 HUD 空流文档（此前只出现在 Screen 页与 viewer 左栏，形态同类，预期无差）。交互：Tab 三态循环（viewer 底左栏 → 本面板 → 全关），面板元素 id 一律 `rtsops-` 前缀并已加入 `RtsClientEvents#insideViewer` 的 AUI 命中判定（防世界点击穿透，坑 59 同源）。
+
+  **2026-11-08 增补：分组战斗姿态常驻高亮 + 落盘。** 每个分组框带一个姿态（未下达 / 坚守 / 进攻），点「坚守」「进攻」时按「与当前选中市民有交集」的框写入，框头冒 `ops-box-state` 徽标（坚守=金底 `on-hold`、进攻=红底 `on-attack`），底部对应按钮加 `on-hold` / `on-attack` 常驻高亮；高亮跟随「焦点框」——待录入框优先，否则取与当前 RTS 选中重合最多的框（所以不点框、直接框选也亮）。分组 UUID 列表与姿态**只存在内存**（2026-11-09 改为临时指挥所语义：关面板再开还在，断开连接/换世界由 `RtsOpsPanel#reset` 整块清空，不落任何文件）。徽标显隐沿用 `start.html` `.overlay` 的同一手法（`display:none` ↔ `display:block` 由 class 切换）；若哪天徽标不显，改 `max-width` 方案即可，不必动 Java。
+
+  **2026-11-08 二次调整（布局 / 头像 / 滚动）：**
+  1. **按钮移出底框**：四颗操作按钮改成独立的 `#rtsops-foot.ops-actions`（`position:fixed; left:0; right:0; display:flex; justify-content:center; transform:translateZ(406px)`），`bottom` 由 Java 按「底框高度 + 8px」写 inline；底框 `#rtsops-dock` 里只剩标题与七个分组框。
+  2. **头像不渲染的真因**：`<kingdom-entity-avatar>` 的 `skin` 为空时**不是走默认皮肤**，而是回落到 `NpcIdentifyWindow.currentTarget()`（身份卡目标）；RTS 面板没有身份卡 → 返回 null → `renderFace` 直接 return，表现为"框在、脸没有"。修法：skin 为空一律填 `NpcSkins.DEFAULT_SKIN`（`male1`）。同时给 `.ops-avatar` 与 `.ops-chip kingdom-entity-avatar` 两条尺寸规则、并在标签上写 `width="24" height="24"`（与 CSS 一致）做兜底。
+  3. **头像墙支持滚轮**：`.ops-faces` 由 `overflow:hidden` 改 `overflow-y:auto`，成员不再按可视容量裁剪（单框上限 240，超出才折叠）；AUI 的滚轮默认行为会自动沿路由找可滚动祖先（`resolveScrollTarget`），无需 Java 监听。滚动条宽 7px，Java 算列数时**预留 8px**，否则最后一列会被压在滚动条下。
+  4. **编组只收市民**：录入前按 `entity instanceof NpcEntity && !isTouristEntity()` 过滤，玩家假人（`RtsFakePlayerEntity`）不再混进七个框。
+  5. **hover 标题改命中测试**：原来逐格 `isHover` 遍历，框上限提到 240 后是 7×240 次 DOM 查询/帧；改成一次 `document.hitTest(screenToDocumentPosition(...))` 解析 `rtsops-chip-<组>-<序>`，并加鼠标静止短路。
+
+  **2026-11-09 增补：viewer 左栏「队伍」页改成队伍卡片（巡逻入口）。** 原来点「队伍」直接打开阵型编辑器，现在先渲染卡片列表（`StructureDebugKeybind#renderTeamEntries`）：每张卡是 `.side-item.side-team`（`flex-direction:column`）—— 标题行 `.side-team-row`（队名 + 人数）+ 按钮行 `.side-team-actions` 内两颗 `.side-btn`（`阵型` / `安排巡逻`·`解除巡逻`）。注意两点：① 队伍页的 DOM 结构与其他分区不同，`renderSideList()` 开头必须按 `isTroopPage()` 分流，否则侧栏搜索框一敲字就会被人口/建筑那套条形列表覆盖；② 卡片整块不再可点（`.side-team` 置 `cursor:default`），点击全部走按钮，避免"点卡片=进阵型"和"点按钮=巡逻"打架。巡逻进行中的按钮用 `.side-btn.on`（金底金框）常驻高亮，状态来自服务端 `RtsTeamSyncPacket.Entry.patrolling()`，卡片只在「队伍集合 / 人数 / 巡逻开关」签名变化时重建。
 
 ### 1.0 背包页与另外两页本质不同（容器 GUI）
 
@@ -86,6 +210,8 @@
 ```
 assets/apricityui/apricity/
 ├── ui/          ← 页面（HTML）。文件名即加载路径：ui/xxx.html
+├── buildings/   ← 六个建筑面板页（farm / residential / industry / …）
+├── structures/  ← RTS 建筑栏（viewer.html）
 ├── tex/         ← 羊皮纸/程序化贴图，HTML 里写 url('/tex/xxx.png')
 ├── font/        ← zpix.ttf，HTML 里 @font-face src:url('/font/zpix.ttf')
 └── ...
@@ -149,10 +275,16 @@ assets/apricityui/apricity/
 | `fit` / `contain` | `min(逻辑视口宽 ÷ W, 逻辑视口高 ÷ H)` —— **注意基准是逻辑视口（`screenWidth ÷ guiScale`），不是物理窗口** |
 | `window` / `native` | `1 ÷ 实际 GUI Scale` |
 | `gui` / `mc` | `1.0` |
-| 其它数字（如 `0.4864`） | 就用这个数字 |
-| 缺省 | `1.0` |
+| 其它数字（如 `0.4864`） | 就用这个数字 —— ⚠ **绝对倍率**，见下方警告 |
+| 缺省 | `1.0` —— ⚠ **绝对倍率** |
 
 `scissorScale = 实际 GUI Scale × renderScale`（§13.10 的裁剪换算要用到）。
+
+> ⚠ **实践结论（2026-10-09）**：`scale` 只有 **`fit`** 是"相对倍率"（每帧按当前视口重算），
+> 其余取值（数字 / `gui` / `mc` / 缺省）都是**绝对倍率**——文档尺寸与窗口无关。
+> 定稿页面写绝对倍率会**同时**导致"窗口缩放时页面不跟着缩"和"居中偏移失义"
+> （文档甚至可能比视口还大、被硬推出视口裁掉）。**定稿页一律用 `fit`**，详见 §11.A 坑 50。
+> `scale=1` 只适用于尺寸由宿主另定的页面（如 `WorldWindow` 里的 `identify.html`）。
 
 ### 3.3 缩放（zoom）
 
@@ -743,11 +875,66 @@ public double getSyncedHunger() { return entityData.get(DATA_HUNGER); }   // 客
 
 同类需求（皮肤名、称号……）都走这条路，不要为此新开网络包。
 
+现存同类同步字段（照抄即可）：`DATA_HUNGER`（饥饿）、`DATA_SKIN`（皮肤）、`DATA_STATUS`（排班+行为的中文标签，服务端由 `NpcDetail#label()` 生成）。
+
+**界面数据一律逐 tick 从实体重读，不要只在开屏的快照里读一次**——行装页的生命/饥饿就是踩过这条：`NpcBackpackOpenPacket` 只在开屏应用一次，界面开着数值就不再变。正确做法见 §11.A 第 40 条。
+
 ### 9.5 市民皮肤：按性别稳定分配
 
 `NpcSkins#assign(gender, id)`：女性 → `female1..female61`，男性 → `male1`，按 UUID 取模保证"同一个人每次进世界同一张脸"；
 `NpcManager#applySkin` 在 `registerNpc` 与 `load` 时补分皮（老存档读档自动补），渲染端
 `NpcEntityRenderer#getTextureLocation` 只读同步下来的 `skin`，读不到回落 `NpcSkins.DEFAULT_SKIN`。
+
+### 9.6 建筑面板的专属通道：一个页面配三个包
+
+通用宿主 `BuildingPanelScreen` 只够放"名字 + 等级 + 位置 + 几个死按钮"；有业务的面板（农业 `farm.html`、养殖 `ranch.html`）必须自带一套包，否则点下去只剩"该功能尚未接入"：
+
+| 包 | 方向 | 作用 |
+|---|---|---|
+| `XxxPanelRequestPacket` | C→S | 空载荷，建筑由服务端按玩家位置判定（`BuildingRegistry#locate`） |
+| `XxxPanelActionPacket` | C→S | `action` + 目标 id，一次操作一个包 |
+| `XxxPanelStatePacket` | S→C | **整份**状态，每次操作后全量回推，不做增量 |
+
+- 路由：`BuildingPanelService#pageOf` 给出页面路径，客户端 `BuildingPanelClient#accept` 按路径**特判**开专属 `Screen`（`FarmPanelScreen.PAGE` / `RanchPanelScreen.PAGE`），不要再喂给通用宿主；
+- 客户端回包落地：`XxxPanelHooks.stateSink = XxxPanelScreen::accept`，挂点在 `BuildingClientSetup#onClientSetup`；
+- 列表行由 Java 拼 HTML 再 `setInnerHTML`，**新节点必须重新 `addEventListener`**（整块 innerHTML 换掉，旧监听全丢）；
+- 面板要展示的清单一律现读蓝图 json（农业 `crops`、养殖 `animals`），并缓存一层，别每次操作都读盘。
+
+**餐厅页是这套通道的特例（2026-10-26 改造）**：`restaurant.html` 底栏主按钮 `rs-pick` 文案改为"开业 / 布置"，
+点它发 `RestaurantLayoutRequestPacket`（空载荷）→ 服务端 `RestaurantPanelService#reopen` 现场扫描建筑范围内的
+椅子/桌子（`RestaurantFurniture` 的 `CHAIR_BLOCK`/`TABLE_BLOCK`，id 暂留空）、把"座位 + 紧邻桌子"配对写进
+`restaurant_seat` 表并刷菜单；而打开页面时发的 `RestaurantMenuRequestPacket` **只读内存、不扫描**，
+避免每次开界面都跑一遍包围盒遍历。按钮仍用 `.bp-btn` 既有样式，没有新增 CSS 节点。
+
+**商铺页与货架容器页（2026-10-26 新增）**：
+
+- `shop.html` 沿用通用宿主（`BuildingPanelScreen`，前缀 `sh`）：新增一行 `sh-state`（营业 / 已打烊 · N 个货架），
+  底栏主按钮 `sh-shelve` 文案由 Java 按状态在"开业 / 打烊"间切换，点击发 `ShopPanelActionPacket(open)`，
+  服务端 `ShopPanelService#apply` 切状态、开业时重扫货架方块并落库，再整份回推 `ShopPanelStatePacket`；
+- **货架容器页 `buildings/shelf.html` 是 `storage.html` 的复制品，只改了 `<container>` 的两处**：
+  `id="saved_data"` → `id="block_entity"`、`bind="saved_data"` → `bind="block_entity"`。原因是 AUI 的
+  `PendingMenu` 用**声明 id** 匹配页面上的 `bind`，绑方块实体就必须走 `ContainerBindType.BLOCK_ENTITY`
+  （`BindingBuilder#blockEntity(BlockPos,int)`，见 `aui1.2.7/.../network/handler/BindingBuilder.java:75-88`）；
+- 复制时**必须沿用** `storageRoot` / `storageTitle` / `storageCapacity` / `bslot0..53` 这套 id，
+  这样 `BuildingStorageScreenDriver` 能零改动复用（它按 `storageRoot` 判页面、按 `bslot{i}` 切 `.is-off`），
+  标题文案改由服务端发 `BuildingStorageOpenPacket("商铺货架", 54, 54)` 填入；
+- 方块实体侧只要实现原版 `Container`（54 格），`PendingMenu.bind(b -> b.blockEntity(pos, 54).player())`
+  即可工作，不需要再写 menu/menuType。
+
+**市政厅资金存取的页内弹窗（2026-10-28 新增）**：
+
+- 弹窗整段写在 `city_hall.html` 里（`#chTreasuryModal`，结构照抄 `#chBuyModal`：`modal-box--buy` + `modal-head` + `modal-body` + `modal-actions`），
+  **不要在 Java 里 `new Element` 造节点**——运行时新建节点不参与测量/重绘（§11 坑 43），Java 只切 `.is-open`；
+- 数字输入框复用现成的 `modal-search field` 包一层 `<input id="chTreasuryInput">`，页面已有
+  `aui-mouse-events=intercept`，输入框能直接收到键盘；
+- **点遮罩关闭**：给 `.modal` 本身挂 `click`，用 `event.target == modal` 判断点的是遮罩还是内容盒
+  （`com.sighs.apricityui.event.Event#target` 是 `Object` 公共字段，`stopPropagation()` 也可用），
+  不要用坐标比对——AUI 的 `MouseEvent.offsetX/offsetY` 是元素局部坐标，换缩放就会错；
+- 开合与提交都由 Java 驱动：`click(document, "chGoldVital", this::showTreasuryModal)`，
+  按钮回调里读 `Input#getValue()`（`Long.parseLong` 包 try/catch），发包后**立即 `toggleClass(..., false)` 关闭**，
+  服务端 `CityHallTreasuryService` 校验领主后回推整份 `CityHallDataPacket`，资金条与流水随之刷新；
+- 金库无上限时不要把 `goldMax` 填成与 `gold` 相等——`chGoldMax` 与 `npc-bar max` 都会变成同值，
+  视觉上像"满了"。本项目的做法：`goldMax > gold` 才显示上限，否则留空文本、`bar` 传 `Math.max(1, gold)`。
 
 ---
 
@@ -827,6 +1014,43 @@ javap -p -classpath <merged-mc.jar> net.minecraft.client.renderer.entity.EntityR
 | 37 | 建筑操作面板做出来"不像同一套界面"：面板居中、字体是默认字体、按钮点不动 | 写页面前没读已有的 `buildings/residential.html`，凭记忆另起了一套骨架，连带漏了 `@font-face` Zpix、`aui-mouse-events=intercept`、`mode=gui` viewport、`pane_gen.png` 底纹 | **建筑类操作面板一律以 `residential.html` 的侧边栏骨架为准**（`.bp-bar` 固定左侧 `width:25%` + 头/体/底三段 + `.bp-hint`），只换内容；类名沿用 `.bp-*` 体系。新增面板前先读该文件，别再另起。**色板、尺寸、组件同样是统一的一部分**：不许自创色（如另加一个红色 `--danger`）、不许自创尺寸（行内方图标一律 24×24 对齐 `.bp-face`，大槽位 48）、按钮一律 `.bp-btn` / `.bp-btn-quiet` / `.bp-btn-main` 三选一，别为"危险操作"另造一套 |
 | 38 | 脱离 `<slot>` 单独用的 `<item>`，图标缩在盒子左上角 | 与坑 31 同源：UA 把 `item` 定死 16×16、`slot > item{position:absolute;left:1px;top:1px}`，而居中拿的是 `<item>` **自身矩形**（`Rect.of(item)` 按 16px 居中），不是父盒子 | 给 `<item>` 写 class 设 `position:absolute;left:0;top:0` + 宽高等于父盒子。**纯 DOM 页里的作物/物品图标就照这个写**，不要用 `<slot>`（那要真实容器菜单） |
 | 39 | 同一元素同时带"面板类"与"覆盖层类"时，`display` 谁赢说不清 | 两个单类选择器优先级相同，只能靠源码先后顺序定胜负；改一处 CSS 顺序就翻车 | 覆盖层写成两个类叠加（如 `.bp-bar.bp-overlay{display:none}`），优先级直接压过单类。二级页同理用 `.bp-head/body/foot-off` 三个类分别关三段，不要指望一个类通吃 |
+| 40 | 身份卡"状态"永远是"无"；行装页生命/饥饿停在开屏那一刻不动 | ① 卡片是客户端拼的（`NpcIdentifyWindow#profileOf`），而排班/行为 detail 只存在于服务端 `NpcData`，传 `null` 就渲染成"无"；② `NpcBackpackScreenDriver#onClientTick` 里"快照没变就直接 return"，生命/饥饿只在开屏应用了一次 | ① 行为标签走同步数据：`NpcEntity.DATA_STATUS` 逐 tick 镜像 `NpcDetail#label()`，卡片读 `getSyncedStatus()`（§9.4）；② 生命/饥饿逐 tick 从实体重读（生命＝原版同步字段，饥饿＝`getSyncedHunger()`），只在数值变化时写 DOM，开屏与换页时清缓存 |
+| 41 | 八个建筑面板各写各的：`residential.html` 的顶部/中部/底部**没有 id**、建筑信息是写死的演示值；各页底部只有"打开仓库/关闭"、没有主操作 | 建页时只统一了"侧边栏形状"，没规定四段的内容与位次；坑 37 只说了骨架像 `residential.html`，没说主操作放哪 | 以 `farm.html` 为基准的四段规则：**顶部** `.bp-head`（`.bp-type` 分类 + `.bp-title` + `.bp-lv` 配额）＋ `.bp-body` 里的 `.bp-info`（位置/蓝图/业务字段，值一律留 `—` 与 id，由 Java 填）；**中部** `.bp-block > .bp-sec(+.bp-search) + .bp-list + .bp-empty`（本轮 farm/ranch/industry/restaurant 有条目区，residential/shop/military 中部留空）；**底部** `.bp-foot` ＝ 主操作 `.bp-btn-main`（创建农田 / 开始养殖 / 开始生产 / 选择菜品 / 自动上架 / 创建军队 / 安排入住）＋ 关闭；**底部第二行** `.bp-foot.bp-foot-off`（页内 id `bp-warehouse-row`，farm 是 `fd-foot`）＝ 打开仓库 `.bp-btn-main` **独占整行**，由 Java 按 `WAREHOUSE_PAGES` 开显隐（坑 44）——打开仓库**不许**塞进第一行跟主操作并排；**最下** `.bp-hint`。`storage.html` 是真实容器页形态（54 格 `<container>`），暂不并入此骨架 |
+| 42 | 仓库没有建筑类型；军事/住宅按 Tab 打不开；各页信息框永远显示"—" | ① `BuildingType` 只有 6 类、`structures/` 下也没有 storage 目录，蓝图元数据缺一个类型；② `pageOf` 的 `default -> ""` 把军事/住宅挡在面板之外；③ `BuildingPanelStatePacket` 不带坐标/蓝图，通用宿主只能填名称与等级 | ① 新增 `BuildingType.STORAGE`（别名 warehouse/depot/logistics）＋ `structures/storage/_example.json`（`storage_slots: 54`，与容器页格数一致）；② `pageOf` 补 `MILITARY/RESIDENTIAL/STORAGE` 三条分支；③ 状态包加 `pos` 字段，通用宿主按“页面前缀表”（im/rm/rs/sh/mt/rd/wh）填 `<prefix>-pos` 与 `<prefix>-blueprint`；④ 新增 `buildings/warehouse.html`（以 `ranch.html` 为模板）：顶部信息框 → 中部“运输关系”卡片区 → 底部 `创建链接`(`.bp-btn-main`) + `打开核心仓库`（沿用 `bp-warehouse`，走既有的 `BuildingStorageRequestPacket` → `BuildingStorageMenu`）；⑤ `storage.html` 定位改为“各建筑仓库的容器绘制页”，不再算操作面板 |
+| 43 | 建筑面板底栏的「打开仓库」按钮**怎么都显示不出来**（ranch 底栏只有页面 HTML 里那两颗）：Java 里 `new Element(document,"div")`+`foot.insertBefore(...)`、`init()` 里 `foot.setInnerHTML(...)`、首帧 `tick()` 里 `foot.setInnerHTML(...)` 三种写法全试过，全都不出来 | ① 运行时**新建**的节点（`new Element`）只进 `children` 列表，不参与 AUI 的测量/重绘；② 底栏这类"固定几颗按钮"即使整段 `setInnerHTML` 重建，也不出现在画面里（与列表行不同——列表宿主是 `overflow` 滚动容器，底栏不是） | **照抄农业页的机制**：按钮**本来就写在页面 HTML 里**，带 `style="display:none"`（`farm.html` 的 `fd-save`/`fd-cancel` 同款），由 Java 用 `setVisible` 打开——`element.setAttribute("style", visible ? "display:flex" : "display:none")`（`FarmPanelScreen:795`）。即"该按钮由 Java 添加"的真实含义是**Java 控制显隐**，而不是 Java 造节点。六个建筑页的 `bp-warehouse` 都按这条：按钮写在页面 HTML 里，`BuildingPanelScreen` 首帧 `tick()` 里 `setVisible` 控制它**所在底栏行**的显隐（住宅页不显示；成行样式见坑 44） |
+| 44 | 建筑面板的「打开仓库」被做成**贴着主操作的小按钮**，只有农业页是底栏独占一整行 | 坑 41/42/43 只规定了"底栏要有打开仓库"，没说它**占几行**；六个页都写成 `.bp-foot` 里并排三颗，而基准页 `farm.html` 是**两行**：主操作行 + `fd-foot`（`bp-foot bp-foot-off`）单独放打开仓库 | 六个页（industry/military/ranch/restaurant/shop/warehouse）底栏拆成两行：第一行 `.bp-foot` 只留主操作 + `bp-close`；第二行 `<div class="bp-foot bp-foot-off" id="bp-warehouse-row">` 里放 `<div class="bp-btn bp-btn-main" id="bp-warehouse">打开仓库</div>`（照抄 farm 的 `fd-foot`/`fd-warehouse`，按钮**不带** inline `style`）。Java 侧 `BuildingPanelScreen.sync()` 改为对**行**切类：`setOff(document.getElementById("bp-warehouse-row"), "bp-foot-off", !WAREHOUSE_PAGES.contains(prefix))`（照 `FarmPanelScreen.setOff` → `element.getClassList().toggle(token, off)`，容器用切类、不用 inline style），点击监听仍挂 `bp-warehouse`；按钮 id 与 `openWarehouse()` 路径不变。养殖页后来独立成 `RanchPanelScreen`，那一行由它自己切（见坑 45） |
+| 45 | 养殖面板**整页只有死数据**："可养动物 0 / 0 头"、列表永远是空的、"这座建筑没有配置可养动物" 常显、"饲养员 未指派" 改不动，底栏「取出动物」点了只弹"该功能尚未接入" | `ranch.html` 里 `rm-total`/`rm-animals`/`rm-empty`/`rm-keeper`/`rm-search`/`rm-search-clear` 六个 id **没有任何 Java 读写**（通用宿主 `BuildingPanelScreen.sync()` 只填 `bp-name`/`bp-level`/`rm-pos`/`rm-blueprint`），而养殖的服务端循环（`RanchWorkService`）早就写好了——缺的是"面板 ↔ 栏"的连接层 | 照"农业那套"补齐 §9.6 的三件套：`common/network/ranch/`（Request/Action/State + Hooks + Registration）、`server/ranch/RanchPanelService`（快照现读蓝图 `animals` 与市民名册，动作＝开始/暂停这一栏、任免饲养员）、`client/ranch/RanchPanelScreen`（拼行 + 重挂监听 + 搜索），并在 `BuildingPanelClient.accept` 里按 `RanchPanelScreen.PAGE` 特判开屏、`BuildingClientSetup` 挂 `RanchPanelHooks.stateSink`。页面侧加了两处：信息框一行 `rm-recipe`（饲料→产出·方式·上限），以及**二级页 `rc-*`**（单条配方详情 + 饲养员名册，骨架照抄 `farm.html` 的 `fd-*`：`bp-head-off/bp-body-off/bp-foot-off` 三段切显隐）；一级底栏主按钮 `rm-start`＝开始/暂停养殖（开始时同建筑其它栏自动停下），饲养员由玩家在二级页点行任免，**没有自动指派**。二级页的市民行照 `farm.html` 用 `<kingdom-entity-avatar class="bp-worker-face" skin="...">` 渲染**头像**（`skin` 走状态包里的 `NpcData#getSkin`），状态文案用 `.bp-sub` 写"空闲/饲养中/饥饿/下班" |
+| 47 | 世界地图**整块由服务端采样并推送**：客户端 `<world-map>` 每 250ms 发一次 `WorldMapRequestPacket` 要数据，服务端采样后切片下发 `WorldMapDataPacket`，并把结果按玩家存进 `ExploredMapStore`（SavedData） | 地图渲染本来就是**纯客户端**的事（Xaero 那类 mod 全在客户端做）。搬到服务端等于：为每个玩家存一份地形像素（SavedData 随探索无限增长）、每次开界面走一趟"请求→采样→分片下发"的往返，还把"只有已加载区块才有数据"这个客户端天然限制变成"服务端替每个玩家算一遍" | 拆掉整条服务端 + 网络链路（`server/map/` 两个类、`common/network/map/` 四个类、`ServerLifecycle` 的两处驱动、`PlayerProfile` 的 `map_center_*` 列、`CityHallDataPacket` 的两个字段），改为**客户端自采自用**：`client/map/ClientMapScanner`（`ChunkEvent.Load` 入队 + 客户端 tick 每 tick 采 2 块 + 玩家周围 13×13 兜底 + 视口优先）用 `WorldSurfaceSampler.sampleChunk`（参数类型由 `ServerLevel` 放宽到 `Level`）写进 `client/map/ClientMapStore`（按维度缓存 + 落盘 `gameDir/kingdom-client-map/<世界>/<维度>.bin`，30 秒一刷、登出即存、带视口中心），`WorldMapElement` 直接读它、删掉请求/节流/`revision` 那套。**注意**：NeoForge 客户端不允许后台线程碰 `Level`，所以"后台渲染"落地就是**主线程分帧渐进采样**，只有落盘 I/O 在后台线程；视口**每次打开市政厅都归位到市政厅方块**（`CityHallScreen#pointMap` 直接写 `center-x/center-z` 为市政厅坐标，并调 `WorldMapElement#resetView()` 复位缩放与拖动偏移，不再沿用上次视野）；滚轮在地图元素与全屏地图层内被 `event.preventDefault()` 吃掉（AUI 的 wheel 在 `Operation#scroll` 里创建时 `cancelable=true`，`MouseEvent#triggerResolvedEvent` 只在 `!defaultPrevented` 时才走 `applyScrollDefault`），所以缩放地图不会顺带滚动页面 |
+
+| 48 | 打开世界地图后**帧率掉到 1~20** | ① 地图元素**每帧重建整张光栅**：`sheet()` 的签名里含 `ClientMapStore.revision()`，而扫描器每 tick 采 2 块 ⇒ 版本每帧都变 ⇒ 每帧重铺；全屏 1920×1080 时单次重建约 **400 万次** `SpanSheet.over()`（逐像素 alpha 混合调用，含整块 `fill` 背景）。② 提交走 `Graph.drawFillRect` 逐矩形，这个量级撑不住 | `WorldMapElement` 由 `extends Element` 改为 **`extends Canvas`**（与 `KingdomEntityAvatarElement` / `KingdomShieldElement` / `KingdomSealElement` 同路）：`renderOperation(g -> …)` 把地图画进位图表面 → `syncTexture()` 上传 → `ImageDrawer.draw` **一次**画完（1 个绘制调用）。**光栅尺寸 = 表面尺寸（1:1，`drawImage` 不拉伸）**，按 `step` 逐块填充；几何只由 `blocksX=(2·radius+1)/zoom` 决定，`step` 只控采样密度（`1/pixelsPerBlock` 起算、`MAX_SAMPLES` 封顶、拖拽 ×3），逐行按**区块**批量取 `byte[]`（每 16 列才查一次 map），取色走 256 项 `PALETTE`，`int[]` 与 `BufferedImage` 跨帧复用；重建**节流**：几何变化立即重建，仅内容变化最多 300ms 一次；纹理只在重建后 sync（绘制里仅 `textureLocation == null` 时兜底）。网格线与标记画在表面层。**注意**：更激进的"脏区块增量 + 直接写 `getSurface()` 的 `DataBufferInt` + 只上传脏矩形"实测**整张地图完全不渲染**（异常打断 `drawPhase`），已回滚到本版本；要再试必须逐项验证——重点怀疑 `Box.of(this).innerSize()` 与 `getWidth()/getHeight()` 的口径不一致、以及绘制期 `markSurfaceDirty` 的重入 |
+
+| 49 | 地图交互**全坏**：小窗一按下画面就放大 3 倍、拖完被判成"点击放大"进了全屏、全屏里滚轮缩放毫无反应、大地图被压扁 | ① 把原 `step`（跳像素采样，**几何不变**）误改成"把覆盖方块数 ÷3" ⇒ 一按下视野缩小 3 倍（＝放大）。② 光栅按 `ceil((2·radius+1)/zoom)` 取**正方形**再拉伸到矩形表面 ⇒ 宽高比失真（变扁）。③ `grid` 被 `MAX_GRID=1024` 卡死：全屏 `radius=320` 时 `zoom∈[0.25,0.63]` 全算出 1024 ⇒ 缩放看不出变化。④ 元素内 `mousedown+mouseup` 同样是一次 `click`，冒泡到 `chMapBox` 的"点击放大"监听 ⇒ 拖完误开全屏 | 把"几何"与"采样密度"彻底分开：几何只由 `blocksX=(2·radius+1)/zoom` 与表面尺寸决定，`step` 只控采样密度（拖拽时 ×3 可放心用）；光栅改 1:1 表面尺寸、`drawImage` 不拉伸；删掉 `MAX_GRID`（改用 `MAX_SAMPLES` 预算控采样量）；加 `WorldMapElement.draggedRecently()`（累计拖动像素 >4 才算拖动，松手后 250ms 内抑制），`CityHallScreen` 的 `chMapBox` 点击回调据此提前 return |
+
+| 50 | **定稿页面把 `scale` 写成固定数字后，窗口一缩就"页面不跟着缩小 + 严重偏离中心"**（大窗口下完全正常，所以极易漏测）；`city_hall`（`0.45`）、`backpack`（`0.4864`）、`storage`（`0.4864`）三页同病 | 固定数字走的是 `ApricityViewport#fixed` 的最后一个 `else` 分支（`parseDouble(scaleOption, 1.0d)`），**该分支完全不读窗口** ⇒ `renderScale` 是**常量** ⇒ 文档在 GUI 坐标系里的尺寸恒定（如 `1124 × 0.45 = 506×384`），窗口怎么变它都不变——"不缩放"由此而来。而居中偏移是每帧/每次 `applyViewport` 用**当前视口**现算的（`AuiDocPlacement#centeredOffset` 里的 `(guiWidth − docWidth)/2`）⇒ 视口一变，这个式子的输入就失去意义：视口 `960×540` 时偏移是 `(227, 54)`，视口 `480×270` 时文档（`506×384`）**比视口还大**，横向余量成负数被 `max(0,…)` 夹成 0、纵向被 `MIN_TOP=8` 硬推下移 ⇒ 右侧裁 26、底部裁 122。**"不缩放"和"偏移"是同一个根因的两个症状，不是两个 bug**——排查时现象一直指向居中补丁，真凶却在配置里 | 定稿页面的 `scale` 一律用 **`fit`**：`renderScale = min(GUI宽 ÷ W, GUI高 ÷ H)`，每次 `applyViewport` 重算 ⇒ 整稿等比放进视口，**且必然有一个方向恰好等于视口**，于是"居中偏移"的语义恒定（把余量对半），永远不会出现"文档比视口大"的病态输入。三页已统一 `scale=fit` + `zoom` 钉死 1（`zoom` 在 `fit` 下只改逻辑坐标精度、不改实际显示大小，留着只会让人以为 Ctrl+滚轮坏了）。配套加固：`AuiDocPlacement#centeredOffset` 现在对**已铺满的方向**（`gapY ≤ 0`）返回 0 偏移，免得旧病复发时把文档推出视口。**判据**：页面出缩放问题时，先问"文档尺寸是否会随窗口变"，再怀疑补丁 |
+
+| 51 | 市政厅「政务处理」列表的行**点不动 / 只在第一次能点** | 政务行由 Java 用 `setInnerHTML` 动态生成。`setInnerHTML` 会**重建整棵子树**，先前 `addEventListener` 绑在旧节点上的监听随旧节点一起丢掉；而重建发生在**每次收到 `CityHallDataPacket` 时**（`CityHallScreen#bind`）⇒ 只在 `bindInteractions` 里绑一次必然失效 | `setInnerHTML` **之后**再遍历数据、按 `id` 逐个 `getElementById` 取新节点重新 `addEventListener("click", …)`（`CityHallScreen#fillAffairs`）。规律：**动态生成的节点每次重建都要重新绑事件**，只有写在页面里的静态节点才可以在 `bindInteractions` 里绑一次。样式上只给现有 `.rline` 加一个变体类 `.rline--affair`（`cursor:pointer` + `:hover` 背景色，`:hover` 与页面既有 `.cal-icon:hover` 同款写法），不引入任何新布局机制。`cursor` 属性在 AUI 中是否真的改光标**待实测**（不影响功能） |
+
+| 52 | 往 `<world-map>`（`Canvas` 元素）里**新加的一层画完不显示**，或要等地图自身数据刷新才一起冒出来（本次：右键选区的高亮层） | `WorldMapElement` 的光栅只在 `repaintIfNeeded` 判定为"几何变了 **或** 区块脏了"时才重建（`paintAll` / `repaintChunk`），而**我们自己新加的绘制层不在它的判定输入里** ⇒ 只改我们自己的状态（选区、外来源的领地/建筑数据）不会触发重绘，表现是"数据对了但画面不动" | 给元素加一个自持的脏标志（本次是 `selectionDirty`），把它并进 `repaintIfNeeded` 的 `geometry` 条件、在 `paintAll` 之后清除；另开一个 `requestRepaint()` 给宿主，在"外部数据变了"时调用（`CityHallScreen` 把它挂在 `MapOverlayStore.setChangeListener` 上，购买领地后地图立刻更新）。**规律：往 `Canvas` 元素加新绘制内容，必须同时接进它的重绘触发链** |
+| 53 | 给地图加右键操作，按 DOM 惯例写 `event.button == 2` 拿不到、分支不生效 | AUI 的 `MouseEvent#button` 走的是 **GLFW 约定（0 = 左键、1 = 右键）**，不是 DOM 的 0=左 / 1=中 / 2=右。源码自证：`event/MouseEvent.java` 的合成分发里 `originalEvent.button == 0` → 派发 `click`、`originalEvent.button == 1` → 派发 `contextmenu`（右键菜单事件） | 右键判断一律写 `button == 1`，左键 `== 0`。左键拖动平移与右键框选要在 `mousedown/mousemove/mouseup` 各自**先分流**，否则右键会被当成平移把地图拖走 |
+
+| 54 | 在 `Canvas` 元素上画**任意形状的区块集合**（领地轮廓 / 地图选区）时，用包围盒遍历会把不该填的格子也填上（表现为"边缘买一格、中间整片被吞"） | 领地和选区早期都是矩形（只存 min/max 四个界），一旦改成区块集合却仍按 `for (x = min..max) for (z = min..max)` 遍历，画出来还是矩形 | 一律 `for (long key : chunks)` **逐块**遍历；每一格的边框**只在"四邻不属于同一集合"时才画**（`!set.contains(邻格key)`），相邻块之间就不会出现多余格线、外轮廓自然连成一片。判定容器必须是**哈希集合**：用数组线性查找会让"每块 4 次邻居判定"退化成 O(n²)（几千块的领地在全屏地图上会卡） |
+
+| 55 | 世界地图**拖动时帧率暴降**（静止时完全不卡，只有按住拖才掉帧） | `<world-map>` 是 `Canvas`：拖动让视图中心每帧变化 → `repaintIfNeeded` 的 `geometry` 判定为真 → **每帧走 `paintAll` 全量重建**：① `fillRaster` 先整屏 `Arrays.fill` 填未探索色、再按 step 采样覆盖（全屏约 200 万像素写两遍）；② `renderOperation` 走 Java2D 软件光栅化画叠加层（领地逐块 `fillRect`，几千块就是上万次调用）；③ `markSurfaceDirty()` **无参 = 整张脏** ⇒ `Canvas#syncTexture` 全量走 `copyRegionToStaging` 逐像素 `argbToAbgr` + `writeImagePixels` + `uploadTextureRegion`。而静止时走的是 `CONTENT_REPAINT_NANOS`(300ms) 节流 + `repaintChunk` 只重画脏区块，所以反差极大。请注意 AUI 的 `markSurfaceDirty(Rectangle2D)` **本身是支持脏区上传的**，是调用方（地图）自己把整张标脏了 | **拖动快照（只挪 uv 窗口，永不重建）**：① 光栅四周各留 `SURFACE_MARGIN = 256` 预存量——`resizeSurface(内容宽 + 512, 内容高 + 512)`，"元素矩形内"的像素密度保持不变（`pixelsPerBlock = 内容宽 ÷ 世界方块数`）；② 覆写 `Canvas#drawCanvas`，改用 **`ImageDrawer.drawWithUvWindow(...)`** 指定源区域：静止 `uTexel = MARGIN`、拖动 `uTexel = MARGIN − dragPixelX`（同理 v），`widthTexels/heightTexels` = 元素内容尺寸；③ 拖动期间 `repaintIfNeeded` **直接 return**（`if (dragging && !resized && !dragRebuild) return;`）⇒ 零重绘、零纹理上传，每帧只剩一次带 uv 的 quad；④ 松手 / 鼠标移出 / uv 超出余量时才 `commitPan()` + `dragRebuild = true` 重建一次（并把拖动锚点重置到当前鼠标点）；⑤ 拖动期间**必须** `document.markDirty(this, Drawer.REPAINT)`，否则 AUI 可能不重绘该元素、画面纹丝不动；⑥ 容器要有 `overflow:hidden`（`.map-full-box` 原先**没有**，本次补上），保证预存量绝不画到框外；⑦ **命中判定必须同步补偿**——光栅带 margin 后，"元素内坐标"与"光栅坐标"相差 `SURFACE_MARGIN − dragPixel`，建筑 / 领地 / 中心标记 / 区块的命中都要先过一层转换（`toSurfaceX/toSurfaceY`），漏改的表现是 **tooltip 与点击整体失效**（第一版就漏了，因为原先 `pixelX()` 的返回值和元素坐标恰好重合，加了 margin 才分家）；⑧ 松手/归位时要让"强制重建"标志真正参与 `geometry` 判定（`forceRebuild`），否则位移不足 1 个方块时 `commitPan` 不改中心、画面不重建，会出现"松开瞬间跳回"。**通用结论**：`Canvas` 元素想做到"拖动零成本"，就让光栅比显示区大、只挪 uv 窗口，永远不要每帧重建 |
+
+| 56 | `structures/viewer.html` 要从"常驻底栏"改成**贴边隐藏式面板**：平时屏幕底只留一条边、鼠标贴到屏幕下边缘才向上展开；这次同时新增左侧边栏，并要求"底栏层级高于左栏、左栏往上抬让位"。两个直接坑：① 用负 `bottom` 把面板推进视口外"藏起来"，鼠标贴到屏幕最底 1px 时**展不开**；② 想让两个面板"重叠时底栏压左栏"，只调 DOM 顺序无效 | ① 贴边面板必须真的贴边（`bottom:0` / `left:0`）。用负偏移"藏"时，**收起态的命中区就是被推出视口的那部分**——`hitTest` 在视口外命不中元素，`hover` 自然不触发；而且大部分位于视口外的 `fixed` 元素与 AUI 的可见性剔除（§16 D24）边界不明。② 文档级 z 由 AUI 统一给（§16 D24 / 坑 36），**只有元素级 `translateZ` 才真能分先后** | 收起/展开一律用**改自身尺寸**：`.dock{height:12px}` → `.dock:hover{height:150px}`、`.side{width:12px}` → `.side:hover{width:240px}`，`position:fixed` 元素不参与兄弟布局，改动只影响自身。**不写 `transition`**——AUI 只对白名单属性做过渡，尺寸是直接跳变，写了等于没写（§2）。"露出多少" = 收起尺寸 − 边框：本次 `12px = 2px 边框 ×2 + 8px 把手`，把手用绝对定位 `top:0; height:8px`（相对 padding box，正好吃掉 12 − 4），里面一根 `.grip-pip` 金条提示可拉出。层级：底栏 `translateZ(405px)` > 左栏 `translateZ(400px)`。**避让要按展开态算**：左栏 `bottom:156px`（= 底栏展开高 150 + 6 间隙），收起态两者不重叠只是巧合。贴屏幕边的面板**不能**用主题 `.frame` 的硬投影（`2px 2px 0 0`，会溢出视口被切）与向外扩的 `.frame--thick`（8px 四圈环，同理），改用 **`.frame--flat` 配方**（1px 外环 + 四角 inset 浮雕、无硬投影）。⚠ **待实测**：`:hover` 驱动**布局属性**（尺寸）本页是首次（此前页面 `:hover` 只改颜色/阴影）。万一引出测量循环卡死，改为 Java 每 tick 读 `Element#isHover` 切 class（`StructureDebugKeybind#updateCardTooltip` 同款路子）。左侧栏分类行的 `setInnerHTML` 重建后必须重新 `addEventListener`（坑 51） |
+
+| 57 | 要把底栏切成 **8 等分**（住宅/农业/养殖/商业/工业/军事/仓库/其它）、左栏切成 **4 等分**（人口/建筑/队伍/道路），试遍 CSS 的等分写法都靠不住 | AUI 里"等分"的常规写法全部不成立：`flex:1`（0% 解析，§0 铁律 2）、`grid` 的 `fr`（塌成单列）、`width:12.5%`（`%` 不可靠，§2）、`flex:1 1 auto`（**内容不等长就不等分**——8 个分类的结构数天差地别，格子必然宽窄不一）。而且这页本身就是"尺寸随窗口变"的贴边 HUD，等分基准必须是**当前逻辑视口** | 等分尺寸由 **Java 按 `document.getViewportSize()` 算好、写进元素的 inline `style`**：`element.setAttribute("style", "width:" + bandWidth + "px")`（`StructureDebugKeybind#layoutViewer`），CSS 侧只保留 `flex:0 0 auto` 锁死 + 一个默认值顶着算出来之前用。等分算式要**扣掉固定装饰**：底栏 `(视口宽 − 4 边框 − 16 内边距) ÷ 8`、左栏 `(视口高 − 156 让位 − 4 边框 − 16 内边距) ÷ 4`，两头取 `Math.max(48, …)` 兜底。**只在视口尺寸真的变了才重算**（缓存上次 `width/height` 比对，别每 tick 无条件写 style）。⚠ **`setInnerHTML` 重建会连带丢掉子孙的 inline style** ⇒ ① 整体重建后把尺寸缓存置 `-1` 强制下一帧重算；② 只更新内容的场景（左栏计数刷新）**重建"内层容器"**（`sect-rows-*`）而不是带尺寸的格子本身。格子尺寸含自己的 `border`（`box-sizing:border-box`）⇒ `8 × (可用宽 ÷ 8)` 正好铺满，不用再补间距 |
+
+| 58 | 给底栏（**HUD 覆盖层文档**，`ApricityUI.createDocument` 创建、没有 Screen）做了个搜索框，AUI 的 `<input>` 摆上去后**显示正常、鼠标能点进去，但一个字符也打不进去**；`input.getValue()` 永远是空串 | AUI 的**字符**事件只挂在一个地方：`Client#onCharTyped(ScreenEvent.CharacterTyped.Pre)`（`targets/neoforge-1.21.1/.../client/Client.java`），而 `ScreenEvent` **只在有 Screen 时派发**。游戏内的覆盖层文档走的是另一条：`Client#onKeyPressed(InputEvent.Key)` → `Operation#handleKeyInput`，那条路**只带键码、不带字符**（`InputEvent.Key` 本身就没有 codePoint）。两份 AUI 源码（`AUI-snow` / `aui1.2.7`）都没有别处注册 `glfwSetCharCallback`。⇒ **覆盖层文档里的 `<input>` 天生收不到 `charTyped`**，与页面写法无关 | 自己补一层字符通路：打开页面前 `install()`，先读回当前回调再 `glfwSetCharCallback(handle, lambda)` 换上我们的 —— 激活态把 codePoint 吃掉喂给搜索框，非激活态原样 `previousCallback.invoke(...)` 转发；关页时 `glfwSetCharCallback(handle, previousCallback)` 还原（`client/structure/StructureSearchInput`）。三条配套纪律：① **键盘接管必须显式激活**（点中搜索框才 `active=true`），否则 RTS 的移动/操作键会被整片吃掉；② 退格、回车、ESC 走 `InputEvent.Key`（无屏幕时照样触发），字符才走 char 回调；③ 文本真源放 Java（`StringBuilder`），`input.setValue()` 只当显示，过滤仍旧每 tick 轮询 `input.getValue()` 与缓存比对（与 `BuildingPanelScreen` 同一条路子，§7.9 的能力位），加载投影后立刻取消激活交还键盘。⚠ **待实测**：回调包装与其他 mod / 全屏切换导致窗口重建时的还原是否干净 |
+
+| 59 | 左栏要"点人口 / 建筑后**整栏**换成该分类的内容页（搜索框 + 长列表）"，而底栏**也有**一个搜索框，两者要共存且各打各的字；同时列表行点击在 RTS 下**不能同时**触发世界点击 | 三件事各有出处：① 同文档里两个 `<input>` 抢一份键盘 —— 输入代理（坑 58）只有一个 `active` 开关，不区分焦点就会串；② 列表行是 `setInnerHTML` 动态生成，点一次要能立刻改选中态（坑 51）；③ `RtsClientEvents#insideViewer` 按"元素**或祖先**的 id 前缀"判是否算点在 AUI 上（`viewer-` / `card-` / `load-` / `big-`），新行 id 若不匹配就会穿透到世界 | ① 两态切换与底栏同款：`.side.is-page` 切 `.sect-list` ↔ `.side-page`（`display:none/flex`）；② **输入焦点由 Java 侧显式记账**：`activeField ∈ {NONE, DOCK, SIDE}`，`acceptSearchChar/backspaceSearch` 按它分发到各自的 `StringBuilder`，再 `input.setValue()` 回写显示，过滤各自由每 tick 轮询 `getValue()` 驱动；点中才激活（`.search-on` 金边），回车 / ESC / `[← 返回]` / 进出分类都置 `NONE`（`client/structure/StructureDebugKeybind`、`StructureSearchInput`）；③ 行 id 用 `side-npc-{index}` / `side-bld-{index}`，点击后**整表重渲染**（选中态由 Java 的 `selectedId` 决定，不在 DOM 上手工切 class）；④ **新行不必改名去凑前缀** —— 它们都挂在 `#viewer-page` 之下，`insideViewer` 向上遍历祖先时会撞上 `viewer-` 前缀而返回 true，世界点击自然不会同时触发。⚠ **待实测**：两个搜索框来回切换焦点后，字符是否只进当前那一个 |
+
+| 60 | 想把主题原样搬进 AUI 时，容易照 §2 禁用清单把 `transform` / `transition` / `@keyframes` / `@media` / `calc()` **一起砍掉** | ⚠ **先量一眼官方主题**：AUI 自带的 `ore.css`（3067 行）自己就在用 `calc(` ×9、`transform` ×41、`transition` ×17、`@keyframes` ×5、`@media` ×3、`::after` ×49、`flex-wrap` ×5。⇒ §2 那批清单针对的是**"会让客户端卡在测量循环里"**的那几条（`flex-wrap`、`align-items:baseline`、`em`/`%` 字距、`flex:1` 的 0% 解析），**不是"禁止出现"**：纯 DOM 页里写了顶多**退化**（动画变瞬时、变换不生效、伪元素不画），**不会崩** | 判据是"**这页会不会进测量循环**"，不是"字符串里有没有 transform"。主题类页面真有**必须**改的只有三处：① `@font-face` 的 CDN 换 `/font/zpix.ttf`（AUI 内无网络语义）；② `theme.js` 在 AUI 里跑不了 ⇒ `var(--tex-*)` 得指向预生成的 PNG（`/tex/*.png`，与 §5 对照表一致）；③ `body` 的深色底与 `min-height:100vh` 要清掉（§0 铁律 5）。另注意主题里靠 `aspect-ratio`（`.slot`）与百分比宽度（`.bar`）表达的尺寸，落进 AUI 页面时得改成显式 px 或由 Java 现算 |
+| 61 | 世界道路页（`ApricityScreen` + 全屏 `<world-map>`）打开时按 **C**，Screen 里的撤回正常执行，但**领地道路的撤销栈也被误弹一次**；按 **Enter** 同样误弹领地道路的确认窗——一次按键，两处反应 | `InputEvent.Key` **没有** `screen != null` 前置：项目全局监听 `RtsClientEvents#onKey`（`InputEvent.Key`）在 Screen 打开时**照样触发**，而它早前的道路分支写的是 `isRoadMode()`（`ROAD_WORLD` 也算）⇒ 全局侧与 `Screen#keyPressed` 各跑一遍。同类的 `onMouseButton` / `onMouseScroll` **有** `minecraft.screen != null` 前置所以没事——三条事件的前置条件不一致，是最容易漏的点。这与坑 58 是一对：**HUD 覆盖层收不到字符事件，而 Screen 页的按键会被外部全局监听重复处理** | 全局监听里凡是"某 AUI 页专属"的分支，判定收窄到**具体子模式/页面**（`getSubMode() == ROAD_TERRITORY` 而不是 `isRoadMode()`）；Screen 页内的按键处理完 **`return true` 消费**（`WorldRoadScreen#keyPressed`），但注意 `return true` 只挡 vanilla 后续，**挡不住同 tick 里早已跑过的 `InputEvent.Key` 监听**——所以收窄必须做在全局侧。另：`<world-map>` 这类 `Canvas` 子元素被两个页复用（市政厅 + 世界道路）时，右键语义按"模式开关"分流（`roadMode` static，进页开、`onClose` 关），交互状态（`selecting` / `roadDrawing`）保持 static 与既有先例一致，但**每次只可能有一个页在用**，不要在两个页同时开模式 |
+| 62 | 需要"按住头像拖到卡片上指派"这类拖拽交互时，容易以为 AUI 做不了、打算去 Java `Screen#mouseDragged` 里拦鼠标再手工换算两套坐标系 | **AUI 原生三件套齐全**，不用 Screen 层：① `Element#getBoundingClientRect()` 返回 `DOMRect`（public 字段 x/y/width/height/left/top/right/bottom，`Element.java:2174-2185`）；② `document.addEventListener("mousemove"/"mouseup", …)`（`Document.java:1049` 委托 body；mousemove 由 `Client` 的 `RenderFrameEvent.Pre` 全局派发，**拖出元素范围也持续收到**）；③ AUI 自己的可拖窗 `DialogWindow`（mousedown 记起点 → mousemove 改 x/y）与 `ColorPicker#bindDrag` 就是现成范本 | 照抄 `ColorPicker` 结构：拖起元素 `addEventListener("mousedown")` 记源数据 → `document` 级 `mousemove` 更新 ghost（`position:absolute` + `setAttribute("style","display:block;left:Xpx;top:Ypx")`）→ `mouseup` 里用各目标卡 `getBoundingClientRect()` 与**文档坐标**比对投放。**坐标必须过 `document.screenToDocumentPosition(new Position(e.clientX, e.clientY))`**（fixed+fit+居中下 GUI 坐标≠文档坐标，§13.9），漏了这步 ghost 与热区会错位。拖动源节点加半透明类反馈；`setInnerHTML` 重建列表后拖拽监听也要重绑（坑 51）。落地：`client/builder/BuilderBoardScreen`（建筑工坊头像拖拽指派）+ `ui/builder.html` 的 `#bb-ghost` |
+| 63 | 纯 DOM 页（无真实容器菜单）要显示物品图标时，以为要 `<slot>` 或 `<img src="item:...">` | AUI 没有 `item:` URI；物品图标是 `<item>` 自定义元素（`targets/neoforge-1.21.1/.../element/Item.java`，TAG_NAME=`ITEM`），**文本内容**会被 `ItemStackExpressionCompiler` 解析（同目录 `ItemStackExpressionCompiler.java:23-53`）：直接写 `minecraft:dirt`，或 SNBT `minecraft:oak_planks{Count:3b}` 表达数量；Java 侧也可 `getElementById(...) instanceof Item item → item.setIngredientStack(stack)` | 直接 `<item class="bb-mat-icon">minecraft:dirt</item>`，并按坑 38 给 class 写 `position:absolute;left:0;top:0` + 宽高铺满父盒（父盒固定 px + `position:relative`）。数量建议用旁边的文本行表达，别依赖 SNBT Count 的角标渲染 |
+| 64 | 新页面要渲染 NPC 头像时另起炉灶写画布/截图逻辑 | 项目里已有现成元素：`<kingdom-entity-avatar skin="…">`（`client/aui/KingdomEntityAvatarElement`，`@ElementRegister`），`skin` 来自服务端 `NpcData#getSkin`，按内容尺寸最近邻放大画 8×8 脸（`identify.html` L76-97 是"头像+边框"的标准先例） | 照抄 identify.html 配方：外层固定尺寸 div（`border:2px solid #4a3218` + 双层 inset `box-shadow` + `/tex/parchment_avatar.png` 底）做边框，内层 `<kingdom-entity-avatar class="…" skin="…">` 显式 `width/height`；动态列表里由 Java 拼 HTML（`CityHallScreen#citizensHtml` 同款），skin 走状态包字段 |
+| 65 | `<world-map>`（Canvas 元素）**缩放/拖动时像素糊成一坨**：放大是颜色互相渗透的渐变糊，截图放大也没有锐利像素 | `WorldMapElement#drawCanvas` 调 `ImageDrawer.drawWithUvWindow(..., blur=true, ...)`。`blur` 直接决定 `TextureStateShard` 的采样模式（`ImageDrawer.getRenderHandle` → `smoothRenderType(location, blur, depthTest)`）：`true`=线性采样，GPU 在相邻格颜色间插值——把 1px/格 的地图光栅缩放时"融合"了。§5.2 早就定过"三条路径都 `blur=false`"，但自定义 Canvas 元素自己调 `drawWithUvWindow` 时第 6 参传了 `true`，绕过了那条检查表 | 自定义元素用 `ImageDrawer` 画任何"逐像素数据"（地图/画布/像素图）一律 `blur=false`（最近邻）。规则本体的完整表述是：**AUI 里所有像素级内容默认最近邻，`blur=true` 只属于照片类贴图的显式选择**（§5.2、§15.4） |
 
 ### 11.B AUI 侧行为造成的坑（只列现象与绕过，证据见 §16）
 
@@ -914,13 +1138,19 @@ javap -p -classpath <merged-mc.jar> net.minecraft.client.renderer.entity.EntityR
 |---|---|---|---|
 | 17 | 一右键 NPC 就卡死、连日志都没有 | 页面里有 `flex-wrap`，两处都实测卡死：① 槽位容器的 wrap 被"60 次逐槽位求位置"放大；② 文字容器（`.bio-grid`）的 wrap 把"文字测量 ↔ 父尺寸 ↔ 滚动条槽宽 ↔ 计算样式"按行数放大 | 页面上一处 wrap 都不留：槽位用显式行 / 固定列 grid，档案项纵向排列（§7.6）。报告里能看到 `Flex.computeWrappedRowLayout` 与 `Text.of` |
 | 18 | 看门狗 + 安全模式都救不回来 | 卡死在 `ApricityContainerScreen.init()` 的布局阶段，还没轮到元素绘制 | 安全模式只治绘制期卡死；布局期要靠 §7.6 那种结构性修法 + §7.8 的缓存 mixin |
+| 65 | 建筑操作面板（农田/牧场/工厂/建筑工/住宅）一打开就掉帧甚至卡死，市民越多越明显，切分类或搜索一次更卡 | 各面板把**整份市民名册**一次拼成 HTML 塞进 `setInnerHTML`，每行还带一个 `<kingdom-entity-avatar>`（`Canvas` 子类 ⇒ 各自一张 `BufferedImage` + 一张纹理）。200 人就 200 个 Canvas 同帧建面上传；搜索/切分类/每次状态包都会整表重建一遍 | 分批渲染：`client/aui/AuiLazyList`——总数 ≤200 时**一次全部建成**（不走滚动加载）；>200 时首批 200、滚到底再用 `document.createHTML` + `appendChild` 追加 200，`rendered == total` 就彻底停（继续往下滚也不会再加）（**不重设 `innerHTML`**，否则整表重建、越滚越卡）。AUI 原生够用、**不需要 mixin**：`Element#getScrollTop()`（`init/Element.java:684`）、`getClientHeight()`（`:2291`）、`scrollHeight`（`:145`）；`scroll` 事件由 `Element#dispatchScrollEventIfChanged`（`:2453`）派发，触发点在 `ScrollModel:197/694` 与 `MouseEvent:304`。`.bp-list` 本来就是 `flex:1 1 auto; min-height:0; overflow-y:auto`，直接可滚（1.2.8 另有 `Window#IntersectionObserver`，但构造器 private、回调是 JS 侧 `Consumer<Object>`，Java 侧不如 scroll 事件直接）。**别只拿 `scrollHeight` 判到底**：AUI 下它可能滞后或恒为 0（追加的行要等下一次布局提交才计入），只按 `scrollTop + clientHeight >= scrollHeight - 64` 会卡死在首批；`AuiLazyList` 因此叠了三重判断——到底 64px 内 / 滚过 3/4 屏 / `scrollHeight` 不可用时按 30px 行高估着补满 1.25 屏 |
+| 66 | 建筑面板详情页里"可雇佣 NPC 名册"只露一行，不缩小 HTML 根本看不到列表 | 详情页 `.bp-body` 是 column flex，而 `.bp-block{flex:1 1 0}` 让"分配格数 / 种植作物 / 打理人"三块**平分**剩余高度；每块再扣掉 `.bp-sec`(~20px) + `.bp-search`(~26px) + gap(8) ⇒ 列表只剩 ~30px，正好一行。AUI 对 `flex:1 1 0` 一律按 0 基准平分，不会按内容让列表块多拿 | ① 内容固定的块（分配格数、床位）加 `.bp-block-fixed{flex:0 0 auto}`，退出平分；② NPC 名册块加 `.bp-block-people{flex:2 1 0;min-height:118px}` + `.bp-block-people .bp-list{min-height:74px}`（双份 + 保底 3 行）。只改 farm/ranch/industry/residential 四页，`.bp-block` 本体不动，其它页版式不变 |
+| 67 | 分批列表"越滚越多"：同一批 NPC 反复出现，滚到底又叠一遍（只有 10 个 NPC 也能堆出几十行） | "`setInnerHTML("")` 清空 + `appendChild` 追加"这套混合模型不可靠：只要清空与追加之间对不上一次（子节点移动/样式重算都会插进来），账面 `rendered` 就与真实 DOM 行数脱钩，之后每次追加都叠在旧行上；行 id（`fd-worker-0..n`）重复后 `getElementById` 还会绑到第一批旧行上，于是"重复行也能点击提交"。参考 `Element#setInnerHTML`（`init/Element.java:1755`）：它先逐个 `removeChild` 再把 wrapper 的孩子 `appendChild` 过来，两步之间的任何异常都会让账面与 DOM 分岔 | ① 清空改成逐个 `removeChild`（`clearHost`），不依赖 `setInnerHTML("")`；② 每次追加前校验 `host.childNodes.size() == rendered`，不等就按 `rendered` 全量重建（自愈）；③ 名册先按 UUID 去重（`LinkedHashMap.putIfAbsent`）再进列表；④ 行数上限 200 兜底（`AuiLazyList.limit()`） |
+| 68 | 行装页加到 30 槽后，新加的 6 个装备格点不动、图标也不刷新 | ① AUI 按 `<container size>` 建绑定表，`size` 与 Java 侧 `NpcInventory.SLOT_COUNT` 不一致时，多出来的 `<slot>` 没有绑定目标（热区空、图标不更新）；② 旧存档 SNBT 里写着 `Size:24`，`ItemStackHandler#deserializeNBT` 会**按存档 Size 重设容量**，把 30 槽压回 24，装备格直接消失 | ① `size` 与 `SLOT_COUNT` 同源（都读 `NpcInventory.SLOT_COUNT`），不要写字面量；② 覆写 `deserializeNBT(provider, tag)`，先 `tag.copy().putInt("Size", SLOT_COUNT)` 再交给父类；③ 装备格沿用 `.slot` 的 `--aui-slot-size`，只用 `.slot--equip` 改底色，不引入第二种槽位尺寸（§7 强制） |
+| 69 | **1.2.9 起玩家背包只渲染第一列**，后面 8 列全丢（36 格变成 1 列往下堆） | `grid-template-columns:9` 这种裸整数写法在 1.2.9 被判为非法轨道列表（`ShorthandParser.isValidGridTrackList`），整条声明被丢弃 → `display:grid` 退化成单列。1.2.5 时代它被当作"列数"扩展解析，所以老页面看起来正常 | 改成真实轨道列表：`grid-template-columns:repeat(9,48px)`（1.2.9 的 `Grid.java` 支持 `repeat()`）。**同理，页面里任何 `grid-template-columns:<整数>` 都要换掉**；`ContainerExpander.injectDefaultColumnsIfNeeded` 注入的也是整数形式，所以容器别依赖自动列数，自己写 `repeat()`。**已修**：`ui/backpack.html`（`repeat(9,48px)`）、`buildings/shelf.html`（`.slot-grid` 同样改 `repeat(9,48px)`，货架本体 `#block_entity` 用 `repeat(3,48px)` 排成 3×3） |
 
 ---
 
 ## 12. 新页面 checklist
 
 **viewport / 坐标系**
-- [ ] `viewport` meta：普通页 `mode=gui`；世界窗口 `mode=fixed,width,height,scale=1`；容器屏整稿 `mode=fixed,width,height,scale=<固定倍率>`。三者都带 `zoom` 系列；要用户可缩放就放开 `min/max-zoom`
+- [ ] `viewport` meta：普通页 `mode=gui`；世界窗口 `mode=fixed,width,height,scale=1`；**定稿整稿页**（`ApricityScreen` / 容器屏）`mode=fixed,width,height,scale=fit`（§3.2 的警告、§11.A 坑 50）。**不要写固定数字倍率**
+- [ ] 定稿页把 `zoom` 钉死（`zoom=1,min-zoom=1,max-zoom=1,user-scalable=false`）：`fit` 下 `zoom` 只改逻辑坐标精度、不改实际显示大小
 - [ ] **有真实槽位的页面不写 `aui-mouse-events=intercept`**（§11 坑 32）；纯 DOM 交互页要写
 
 **布局**
@@ -940,6 +1170,10 @@ javap -p -classpath <merged-mc.jar> net.minecraft.client.renderer.entity.EntityR
 - [ ] 图标放大后，跟随光标的浮动物品也要同比（`AuiFloatingItemScaleMixin`，§11 坑 33）
 - [ ] 服务端：`new PendingMenu(player, page).bind(...)`，绑定顺序定 primary；实体物品能力已注册（§7.3、§7.4）
 
+**交互 / 拖拽**
+- [ ] 拖拽走 AUI 原生：`mousedown`（源）+ `document` 级 `mousemove/mouseup` + ghost `position:absolute` 跟手，坐标过 `screenToDocumentPosition`，投放命中用 `getBoundingClientRect()`（§11.A 坑 62）
+- [ ] 动态重建的行/芯片每次 `setInnerHTML` 后重绑全部监听（坑 51）；物品图标用文本内容 `<item>` 并铺满父盒（坑 63）；NPC 头像用 `<kingdom-entity-avatar skin>` + 外框 div（坑 64）
+
 **质感 / 字体**
 - [ ] 贴图按目标显示尺寸 1:1（或整数倍）；背景靠默认最近邻（`blur=false`），不写 `blur="true"`、不用 `transform`/`filter`
 - [ ] 硬边用 `border` + 多层 `box-shadow`，容器加 `overflow:hidden`
@@ -949,6 +1183,9 @@ javap -p -classpath <merged-mc.jar> net.minecraft.client.renderer.entity.EntityR
 - [ ] 文案/数值全部由 Java 填，页面不留假数据；只存在于服务端的属性走 `SynchedEntityData`
 - [ ] 容器屏在 `ScreenEvent.Init.Post` 里立即套用版式（§9.3）
 - [ ] 重绘型自定义元素用 `ClientWatchdog.beginPhase/endPhase` 圈起来，并尊重 `isSafeMode()`
+- [ ] 每行带重元素（`kingdom-entity-avatar` / `<canvas>` / `<item>`）的长列表用 `AuiLazyList`（≤200 一次全建，>200 每批 200 滚动追加），不要整表 `setInnerHTML`（§11 坑 65）
+- [ ] 一个 column flex 面板里有多块抢高度时，**列表块要给 `flex` 权重 + `min-height` 保底**，内容固定的块用 `flex:0 0 auto` 退出平分（§11 坑 66）
+- [ ] 分批列表的账面行数要与 DOM 子节点数对得上，并按业务主键去重（同一个 NPC 只进一行）（§11 坑 67）
 - [ ] 自定义元素：`@ElementRegister` + 包在扫描范围内；GUI 内画 3D 实体用独立即时缓冲（§8.3）
 
 **居中改造（整稿页才有）**
@@ -993,7 +1230,13 @@ javap -p -classpath <merged-mc.jar> net.minecraft.client.renderer.entity.EntityR
 
 面板"边框完整连起来"的关键 = 贴图自带烘焙边框 + 原稿同款 `0 0 0 2px→8px` 四色环阴影（四块面板共用一组，逐字照抄）。
 
-### 13.3 viewport：`mode=fixed,width=1200,height=1182,scale=0.4864`
+### 13.3 viewport：`mode=fixed,width=1200,height=1182,scale=fit`
+
+> **修订（2026-10-09）**：下面记的是当初的定标过程（`scale=0.4864`），**保留作为推导记录**；
+> 实际配置已改为 **`scale=fit`**，理由与实测见 §11.A 坑 50——固定数字是绝对倍率，
+> 窗口一缩就"不缩放 + 偏移失义"，实测 1920×1080 / GUI Scale 2 下文档已缩放成 583×575、
+> 比 540 高的视口还大、底部必被裁；`fit` 后同一视口下文档为 548×540、完整居中。
+> 下面那条"整稿定尺页面更推荐固定数字"的取舍**已作废**（当时只算了像素清晰度，没算窗口自适应的账）。
 
 - 设计稿 1080×810 + body 留边（20/32），行囊面板补回后整稿高度 900 → **1182**；
 - **`scale=0.4864` = 2×18/74**：74px 的槽位在游戏内 = **36 GUI px = 原版 2 倍**；整页随之 = 原设计 ÷2.06；
@@ -1454,3 +1697,4 @@ body{ font-family:'Zpix',monospace; font-size:13px; color:var(--ink); }
     在当前不登记的窗口上**没有消费者**，所以现在也"可用"，代价是每帧都进 document/stencil 路径。
 
 ---
+

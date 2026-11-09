@@ -80,6 +80,11 @@ public final class RtsSharedPath {
     }
 
     public Join joinOrSubmit(ServerLevel level, BlockPos from, BlockPos stand, int padding, int laneSeed) {
+        return joinOrSubmit(level, from, stand, padding, laneSeed, false);
+    }
+
+    public Join joinOrSubmit(ServerLevel level, BlockPos from, BlockPos stand, int padding, int laneSeed,
+                             boolean urgent) {
         long key = stand.asLong();
         long now = level.getGameTime();
         Entry entry = active.get(key);
@@ -116,7 +121,7 @@ public final class RtsSharedPath {
         }
         NpcPathfinder.Session session = new NpcPathfinder.Session(from, stand).preferRoad(false);
         Future<NpcPathfinder.PathResult> future =
-                repository.submitSessionSearch(level, session, from, stand, padding);
+                repository.submitSessionSearch(level, session, from, stand, padding, urgent);
         if (future == null) {
             return null;
         }

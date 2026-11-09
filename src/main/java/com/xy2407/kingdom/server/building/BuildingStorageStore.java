@@ -40,6 +40,7 @@ public final class BuildingStorageStore {
 
     private final Set<UUID> loaded = ConcurrentHashMap.newKeySet();
     private final Map<UUID, String> lastWritten = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer> capacities = new ConcurrentHashMap<>();
     private int tickCounter;
 
     private BuildingStorageStore() {
@@ -48,6 +49,7 @@ public final class BuildingStorageStore {
     public void reset() {
         loaded.clear();
         lastWritten.clear();
+        capacities.clear();
         tickCounter = 0;
     }
 
@@ -59,17 +61,21 @@ public final class BuildingStorageStore {
         if (server == null || buildingId == null) {
             return null;
         }
-        ItemStackHandler base = baseOf(server, buildingId);
+        ItemStackHandler base = baseOf(server, buildingId, capacity);
         if (base == null) {
             return null;
         }
+        capacities.put(buildingId, Math.max(1, capacity));
         int slots = Math.max(1, Math.min(capacity, base.getSlots()));
         return slots == base.getSlots() ? base : new CapacityView(base, slots);
     }
 
-    private ItemStackHandler baseOf(MinecraftServer server, UUID buildingId) {
+    /**
+     * 按建筑实际格数取容器；AUI 的 getOrCreate 在格数变化时会新建并逐槽搬迁，扩容不丢物品
+     */
+    private ItemStackHandler baseOf(MinecraftServer server, UUID buildingId, int capacity) {
         ApricitySavedData data = ApricitySavedData.get(server, dataName(buildingId));
-        ItemStackHandler base = data.getOrCreate(AUI_INVENTORY_KEY, BuildingStorageMenu.MAX_SLOTS);
+        ItemStackHandler base = data.getOrCreate(AUI_INVENTORY_KEY, Math.max(1, capacity));
         if (loaded.add(buildingId)) {
             String snbt = readSnbt(buildingId);
             if (snbt != null && !snbt.isBlank()) {
@@ -96,8 +102,12 @@ public final class BuildingStorageStore {
             return;
         }
         for (UUID buildingId : loaded) {
+            Integer capacity = capacities.get(buildingId);
+            if (capacity == null || capacity <= 0) {
+                continue;
+            }
             ApricitySavedData data = ApricitySavedData.get(server, dataName(buildingId));
-            ItemStackHandler base = data.getOrCreate(AUI_INVENTORY_KEY, BuildingStorageMenu.MAX_SLOTS);
+            ItemStackHandler base = data.getOrCreate(AUI_INVENTORY_KEY, capacity);
             flush(server, buildingId, base);
         }
     }

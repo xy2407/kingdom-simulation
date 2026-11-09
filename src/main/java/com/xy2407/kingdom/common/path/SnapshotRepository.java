@@ -28,14 +28,18 @@ public final class SnapshotRepository {
     private static final Map<MinecraftServer, SnapshotRepository> INSTANCES = new ConcurrentHashMap<>();
     private static final Set<MinecraftServer> SHUTDOWN = ConcurrentHashMap.newKeySet();
 
-    private static final int MAX_SEARCHES_PER_TICK = 40;
+    private static final int MAX_SEARCHES_PER_TICK = 80;
+    private static final int MAX_URGENT_SEARCHES_PER_TICK = 24;
     private static final int SEARCH_THREADS = 4;
+    private static final int URGENT_THREADS = 2;
 
     private final AtomicInteger threadSeq = new AtomicInteger();
     private final Map<String, LongOpenHashSet> requestedUnits = new HashMap<>();
     private int searchesThisTick;
+    private int urgentSearchesThisTick;
     private int commuteSearchesThisTick;
     private ExecutorService executor;
+    private ExecutorService urgentExecutor;
 
     private SnapshotRepository() {
     }
@@ -68,11 +72,20 @@ public final class SnapshotRepository {
 
     public void onServerStarting() {
         searchesThisTick = 0;
+        urgentSearchesThisTick = 0;
         if (executor == null || executor.isShutdown()) {
             executor = Executors.newFixedThreadPool(SEARCH_THREADS, runnable -> {
                 Thread thread = new Thread(runnable, "kingdom-path-" + threadSeq.incrementAndGet());
                 thread.setDaemon(true);
                 thread.setPriority(Thread.NORM_PRIORITY - 1);
+                return thread;
+            });
+        }
+        if (urgentExecutor == null || urgentExecutor.isShutdown()) {
+            urgentExecutor = Executors.newFixedThreadPool(URGENT_THREADS, runnable -> {
+                Thread thread = new Thread(runnable, "kingdom-path-urgent-" + threadSeq.incrementAndGet());
+                thread.setDaemon(true);
+                thread.setPriority(Thread.NORM_PRIORITY);
                 return thread;
             });
         }
@@ -84,6 +97,11 @@ public final class SnapshotRepository {
         executor = null;
         if (current != null) {
             current.shutdownNow();
+        }
+        ExecutorService urgent = urgentExecutor;
+        urgentExecutor = null;
+        if (urgent != null) {
+            urgent.shutdownNow();
         }
     }
 
@@ -97,8 +115,18 @@ public final class SnapshotRepository {
 
     public void resetTickSearches() {
         searchesThisTick = 0;
+        urgentSearchesThisTick = 0;
         commuteSearchesThisTick = 0;
         requestedUnits.clear();
+    }
+
+    /** 紧急配额：与日常寻路的 40/tick 完全独立，玩家 RTS 指令专用，不会被城市寻路挤掉。 */
+    public boolean tryAcquireUrgentSearch() {
+        if (urgentSearchesThisTick >= MAX_URGENT_SEARCHES_PER_TICK) {
+            return false;
+        }
+        urgentSearchesThisTick++;
+        return true;
     }
 
     public void resetCommuteSearches() {
@@ -140,12 +168,24 @@ public final class SnapshotRepository {
 
     public Future<NpcPathfinder.PathResult> submitSessionSearch(ServerLevel level, NpcPathfinder.Session session,
                                                                 BlockPos start, BlockPos end, int padding) {
-        ExecutorService current = executor;
+        return submitSessionSearch(level, session, start, end, padding, false);
+    }
+
+    /**
+     * urgent = 玩家 RTS 指令：走独立配额与独立线程池。
+     * 以前所有寻路（玩家的 + 全城日常的）共享一个 40/tick 配额和 4 线程池，
+     * 城市一忙玩家的指令就在队尾挨饿，表现为"有的 NPC 秒动、有的要等两秒"。
+     */
+    public Future<NpcPathfinder.PathResult> submitSessionSearch(ServerLevel level, NpcPathfinder.Session session,
+                                                                BlockPos start, BlockPos end, int padding,
+                                                                boolean urgent) {
+        ExecutorService current = urgent ? urgentExecutor : executor;
         if (current == null || current.isShutdown()) {
             return null;
         }
         ResourceKey<Level> dimension = level.dimension();
-        if (!tryAcquireSearch()) {
+        boolean acquired = urgent ? tryAcquireUrgentSearch() : tryAcquireSearch();
+        if (!acquired) {
             return null;
         }
         requestUnits(dimension, start, end, padding);

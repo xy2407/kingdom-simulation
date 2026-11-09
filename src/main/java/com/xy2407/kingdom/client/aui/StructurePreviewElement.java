@@ -17,19 +17,24 @@ import com.sighs.apricityui.render.Rect;
 import com.sighs.apricityui.spi.TextureKey;
 import com.xy2407.kingdom.client.structure.StructureCamera;
 import com.xy2407.kingdom.client.structure.StructureDebugChat;
+import com.xy2407.kingdom.client.structure.StructureIconCache;
 import com.xy2407.kingdom.client.structure.StructureLoader;
 import com.xy2407.kingdom.client.structure.StructureMesher;
+import com.xy2407.kingdom.client.structure.StructureMesh;
 import com.xy2407.kingdom.client.structure.StructurePreviewTarget;
 import com.xy2407.kingdom.client.structure.KingdomSimulationStructures;
 import com.xy2407.kingdom.client.watchdog.ClientWatchdog;
 import com.xy2407.kingdom.common.structure.StructureLod;
 import com.xy2407.kingdom.common.structure.StructureModel;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.block.BlockRenderDispatcher;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.phys.AABB;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 import org.lwjgl.opengl.GL11;
@@ -52,6 +57,9 @@ public class StructurePreviewElement extends Element {
 
     private static final int COARSE_SOLID = 40 * 40 * 40;
     private static final int ROUGH_SOLID = 100 * 100 * 100;
+
+    /** 卡片缩略图固定用默认等距角度，不跟随玩家拖拽大的 3D 预览 */
+    private static final StructureCamera ICON_CAMERA = new StructureCamera();
 
     private static final double ORBIT_DEGREES_PER_PIXEL = 0.45;
     private static final double PAN_PER_PIXEL = 0.02;
@@ -119,12 +127,21 @@ public class StructurePreviewElement extends Element {
     }
 
     private void drawPreview(PoseStack poseStack, Rect rect) {
+        // 网格镶嵌放在元素绘制里驱动：只要卡片在画就一定跑，
+        // 不依赖关卡渲染阶段那个钩子（那边一旦不触发，烘焙就永远不动）
+        StructureIconCache.tick();
         Position position = rect.getBodyRectPosition();
         Size size = rect.getBodyRectSize();
         if (size.width() <= 0 || size.height() <= 0) {
             StructureDebugChat.once("el-zero", "元素绘制跳过：尺寸为 0（%sx%s）", size.width(), size.height());
             return;
         }
+
+        if (isIconMode() && drawIcon(poseStack, position, size)) {
+            return;
+        }
+        // 图标还没烘好/烘焙失败时不 return，继续走下面的逐方块渲染：
+        // 宁可这一帧贵一点，也不能给玩家一张空白卡片
 
         applyAttributeOverrides();
         clearStaleDrag();
@@ -184,6 +201,70 @@ public class StructurePreviewElement extends Element {
             }
             poseStack.popPose();
         }
+    }
+
+    /**
+     * 图标模式：直接贴已烘焙的等距缩略纹理，不加载模型也不逐方块绘制
+     */
+    private boolean isIconMode() {
+        String flag = getAttribute("icon");
+        if (flag == null) {
+            return false;
+        }
+        String trimmed = flag.trim();
+        return trimmed.isEmpty() || "true".equalsIgnoreCase(trimmed) || "1".equals(trimmed);
+    }
+
+    /**
+     * 图标模式：用缓存的 VBO 网格画缩略图（每张卡一次 draw call），
+     * 变换与下面逐方块那条完全一致，所以观感和点开的 3D 一致。
+     * 返回 false 表示网格还没镶嵌好/该建筑不存在，调用方回退到逐方块渲染。
+     */
+    private boolean drawIcon(PoseStack poseStack, Position position, Size size) {
+        String id = blankToNull(getAttribute("structure"));
+        if (id == null) {
+            return false;
+        }
+        StructureMesh mesh = StructureIconCache.meshOf(id);
+        if (mesh == null) {
+            return false;
+        }
+        AABB bounds = mesh.bounds();
+        double dx = bounds.maxX - bounds.minX;
+        double dy = bounds.maxY - bounds.minY;
+        double dz = bounds.maxZ - bounds.minZ;
+        float maxDim = Math.max(1.0f, (float) Math.max(dx, Math.max(dy, dz)));
+        StructureCamera camera = ICON_CAMERA;
+        float w = (float) size.width();
+        float h = (float) size.height();
+        float scale = Math.min(w / maxDim, h / maxDim) * 0.7f * (float) camera.zoom();
+        float cx = (float) ((bounds.minX + bounds.maxX) / 2.0);
+        float cy = (float) ((bounds.minY + bounds.maxY) / 2.0);
+        float cz = (float) ((bounds.minZ + bounds.maxZ) / 2.0);
+
+        poseStack.pushPose();
+        Base.commitDraws();
+        boolean depthTestWasOn = GL11.glGetBoolean(GL11.GL_DEPTH_TEST);
+        Base.pushDepthTest(true);
+        RenderSystem.enableDepthTest();
+        try {
+            poseStack.translate((float) position.x + w / 2.0f, (float) position.y + h / 2.0f, 100.0f);
+            poseStack.scale(scale, -scale, scale);
+            poseStack.mulPose(Axis.YP.rotationDegrees((float) camera.yaw()));
+            poseStack.mulPose(Axis.XP.rotationDegrees((float) camera.pitch()));
+            poseStack.translate(-cx, -cy, -cz);
+            Lighting.setupForEntityInInventory();
+            mesh.draw(poseStack.last().pose(),
+                    com.sighs.apricityui.spi.AuiServices.render().getProjectionMatrix());
+        } finally {
+            Lighting.setupForFlatItems();
+            Base.popDepthTest();
+            if (!depthTestWasOn) {
+                RenderSystem.disableDepthTest();
+            }
+            poseStack.popPose();
+        }
+        return true;
     }
 
     private List<StructureMesher.DisplayVoxel> displayVoxels(StructureModel model) {

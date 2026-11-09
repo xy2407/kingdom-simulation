@@ -40,6 +40,10 @@ public final class RtsTeamStorage {
         values.put(RtsTeamSchema.COL_TERRITORY_ID, team.territoryId());
         values.put(RtsTeamSchema.COL_FORMATION_SAVED, team.formationSaved() ? 1 : 0);
         values.put(RtsTeamSchema.COL_CREATED_AT, System.currentTimeMillis());
+        values.put(RtsTeamSchema.COL_PATROL_NODES, encodeNodes(team.patrolNodes()));
+        values.put(RtsTeamSchema.COL_PATROL_INDEX, team.patrolIndex());
+        values.put(RtsTeamSchema.COL_PATROL_FORWARD, team.patrolForward());
+        values.put(RtsTeamSchema.COL_PATROL_ACTIVE, team.patrolActive() ? 1 : 0);
         KingdomPersistence.submit(RtsTeamSchema.TABLE_TEAM, RtsTeamSchema.COL_TEAM_ID, teamId, values);
 
         try {
@@ -72,6 +76,24 @@ public final class RtsTeamStorage {
             return false;
         }
         return true;
+    }
+
+    /**
+     * 只写巡逻相关列：路线/下标/方向/是否在执行。
+     * 每过一个巡逻节点都会调一次，不能顺带重写成员表（那是全量同步，太重）。
+     */
+    public static void savePatrol(MinecraftServer server, RtsTeam team) {
+        if (server == null || team == null || !KingdomPersistence.isReady()) {
+            return;
+        }
+        String teamId = team.teamId().toString();
+        Map<String, Object> values = new LinkedHashMap<>();
+        values.put(RtsTeamSchema.COL_TEAM_ID, teamId);
+        values.put(RtsTeamSchema.COL_PATROL_NODES, encodeNodes(team.patrolNodes()));
+        values.put(RtsTeamSchema.COL_PATROL_INDEX, team.patrolIndex());
+        values.put(RtsTeamSchema.COL_PATROL_FORWARD, team.patrolForward());
+        values.put(RtsTeamSchema.COL_PATROL_ACTIVE, team.patrolActive() ? 1 : 0);
+        KingdomPersistence.submit(RtsTeamSchema.TABLE_TEAM, RtsTeamSchema.COL_TEAM_ID, teamId, values);
     }
 
     public static boolean delete(MinecraftServer server, UUID teamId) {
@@ -115,6 +137,10 @@ public final class RtsTeamStorage {
                 Map<UUID, Boolean> saved = new HashMap<>();
                 Map<UUID, LinkedHashSet<UUID>> members = new HashMap<>();
                 Map<UUID, Map<UUID, float[]>> offsets = new HashMap<>();
+                Map<UUID, List<net.minecraft.core.BlockPos>> patrols = new HashMap<>();
+                Map<UUID, Integer> patrolIndexes = new HashMap<>();
+                Map<UUID, Integer> patrolForwards = new HashMap<>();
+                Map<UUID, Boolean> patrolActives = new HashMap<>();
                 try (PreparedStatement st = connection.prepareStatement(
                         "SELECT " + RtsTeamSchema.columns() + " FROM " + RtsTeamSchema.TABLE_TEAM)) {
                     try (ResultSet rs = st.executeQuery()) {
@@ -129,6 +155,10 @@ public final class RtsTeamStorage {
                             saved.put(teamId, rs.getInt(RtsTeamSchema.COL_FORMATION_SAVED) != 0);
                             members.put(teamId, new LinkedHashSet<>());
                             offsets.put(teamId, new LinkedHashMap<>());
+                            patrols.put(teamId, decodeNodes(rs.getString(RtsTeamSchema.COL_PATROL_NODES)));
+                            patrolIndexes.put(teamId, rs.getInt(RtsTeamSchema.COL_PATROL_INDEX));
+                            patrolForwards.put(teamId, rs.getInt(RtsTeamSchema.COL_PATROL_FORWARD));
+                            patrolActives.put(teamId, rs.getInt(RtsTeamSchema.COL_PATROL_ACTIVE) != 0);
                         }
                     }
                 }
@@ -155,9 +185,20 @@ public final class RtsTeamStorage {
                         continue;
                     }
                     List<UUID> list = new ArrayList<>(members.get(teamId));
-                    result.put(teamId, new RtsTeam(teamId, owner, leaders.get(teamId),
+                    RtsTeam team = new RtsTeam(teamId, owner, leaders.get(teamId),
                             territories.get(teamId), list, offsets.get(teamId),
-                            Boolean.TRUE.equals(saved.get(teamId))));
+                            Boolean.TRUE.equals(saved.get(teamId)));
+                    List<net.minecraft.core.BlockPos> nodes = patrols.get(teamId);
+                    if (nodes != null && nodes.size() >= 2) {
+                        team.setPatrol(nodes,
+                                patrolIndexes.getOrDefault(teamId, 0),
+                                patrolForwards.getOrDefault(teamId, 1));
+                        if (!Boolean.TRUE.equals(patrolActives.get(teamId))) {
+                            // 路线还留着但任务已被别打了：不自动恢复，等玩家再点巡逻
+                            team.endPatrol();
+                        }
+                    }
+                    result.put(teamId, team);
                 }
                 return result;
             });
@@ -176,5 +217,45 @@ public final class RtsTeamStorage {
         } catch (IllegalArgumentException invalid) {
             return null;
         }
+    }
+
+    /** 巡逻路线落库格式："x,y,z;x,y,z;..."，空格是节点分隔符。 */
+    static String encodeNodes(List<net.minecraft.core.BlockPos> nodes) {
+        if (nodes == null || nodes.isEmpty()) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder(nodes.size() * 12);
+        for (net.minecraft.core.BlockPos node : nodes) {
+            if (node == null) {
+                continue;
+            }
+            if (!builder.isEmpty()) {
+                builder.append(';');
+            }
+            builder.append(node.getX()).append(',').append(node.getY()).append(',').append(node.getZ());
+        }
+        return builder.toString();
+    }
+
+    static List<net.minecraft.core.BlockPos> decodeNodes(String raw) {
+        List<net.minecraft.core.BlockPos> nodes = new ArrayList<>();
+        if (raw == null || raw.isBlank()) {
+            return nodes;
+        }
+        for (String part : raw.split(";")) {
+            String[] fields = part.split(",");
+            if (fields.length != 3) {
+                continue;
+            }
+            try {
+                nodes.add(new net.minecraft.core.BlockPos(
+                        Integer.parseInt(fields[0].trim()),
+                        Integer.parseInt(fields[1].trim()),
+                        Integer.parseInt(fields[2].trim())));
+            } catch (NumberFormatException ignored) {
+                // 坏数据跳过，别让一条脏路线拖垮整张队伍表
+            }
+        }
+        return nodes;
     }
 }

@@ -40,8 +40,11 @@ public record RtsTeamMemberPosPacket(UUID teamId, List<MemberPos> members)
 
     private static void encode(RegistryFriendlyByteBuf buf, RtsTeamMemberPosPacket packet) {
         buf.writeUUID(packet.teamId());
-        buf.writeInt(packet.members().size());
-        for (MemberPos member : packet.members()) {
+        List<MemberPos> members = packet.members() == null ? List.of() : packet.members();
+        int count = Math.min(members.size(), 512);
+        buf.writeInt(count);
+        for (int index = 0; index < count; index++) {
+            MemberPos member = members.get(index);
             buf.writeUUID(member.uuid());
             buf.writeDouble(member.x());
             buf.writeDouble(member.y());

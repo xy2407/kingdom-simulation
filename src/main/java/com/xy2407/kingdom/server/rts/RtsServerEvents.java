@@ -18,6 +18,14 @@ public final class RtsServerEvents {
     }
 
     @SubscribeEvent
+    public static void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            // 进世界先同步一次队伍：左栏「队伍」页与巡逻按钮的状态都靠这份数据
+            RtsTeamService.sync(player);
+        }
+    }
+
+    @SubscribeEvent
     public static void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             RtsFakePlayerService.clearFor(player);

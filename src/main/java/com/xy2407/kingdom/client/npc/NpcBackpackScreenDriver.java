@@ -150,7 +150,7 @@ public final class NpcBackpackScreenDriver {
         text(document, ID_BIO_NATION, data.nation());
         text(document, ID_BIO_WEALTH, data.wealth());
         text(document, ID_BIO_DESC, data.desc());
-        text(document, ID_BAG_META, NpcInventory.SLOT_COUNT + " 格");
+        text(document, ID_BAG_META, NpcInventory.BAG_SLOTS + " 格");
 
         bar(document, ID_HP_BAR, ID_HP_NOW, ID_HP_MAX, data.health(), data.healthMax());
         bar(document, ID_HUNGER_BAR, ID_HUNGER_NOW, ID_HUNGER_MAX, data.hunger(), data.hungerMax());

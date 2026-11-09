@@ -67,7 +67,7 @@ body{
 
 .envelope-wrap{
   position:relative;
-  margin:0 auto;
+  /* 居中交给 .envelope-stage 的 align-items:center，不再叠加 auto 外边距 */
 }
 
 .envelope{
@@ -182,12 +182,12 @@ body{
 
 .wax-seal{
   position:absolute;
-  left:50%;
-  top:58%;
+  /* AUI 绘制绝对定位元素时不把「元素自身的外边距」计入位置，
+     left:50% + 负 margin 的居中会整体右偏半个宽度；改用 calc 直接算。 */
+  left:calc(50% - 52px);
+  top:calc(58% - 52px);
   width:104px;
   height:104px;
-  margin-left:-52px;
-  margin-top:-52px;
   z-index:10;
   transition:opacity .6s ease;
 }
@@ -576,13 +576,18 @@ body.modal-open{
   left:0;
   right:0;
   bottom:0;
-  width:100%;
   z-index:50;
   padding:16px 20px;
+  /* 居中改用 flex（.scroll-stage 已验证可用），不再依赖绝对定位 + margin:auto 的组合，
+     那种写法在 AUI 下偏移量不稳定 */
+  display:flex;
+  justify-content:center;
+  box-sizing:border-box;
 }
 .actionbar-inner{
+  width:100%;
   max-width:1100px;
-  margin:0 auto;
+  box-sizing:border-box;
   display:flex;
   align-items:center;
   gap:16px;
@@ -597,7 +602,11 @@ body.modal-open{
     4px 4px 0 0 rgba(0,0,0,.6);
 }
 .sel-info{
-  flex:1;
+  /* 不用 flex:1 简写：显式三属性，简写没被完整解析时会让两个按钮挤到左边 */
+  flex-grow:1;
+  flex-shrink:1;
+  flex-basis:0%;
+  min-width:0;
   display:flex;
   flex-direction:column;
   gap:4px;
@@ -628,6 +637,9 @@ body.modal-open{
   padding:12px 24px;
   cursor:pointer;
   position:relative;
+  /* 显式声明：不依赖通配选择器的 box-sizing 命中，边框/内边距不会把按钮撑大 */
+  box-sizing:border-box;
+  flex:0 0 auto;
 }
 .btn-ghost{
   color:var(--ink);
@@ -666,6 +678,10 @@ body.modal-open{
 .overlay{
   position:fixed;
   inset:0;
+  left:0;
+  right:0;
+  top:0;
+  bottom:0;
   width:100%;
   height:100%;
   z-index:100;
@@ -899,9 +915,9 @@ body.modal-open{
 
 .toast{
   position:fixed;
-  left:50%;
+  /* 同上：fixed 元素的自身 margin 不计入绘制定位，负 margin 居中会右偏 */
+  left:calc(50% - 180px);
   bottom:130px;
-  margin-left:-180px;
   width:360px;
   z-index:200;
   padding:14px 20px;
@@ -950,7 +966,7 @@ body.modal-open{
       </div>
 
       <div class="wax-seal">
-        <kingdom-seal width="52" height="52"></kingdom-seal>
+        <kingdom-seal width="104" height="104"></kingdom-seal>
       </div>
 
     </div>
@@ -982,7 +998,7 @@ body.modal-open{
 
         <article class="card" id="card-valarian">
           <div class="shield-wrap">
-            <kingdom-shield width="40" height="48" c1="#7a1414" c2="#e8d8b0"></kingdom-shield>
+            <kingdom-shield width="80" height="96" c1="#7a1414" c2="#e8d8b0"></kingdom-shield>
             <span class="card-emblem" style="color:#ffffff">★</span>
           </div>
           <h3 class="card-name">瓦拉里安</h3>
@@ -993,7 +1009,7 @@ body.modal-open{
 
         <article class="card" id="card-bohemian">
           <div class="shield-wrap">
-            <kingdom-shield width="40" height="48" c1="#b8860b" c2="#2a1f12"></kingdom-shield>
+            <kingdom-shield width="80" height="96" c1="#b8860b" c2="#2a1f12"></kingdom-shield>
             <span class="card-emblem" style="color:#f5e08a">◆</span>
           </div>
           <h3 class="card-name">波西米亚</h3>
@@ -1004,7 +1020,7 @@ body.modal-open{
 
         <article class="card" id="card-caladrian">
           <div class="shield-wrap">
-            <kingdom-shield width="40" height="48" c1="#1f4d8b" c2="#e8d8b0"></kingdom-shield>
+            <kingdom-shield width="80" height="96" c1="#1f4d8b" c2="#e8d8b0"></kingdom-shield>
             <span class="card-emblem" style="color:#ffffff">▲</span>
           </div>
           <h3 class="card-name">卡拉德里安</h3>
@@ -1015,7 +1031,7 @@ body.modal-open{
 
         <article class="card" id="card-numerian">
           <div class="shield-wrap">
-            <kingdom-shield width="40" height="48" c1="#2f6b3a" c2="#e8d8b0"></kingdom-shield>
+            <kingdom-shield width="80" height="96" c1="#2f6b3a" c2="#e8d8b0"></kingdom-shield>
             <span class="card-emblem" style="color:#e8d8b0">◇</span>
           </div>
           <h3 class="card-name">努梅里安</h3>
@@ -1030,7 +1046,7 @@ body.modal-open{
 
         <article class="card" id="card-visgothian">
           <div class="shield-wrap">
-            <kingdom-shield width="40" height="48" c1="#4b2f6b" c2="#c9a227"></kingdom-shield>
+            <kingdom-shield width="80" height="96" c1="#4b2f6b" c2="#c9a227"></kingdom-shield>
             <span class="card-emblem" style="color:#f5e08a">※</span>
           </div>
           <h3 class="card-name">维斯哥特</h3>
@@ -1041,7 +1057,7 @@ body.modal-open{
 
         <article class="card" id="card-galician">
           <div class="shield-wrap">
-            <kingdom-shield width="40" height="48" c1="#1f6b6b" c2="#e8d8b0"></kingdom-shield>
+            <kingdom-shield width="80" height="96" c1="#1f6b6b" c2="#e8d8b0"></kingdom-shield>
             <span class="card-emblem" style="color:#ffffff">◎</span>
           </div>
           <h3 class="card-name">加利西亚</h3>
@@ -1052,7 +1068,7 @@ body.modal-open{
 
         <article class="card" id="card-lancastian">
           <div class="shield-wrap">
-            <kingdom-shield width="40" height="48" c1="#8b1a1a" c2="#c9a227"></kingdom-shield>
+            <kingdom-shield width="80" height="96" c1="#8b1a1a" c2="#c9a227"></kingdom-shield>
             <span class="card-emblem" style="color:#ffffff">●</span>
           </div>
           <h3 class="card-name">兰卡斯特</h3>
@@ -1063,7 +1079,7 @@ body.modal-open{
 
         <article class="card" id="card-hospitaller">
           <div class="shield-wrap">
-            <kingdom-shield width="40" height="48" c1="#1a1a1a" c2="#e8d8b0"></kingdom-shield>
+            <kingdom-shield width="80" height="96" c1="#1a1a1a" c2="#e8d8b0"></kingdom-shield>
             <span class="card-emblem" style="color:#d4433a">⊕</span>
           </div>
           <h3 class="card-name">医院骑士</h3>
@@ -1078,7 +1094,7 @@ body.modal-open{
 
         <article class="card" id="card-templar">
           <div class="shield-wrap">
-            <kingdom-shield width="40" height="48" c1="#e8d8b0" c2="#8b1a1a"></kingdom-shield>
+            <kingdom-shield width="80" height="96" c1="#e8d8b0" c2="#8b1a1a"></kingdom-shield>
             <span class="card-emblem" style="color:#7a1414">†</span>
           </div>
           <h3 class="card-name">圣殿骑士</h3>
@@ -1089,7 +1105,7 @@ body.modal-open{
 
         <article class="card" id="card-barathian">
           <div class="shield-wrap">
-            <kingdom-shield width="40" height="48" c1="#6b3a1f" c2="#e8d8b0"></kingdom-shield>
+            <kingdom-shield width="80" height="96" c1="#6b3a1f" c2="#e8d8b0"></kingdom-shield>
             <span class="card-emblem" style="color:#f5e08a">■</span>
           </div>
           <h3 class="card-name">巴拉提安</h3>
@@ -1100,7 +1116,7 @@ body.modal-open{
 
         <article class="card" id="card-orleanian">
           <div class="shield-wrap">
-            <kingdom-shield width="40" height="48" c1="#2b2b6b" c2="#c9a227"></kingdom-shield>
+            <kingdom-shield width="80" height="96" c1="#2b2b6b" c2="#c9a227"></kingdom-shield>
             <span class="card-emblem" style="color:#f5e08a">△</span>
           </div>
           <h3 class="card-name">奥尔良</h3>
@@ -1111,7 +1127,7 @@ body.modal-open{
 
         <article class="card" id="card-burgundian">
           <div class="shield-wrap">
-            <kingdom-shield width="40" height="48" c1="#5c1f2b" c2="#c9a227"></kingdom-shield>
+            <kingdom-shield width="80" height="96" c1="#5c1f2b" c2="#c9a227"></kingdom-shield>
             <span class="card-emblem" style="color:#f5e08a">★</span>
           </div>
           <h3 class="card-name">勃艮第</h3>
@@ -1124,7 +1140,7 @@ body.modal-open{
           <span class="card-badge">自建</span>
           <button class="card-del" id="card-del-1">×</button>
           <div class="shield-wrap">
-            <kingdom-shield width="40" height="48" c1="#7a1414" c2="#e8d8b0"></kingdom-shield>
+            <kingdom-shield width="80" height="96" c1="#7a1414" c2="#e8d8b0"></kingdom-shield>
             <span class="card-emblem" style="color:#ffffff">★</span>
           </div>
           <h3 class="card-name">无名之国</h3>
@@ -1137,7 +1153,7 @@ body.modal-open{
           <span class="card-badge">自建</span>
           <button class="card-del" id="card-del-2">×</button>
           <div class="shield-wrap">
-            <kingdom-shield width="40" height="48" c1="#7a1414" c2="#e8d8b0"></kingdom-shield>
+            <kingdom-shield width="80" height="96" c1="#7a1414" c2="#e8d8b0"></kingdom-shield>
             <span class="card-emblem" style="color:#ffffff">★</span>
           </div>
           <h3 class="card-name">无名之国</h3>
@@ -1150,7 +1166,7 @@ body.modal-open{
           <span class="card-badge">自建</span>
           <button class="card-del" id="card-del-3">×</button>
           <div class="shield-wrap">
-            <kingdom-shield width="40" height="48" c1="#7a1414" c2="#e8d8b0"></kingdom-shield>
+            <kingdom-shield width="80" height="96" c1="#7a1414" c2="#e8d8b0"></kingdom-shield>
             <span class="card-emblem" style="color:#ffffff">★</span>
           </div>
           <h3 class="card-name">无名之国</h3>
@@ -1163,7 +1179,7 @@ body.modal-open{
           <span class="card-badge">自建</span>
           <button class="card-del" id="card-del-4">×</button>
           <div class="shield-wrap">
-            <kingdom-shield width="40" height="48" c1="#7a1414" c2="#e8d8b0"></kingdom-shield>
+            <kingdom-shield width="80" height="96" c1="#7a1414" c2="#e8d8b0"></kingdom-shield>
             <span class="card-emblem" style="color:#ffffff">★</span>
           </div>
           <h3 class="card-name">无名之国</h3>
@@ -1204,7 +1220,7 @@ body.modal-open{
 
       <div class="preview">
         <div class="preview-shield-wrap">
-          <kingdom-shield id="pvShield" width="40" height="48" c1="#7a1414" c2="#e8d8b0"></kingdom-shield>
+          <kingdom-shield id="pvShield" width="110" height="130" c1="#7a1414" c2="#e8d8b0"></kingdom-shield>
           <span class="preview-emblem" id="pvEmblem" style="color:#ffffff">★</span>
         </div>
         <div class="preview-name" id="pvName">无名之国</div>

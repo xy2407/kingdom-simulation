@@ -10,6 +10,7 @@ import com.sighs.apricityui.layout.Position;
 import com.sighs.apricityui.layout.Size;
 import com.sighs.apricityui.registry.annotation.ElementRegister;
 import com.sighs.apricityui.render.Base;
+import com.sighs.apricityui.render.DevicePixelGrid;
 import com.sighs.apricityui.render.Drawer;
 import com.sighs.apricityui.render.ImageDrawer;
 import com.sighs.apricityui.render.Rect;
@@ -287,12 +288,17 @@ public class WorldMapElement extends Canvas {
         if (contentSize.width() <= 0 || contentSize.height() <= 0) {
             return;
         }
+        double scale = deviceScale();
+        // 原点吸到设备像素网格：像素级地形图落在半像素上会整幅发虚并轻微偏移。
         ImageDrawer.drawWithUvWindow(poseStack, textureLocation,
-                (float) contentPos.x, (float) contentPos.y,
+                DevicePixelGrid.snap(contentPos.x, scale),
+                DevicePixelGrid.snap(contentPos.y, scale),
                 (float) contentSize.width(), (float) contentSize.height(), false,
-                getWidth(), getHeight(),
-                (float) (SURFACE_MARGIN - dragPixelX), (float) (SURFACE_MARGIN - dragPixelY),
-                (float) contentSize.width(), (float) contentSize.height());
+                getBitmapWidth(), getBitmapHeight(),
+                (float) ((SURFACE_MARGIN - dragPixelX) * scale),
+                (float) ((SURFACE_MARGIN - dragPixelY) * scale),
+                (float) (contentSize.width() * scale),
+                (float) (contentSize.height() * scale));
     }
 
     private void ensureData() {
@@ -379,8 +385,8 @@ public class WorldMapElement extends Canvas {
         if (resized) {
             resizeSurface(wantedWidth, wantedHeight, false);
         }
-        int surfaceWidth = getWidth();
-        int surfaceHeight = getHeight();
+        int surfaceWidth = getBitmapWidth();
+        int surfaceHeight = getBitmapHeight();
         paintedPixelsPerBlock = pixelsPerBlock;
         paintedOriginX = viewX - (int) Math.round((SURFACE_MARGIN + contentW / 2.0) / pixelsPerBlock);
         paintedOriginZ = viewZ - (int) Math.round((SURFACE_MARGIN + contentH / 2.0) / pixelsPerBlock);
@@ -409,25 +415,35 @@ public class WorldMapElement extends Canvas {
         if (pixels.length < needed) {
             if (!loggedShortBuffer) {
                 loggedShortBuffer = true;
-                ModMain.LOGGER.error("[地图] 像素数组不足：pixels={} 需要={}（surface={}x{} bitmap={}x{}）",
-                        pixels.length, needed, surfaceWidth, surfaceHeight, getWidth(), getHeight());
+                ModMain.LOGGER.error("[地图] 像素数组不足：pixels={} 需要={}（raster={}x{} design={}x{}）",
+                        pixels.length, needed, surfaceWidth, surfaceHeight,
+                        getWidth(), getHeight());
             }
             return;
         }
+        double scale = deviceScale();
         fillRaster(pixels, surfaceWidth, surfaceHeight, paintedOriginX, paintedOriginZ,
-                paintedPixelsPerBlock, paintedLevel, 0, 0, surfaceWidth, surfaceHeight);
+                paintedPixelsPerBlock * scale, paintedLevel, 0, 0, surfaceWidth, surfaceHeight);
         markSurfaceDirty();
+        int designWidth = getWidth();
+        int designHeight = getHeight();
         renderOperation(graphics -> {
-            drawOverlay(graphics, surfaceWidth, surfaceHeight, 0, 0, surfaceWidth, surfaceHeight);
-            drawChunkGrid(graphics, surfaceWidth, surfaceHeight,
+            graphics.scale(scale, scale);
+            drawOverlay(graphics, designWidth, designHeight, 0, 0, designWidth, designHeight);
+            drawChunkGrid(graphics, designWidth, designHeight,
                     paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
-            drawSelection(graphics, 0, 0, surfaceWidth, surfaceHeight);
-            drawMarker(graphics, surfaceWidth, surfaceHeight,
+            drawSelection(graphics, 0, 0, designWidth, designHeight);
+            drawMarker(graphics, designWidth, designHeight,
                     paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
-            drawPlayerMarker(graphics, surfaceWidth, surfaceHeight,
+            drawPlayerMarker(graphics, designWidth, designHeight,
                     paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
         }, null);
         syncTexture();
+    }
+
+    private double deviceScale() {
+        double scale = getDeviceScale();
+        return scale > 0.0D && Double.isFinite(scale) ? scale : 1.0D;
     }
 
     private void repaintChunk(long key) {
@@ -436,44 +452,52 @@ public class WorldMapElement extends Canvas {
         }
         int chunkX = ChunkPos.getX(key);
         int chunkZ = ChunkPos.getZ(key);
-        int surfaceWidth = paintedWidth;
-        int surfaceHeight = paintedHeight;
-        int x0 = Math.max(0, (int) Math.floor(
+        double scale = deviceScale();
+        int rasterWidth = getBitmapWidth();
+        int rasterHeight = getBitmapHeight();
+        int designWidth = getWidth();
+        int designHeight = getHeight();
+        int dx0 = Math.max(0, (int) Math.floor(
                 (chunkX * CHUNK_SIZE - paintedOriginX) * paintedPixelsPerBlock));
-        int y0 = Math.max(0, (int) Math.floor(
+        int dy0 = Math.max(0, (int) Math.floor(
                 (chunkZ * CHUNK_SIZE - paintedOriginZ) * paintedPixelsPerBlock));
-        int x1 = Math.min(surfaceWidth, (int) Math.ceil(
+        int dx1 = Math.min(designWidth, (int) Math.ceil(
                 ((chunkX + 1) * CHUNK_SIZE - paintedOriginX) * paintedPixelsPerBlock));
-        int y1 = Math.min(surfaceHeight, (int) Math.ceil(
+        int dy1 = Math.min(designHeight, (int) Math.ceil(
                 ((chunkZ + 1) * CHUNK_SIZE - paintedOriginZ) * paintedPixelsPerBlock));
-        if (x1 <= x0 || y1 <= y0) {
+        if (dx1 <= dx0 || dy1 <= dy0) {
             return;
         }
         int[] pixels = surfacePixels();
         if (pixels == null) {
             return;
         }
-        int needed = surfaceWidth * surfaceHeight;
+        int needed = rasterWidth * rasterHeight;
         if (pixels.length < needed) {
             if (!loggedShortBuffer) {
                 loggedShortBuffer = true;
-                ModMain.LOGGER.error("[地图] 局部重绘像素数组不足：pixels={} 需要={}（surface={}x{}）",
-                        pixels.length, needed, surfaceWidth, surfaceHeight);
+                ModMain.LOGGER.error("[地图] 局部重绘像素数组不足：pixels={} 需要={}（raster={}x{}）",
+                        pixels.length, needed, rasterWidth, rasterHeight);
             }
             return;
         }
-        fillRaster(pixels, surfaceWidth, surfaceHeight, paintedOriginX, paintedOriginZ,
-                paintedPixelsPerBlock, paintedLevel, x0, y0, x1, y1);
+        int x0 = Math.max(0, Math.min(rasterWidth, (int) Math.floor(dx0 * scale)));
+        int y0 = Math.max(0, Math.min(rasterHeight, (int) Math.floor(dy0 * scale)));
+        int x1 = Math.max(0, Math.min(rasterWidth, (int) Math.ceil(dx1 * scale)));
+        int y1 = Math.max(0, Math.min(rasterHeight, (int) Math.ceil(dy1 * scale)));
+        fillRaster(pixels, rasterWidth, rasterHeight, paintedOriginX, paintedOriginZ,
+                paintedPixelsPerBlock * scale, paintedLevel, x0, y0, x1, y1);
         Rectangle2D bounds = new Rectangle2D.Double(x0, y0, x1 - x0, y1 - y0);
         renderOperation(graphics -> {
-            graphics.setClip(x0, y0, x1 - x0, y1 - y0);
-            drawOverlay(graphics, surfaceWidth, surfaceHeight, x0, y0, x1, y1);
-            drawChunkGrid(graphics, surfaceWidth, surfaceHeight,
+            graphics.scale(scale, scale);
+            graphics.setClip(dx0, dy0, dx1 - dx0, dy1 - dy0);
+            drawOverlay(graphics, designWidth, designHeight, dx0, dy0, dx1, dy1);
+            drawChunkGrid(graphics, designWidth, designHeight,
                     paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
-            drawSelection(graphics, x0, y0, x1, y1);
-            drawMarker(graphics, surfaceWidth, surfaceHeight,
+            drawSelection(graphics, dx0, dy0, dx1, dy1);
+            drawMarker(graphics, designWidth, designHeight,
                     paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
-            drawPlayerMarker(graphics, surfaceWidth, surfaceHeight,
+            drawPlayerMarker(graphics, designWidth, designHeight,
                     paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
         }, bounds);
     }

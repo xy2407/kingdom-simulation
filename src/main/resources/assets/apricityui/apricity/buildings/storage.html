@@ -122,31 +122,45 @@ canvas,img{
 
 /* ============================================================
    槽位阵列：**直接照抄背包页 #player 的写法**（§13.8）
-   · grid-template-columns 写**整数 = 列数**，不是标准的 repeat(9,48px)——
-     AUI 的 grid 只认前者（ContainerExpander 自己注入的也是整数形式）。
-     写成 repeat() 会让行高塌陷，只剩几个格子渲染。
+   · grid-template-columns 必须写**真实轨道列表** repeat(9,46px)。
+     裸整数 9 在 1.2.9 被判非法、整条声明丢弃 → 退化成单列（坑 69）。
+     （旧注释说"AUI 只认整数"是 1.2.5 时代的结论，已被 1.2.9 推翻。）
    · 槽位必须是 <container> 的**直接子元素**（官方文档明写"手写 slot 也必须是直接子元素"）。
    · 间距交给 grid 的 gap（AUI 的 grid gap 可用，§13.5 的例外）；
      槽位自身的 margin 必须清零，否则会被算进列宽/行高。
    ============================================================ */
 .slot-grid{
   display:grid;
-  grid-template-columns:9;
-  gap:8px;
-  width:496px;
+  /* 1.2.9 起 grid-template-columns 必须写真实轨道列表：裸整数 9 会被
+     ShorthandParser.isValidGridTrackList 判非法、整条声明丢弃 → 退化成单列
+     （《AUI 使用总结》坑 69，行囊/货架页已按同样方式修过）。
+     46px × 9 + gap 6px × 8 = 462，与 width 一致。 */
+  grid-template-columns:repeat(9,46px);
+  gap:6px;
+  width:462px;
+}
+
+/* 仓库滚动区：AUI 的槽位矩形不含滚动量，靠 AuiSlotScrollOffsetMixin
+   给菜单槽位坐标回退滚动值，图标与热区才会跟着滚。固定 7 行高，其余靠滚动。 */
+.slot-scroll{
+  width:100%;
+  height:358px;
+  overflow-y:auto;
+  overflow-x:hidden;
+  scrollbar-width:thin;
 }
 
 .slot{
   position:relative;
   flex:0 0 auto;
-  width:48px;
-  height:48px;
+  width:46px;
+  height:46px;
   /* AUI 的 UA 样式表给所有 slot 默认 --aui-slot-size:18（原版槽位尺寸），
      而它是**热区判定的第一优先级**，不覆盖会把点击热区压成 18px（§11 坑 28） */
-  --aui-slot-size:48;
-  /* 图标缩放：slot_gen.png 是 32×32、四边各 3px 边框，48px 槽位内框约 39px；
-     16×2.25 = 36px 正好落在内框里（§11 坑 31） */
-  --aui-slot-icon-scale:2.25;
+  --aui-slot-size:46;
+  /* 图标缩放：slot_gen.png 是 32×32、四边各 3px 边框，46px 槽位内框约 37px；
+     16×2.1 = 33.6px 正好落在内框里（§11 坑 31） */
+  --aui-slot-icon-scale:2.1;
   margin-right:0;
   margin-bottom:0;
   background-color:#d8c090;
@@ -171,8 +185,8 @@ canvas,img{
   position:absolute;
   left:0;
   top:0;
-  width:48px;
-  height:48px;
+  width:46px;
+  height:46px;
 }
 
 .divider{
@@ -192,64 +206,66 @@ canvas,img{
   </header>
 
   <div class="section-label">存 货</div>
-  <!-- 建筑仓库：绑 AUI 的 saveddata 容器，容量恒定（= BuildingStorageMenu.MAX_SLOTS）。
-       蓝图声明的 storage_slots 决定"能用几格"，由 Java 打开时给多余槽位加 .is-off 隐藏。 -->
+  <!-- 建筑仓库：绑 AUI 的 saveddata 容器，容量由蓝图 json 的 storage_slots 决定。
+       槽位按需由 Java 补齐（超出基础 54 格时动态追加），外层滚动区固定 7 行高。 -->
+  <div class="slot-scroll" id="storageScroll">
   <container id="saved_data" class="slot-grid" bind="saved_data" size="54" primary="true">
-    <slot id="bslot0" class="slot" slot-index="0" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot1" class="slot" slot-index="1" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot2" class="slot" slot-index="2" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot3" class="slot" slot-index="3" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot4" class="slot" slot-index="4" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot5" class="slot" slot-index="5" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot6" class="slot" slot-index="6" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot7" class="slot" slot-index="7" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot8" class="slot" slot-index="8" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot9" class="slot" slot-index="9" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot10" class="slot" slot-index="10" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot11" class="slot" slot-index="11" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot12" class="slot" slot-index="12" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot13" class="slot" slot-index="13" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot14" class="slot" slot-index="14" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot15" class="slot" slot-index="15" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot16" class="slot" slot-index="16" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot17" class="slot" slot-index="17" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot18" class="slot" slot-index="18" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot19" class="slot" slot-index="19" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot20" class="slot" slot-index="20" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot21" class="slot" slot-index="21" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot22" class="slot" slot-index="22" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot23" class="slot" slot-index="23" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot24" class="slot" slot-index="24" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot25" class="slot" slot-index="25" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot26" class="slot" slot-index="26" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot27" class="slot" slot-index="27" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot28" class="slot" slot-index="28" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot29" class="slot" slot-index="29" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot30" class="slot" slot-index="30" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot31" class="slot" slot-index="31" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot32" class="slot" slot-index="32" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot33" class="slot" slot-index="33" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot34" class="slot" slot-index="34" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot35" class="slot" slot-index="35" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot36" class="slot" slot-index="36" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot37" class="slot" slot-index="37" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot38" class="slot" slot-index="38" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot39" class="slot" slot-index="39" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot40" class="slot" slot-index="40" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot41" class="slot" slot-index="41" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot42" class="slot" slot-index="42" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot43" class="slot" slot-index="43" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot44" class="slot" slot-index="44" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot45" class="slot" slot-index="45" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot46" class="slot" slot-index="46" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot47" class="slot" slot-index="47" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot48" class="slot" slot-index="48" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot49" class="slot" slot-index="49" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot50" class="slot" slot-index="50" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot51" class="slot" slot-index="51" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot52" class="slot" slot-index="52" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="bslot53" class="slot" slot-index="53" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="bslot0" class="slot" slot-index="0" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot1" class="slot" slot-index="1" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot2" class="slot" slot-index="2" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot3" class="slot" slot-index="3" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot4" class="slot" slot-index="4" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot5" class="slot" slot-index="5" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot6" class="slot" slot-index="6" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot7" class="slot" slot-index="7" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot8" class="slot" slot-index="8" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot9" class="slot" slot-index="9" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot10" class="slot" slot-index="10" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot11" class="slot" slot-index="11" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot12" class="slot" slot-index="12" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot13" class="slot" slot-index="13" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot14" class="slot" slot-index="14" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot15" class="slot" slot-index="15" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot16" class="slot" slot-index="16" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot17" class="slot" slot-index="17" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot18" class="slot" slot-index="18" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot19" class="slot" slot-index="19" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot20" class="slot" slot-index="20" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot21" class="slot" slot-index="21" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot22" class="slot" slot-index="22" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot23" class="slot" slot-index="23" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot24" class="slot" slot-index="24" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot25" class="slot" slot-index="25" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot26" class="slot" slot-index="26" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot27" class="slot" slot-index="27" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot28" class="slot" slot-index="28" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot29" class="slot" slot-index="29" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot30" class="slot" slot-index="30" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot31" class="slot" slot-index="31" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot32" class="slot" slot-index="32" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot33" class="slot" slot-index="33" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot34" class="slot" slot-index="34" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot35" class="slot" slot-index="35" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot36" class="slot" slot-index="36" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot37" class="slot" slot-index="37" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot38" class="slot" slot-index="38" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot39" class="slot" slot-index="39" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot40" class="slot" slot-index="40" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot41" class="slot" slot-index="41" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot42" class="slot" slot-index="42" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot43" class="slot" slot-index="43" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot44" class="slot" slot-index="44" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot45" class="slot" slot-index="45" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot46" class="slot" slot-index="46" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot47" class="slot" slot-index="47" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot48" class="slot" slot-index="48" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot49" class="slot" slot-index="49" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot50" class="slot" slot-index="50" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot51" class="slot" slot-index="51" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot52" class="slot" slot-index="52" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="bslot53" class="slot" slot-index="53" slot-size="46"><item class="slot-icon"></item></slot>
   </container>
+  </div>
 
   <div class="divider"></div>
 
@@ -259,42 +275,42 @@ canvas,img{
        当玩家池的最后 9 个，官方文档点名"别按自然顺序排网格"）。
        slot-index 始终是该槽在玩家背包里的逻辑索引，与排版顺序无关。 -->
   <container id="player" class="slot-grid" bind="player" size="36">
-    <slot id="pslot9" class="slot" slot-index="9" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot10" class="slot" slot-index="10" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot11" class="slot" slot-index="11" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot12" class="slot" slot-index="12" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot13" class="slot" slot-index="13" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot14" class="slot" slot-index="14" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot15" class="slot" slot-index="15" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot16" class="slot" slot-index="16" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot17" class="slot" slot-index="17" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot18" class="slot" slot-index="18" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot19" class="slot" slot-index="19" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot20" class="slot" slot-index="20" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot21" class="slot" slot-index="21" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot22" class="slot" slot-index="22" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot23" class="slot" slot-index="23" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot24" class="slot" slot-index="24" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot25" class="slot" slot-index="25" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot26" class="slot" slot-index="26" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot27" class="slot" slot-index="27" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot28" class="slot" slot-index="28" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot29" class="slot" slot-index="29" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot30" class="slot" slot-index="30" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot31" class="slot" slot-index="31" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot32" class="slot" slot-index="32" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot33" class="slot" slot-index="33" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot34" class="slot" slot-index="34" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot35" class="slot" slot-index="35" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot0" class="slot" slot-index="0" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot1" class="slot" slot-index="1" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot2" class="slot" slot-index="2" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot3" class="slot" slot-index="3" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot4" class="slot" slot-index="4" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot5" class="slot" slot-index="5" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot6" class="slot" slot-index="6" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot7" class="slot" slot-index="7" slot-size="48"><item class="slot-icon"></item></slot>
-    <slot id="pslot8" class="slot" slot-index="8" slot-size="48"><item class="slot-icon"></item></slot>
+    <slot id="pslot9" class="slot" slot-index="9" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot10" class="slot" slot-index="10" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot11" class="slot" slot-index="11" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot12" class="slot" slot-index="12" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot13" class="slot" slot-index="13" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot14" class="slot" slot-index="14" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot15" class="slot" slot-index="15" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot16" class="slot" slot-index="16" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot17" class="slot" slot-index="17" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot18" class="slot" slot-index="18" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot19" class="slot" slot-index="19" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot20" class="slot" slot-index="20" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot21" class="slot" slot-index="21" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot22" class="slot" slot-index="22" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot23" class="slot" slot-index="23" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot24" class="slot" slot-index="24" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot25" class="slot" slot-index="25" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot26" class="slot" slot-index="26" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot27" class="slot" slot-index="27" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot28" class="slot" slot-index="28" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot29" class="slot" slot-index="29" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot30" class="slot" slot-index="30" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot31" class="slot" slot-index="31" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot32" class="slot" slot-index="32" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot33" class="slot" slot-index="33" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot34" class="slot" slot-index="34" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot35" class="slot" slot-index="35" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot0" class="slot" slot-index="0" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot1" class="slot" slot-index="1" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot2" class="slot" slot-index="2" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot3" class="slot" slot-index="3" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot4" class="slot" slot-index="4" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot5" class="slot" slot-index="5" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot6" class="slot" slot-index="6" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot7" class="slot" slot-index="7" slot-size="46"><item class="slot-icon"></item></slot>
+    <slot id="pslot8" class="slot" slot-index="8" slot-size="46"><item class="slot-icon"></item></slot>
   </container>
 
 </div>

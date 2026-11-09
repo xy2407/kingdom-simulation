@@ -77,7 +77,10 @@ public final class BuildingClientSetup {
         CityHallHooks.dataSink = CityHallScreen::accept;
         MapOverlayHooks.dataSink = MapOverlayStore::accept;
         NpcPathDebugHooks.sink = NpcPathDebugRenderer::accept;
-        NpcRosterHooks.rosterSink = StructureDebugKeybind::acceptRoster;
+        NpcRosterHooks.rosterSink = packet -> {
+            StructureDebugKeybind.acceptRoster(packet);
+            com.xy2407.kingdom.client.rts.RtsOpsPanel.acceptRoster(packet);
+        };
         RoadHooks.loadedSink = RoadClientStore::setLoadedChunks;
         com.xy2407.kingdom.common.network.area.AreaHooks.stateSink =
                 com.xy2407.kingdom.client.area.AreaSelectionState::accept;
@@ -94,7 +97,11 @@ public final class BuildingClientSetup {
     @SubscribeEvent
     public static void onClientTick(ClientTickEvent.Post event) {
         while (CONFIRM_PLACE.consumeClick()) {
-            BuildingPlacementManager.confirmAll();
+            // 没有待建投影时什么都不做：以前无条件调 confirmAll()，导致 RTS 里按 Enter
+            // （阵型编辑器回网格等）也会弹出"还没有待建投影"。
+            if (BuildingPlacementManager.hasPending()) {
+                BuildingPlacementManager.confirmAll();
+            }
         }
     }
 }

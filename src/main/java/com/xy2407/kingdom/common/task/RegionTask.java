@@ -100,8 +100,15 @@ public final class RegionTask {
         cursor++;
     }
 
+    /**
+     * 扫描上限：光标走完整个包围盒才算完工，不能用目标格数当上限
+     */
+    public int scanLimit() {
+        return Math.max(1, sizeX() * sizeZ() * layerCount());
+    }
+
     public boolean isFinished() {
-        return cursor >= total;
+        return cursor >= scanLimit();
     }
 
     public int sizeX() {

@@ -16,7 +16,8 @@ import java.util.UUID;
 /** RTS 队伍同步（服务端→客户端）：下发归属玩家的全部队伍、成员与阵型状态。 */
 public record RtsTeamSyncPacket(List<Entry> teams) implements CustomPacketPayload {
 
-    public record Entry(UUID teamId, UUID leader, List<UUID> members, int shape, boolean saved) {
+    public record Entry(UUID teamId, UUID leader, List<UUID> members, int shape, boolean saved,
+                        boolean patrolling) {
 
         public Entry {
             members = members == null ? List.of() : List.copyOf(members);
@@ -45,6 +46,7 @@ public record RtsTeamSyncPacket(List<Entry> teams) implements CustomPacketPayloa
             }
             buf.writeInt(entry.shape());
             buf.writeBoolean(entry.saved());
+            buf.writeBoolean(entry.patrolling());
         }
     }
 
@@ -59,7 +61,8 @@ public record RtsTeamSyncPacket(List<Entry> teams) implements CustomPacketPayloa
             for (int k = 0; k < memberCount; k++) {
                 members.add(buf.readUUID());
             }
-            teams.add(new Entry(teamId, leader, members, buf.readInt(), buf.readBoolean()));
+            teams.add(new Entry(teamId, leader, members, buf.readInt(), buf.readBoolean(),
+                    buf.readBoolean()));
         }
         return new RtsTeamSyncPacket(teams);
     }

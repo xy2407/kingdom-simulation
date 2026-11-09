@@ -13,6 +13,8 @@ public final class RtsSelectionRenderer {
 
     private static final int BOX_BORDER = 0xFFE8D9A8;
     private static final int BOX_FILL = 0x40203040;
+    private static final int ATTACK_BOX_BORDER = 0xFFFF5544;
+    private static final int ATTACK_BOX_FILL = 0x40A01818;
     private static final int CROSSHAIR_COLOR = 0xFFFFFFFF;
     private static final int TEXT_COLOR = 0xFFE8D9A8;
 
@@ -48,11 +50,14 @@ public final class RtsSelectionRenderer {
         int top = Math.min(y1, y2);
         int right = Math.max(x1, x2);
         int bottom = Math.max(y1, y2);
-        graphics.fill(left, top, right, bottom, BOX_FILL);
-        graphics.fill(left, top, right, top + 1, BOX_BORDER);
-        graphics.fill(left, bottom - 1, right, bottom, BOX_BORDER);
-        graphics.fill(left, top, left + 1, bottom, BOX_BORDER);
-        graphics.fill(right - 1, top, right, bottom, BOX_BORDER);
+        boolean attack = RtsModeManager.isAttackBoxSelecting();
+        int fill = attack ? ATTACK_BOX_FILL : BOX_FILL;
+        int border = attack ? ATTACK_BOX_BORDER : BOX_BORDER;
+        graphics.fill(left, top, right, bottom, fill);
+        graphics.fill(left, top, right, top + 1, border);
+        graphics.fill(left, bottom - 1, right, bottom, border);
+        graphics.fill(left, top, left + 1, bottom, border);
+        graphics.fill(right - 1, top, right, bottom, border);
     }
 
     private static void drawStatus(GuiGraphics graphics) {
@@ -74,6 +79,12 @@ public final class RtsSelectionRenderer {
             graphics.drawString(minecraft.font,
                     "节点寻路：已录 " + RtsWaypointState.size() + " 个点（右键追加，松开 C 提交）",
                     6, 18, TEXT_COLOR, true);
+        }
+        if (RtsPatrolState.isArmed()) {
+            String hint = RtsPatrolState.isRecording()
+                    ? "队伍巡逻：已录 " + RtsPatrolState.size() + " 个节点（右键追加，松开 V 提交）"
+                    : "队伍巡逻：按住 V 依次右键点选起点 → 终点，松开 V 提交";
+            graphics.drawString(minecraft.font, hint, 6, 30, 0xFFE8C040, true);
         }
     }
 }

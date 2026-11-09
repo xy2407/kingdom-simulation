@@ -53,6 +53,12 @@ public final class RtsTeamPosCache {
         }
     }
 
+    /** 队伍被解散/删除：只保留还存在队伍的坐标表，避免删掉的队伍永久占着缓存。 */
+    public static void retain(java.util.Collection<UUID> teamIds) {
+        java.util.Set<UUID> keep = new java.util.HashSet<>(teamIds);
+        POSITIONS.keySet().removeIf(id -> !keep.contains(id));
+    }
+
     public static void clearAll() {
         POSITIONS.clear();
     }

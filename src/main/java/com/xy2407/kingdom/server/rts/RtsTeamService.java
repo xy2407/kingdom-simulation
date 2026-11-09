@@ -48,6 +48,8 @@ public final class RtsTeamService {
 
     public static void load(ServerLevel level) {
         RtsTeamManager.reload(level);
+        // 巡逻是队伍级常驻任务：队伍一读出来就把巡逻恢复上，队员在不在加载区块内都一样
+        RtsPatrolService.restoreAll(level == null ? null : level.getServer());
     }
 
     public static void createFromSelection(ServerPlayer player, List<UUID> requested, int shape) {
@@ -98,10 +100,38 @@ public final class RtsTeamService {
         RtsTeamManager.LeaderPos leader = RtsTeamManager.leaderPosition(level, teamId);
         NpcEntity npc = RtsTeamManager.findAcrossLevels(level.getServer(), member);
         if (leader != null && npc != null) {
-            npc.setRtsTarget(BlockPos.containing(leader.pos().x + offX,
-                    leader.pos().y, leader.pos().z + offZ), false);
+            // 落点 = 队长所在格的中心 + 格偏移，正好是编辑器网格里那一格的中心。
+            BlockPos cell = BlockPos.containing(Math.floor(leader.pos().x) + 0.5D + offX,
+                    leader.pos().y, Math.floor(leader.pos().z) + 0.5D + offZ);
+            // 编辑期间速度是 0，下发寻路等于没反应；直接瞬移过去，玩家点哪格就站哪格
+            RtsTeamManager.teleportMemberToCell(level, npc, cell);
+            // 立刻推一次坐标，编辑器里的小方块同步跳过去（不用等 20 tick 的周期推送）
+            pushPositionsToOwner(level, team);
         }
         sync(player);
+    }
+
+    /** 只给某个队伍的队长推一次成员坐标，用于编辑器的即时刷新。 */
+    private static void pushPositionsToOwner(ServerLevel level, RtsTeam team) {
+        if (level == null || team == null || level.getServer() == null) {
+            return;
+        }
+        ServerPlayer owner = level.getServer().getPlayerList().getPlayer(team.ownerUuid());
+        if (owner == null) {
+            return;
+        }
+        List<RtsTeamMemberPosPacket.MemberPos> positions = new ArrayList<>();
+        for (UUID id : team.members()) {
+            Entity entity = RtsTeamManager.findEntityAcrossLevels(level.getServer(), id);
+            if (entity != null) {
+                positions.add(new RtsTeamMemberPosPacket.MemberPos(id,
+                        entity.getX(), entity.getY(), entity.getZ()));
+            }
+        }
+        if (!positions.isEmpty()) {
+            PacketDistributor.sendToPlayer(owner,
+                    new RtsTeamMemberPosPacket(team.teamId(), positions));
+        }
     }
 
     public static void setEditing(ServerPlayer player, UUID teamId, boolean editing) {
@@ -268,6 +298,10 @@ public final class RtsTeamService {
         }
         for (ServerLevel level : server.getAllLevels()) {
             RtsTeamManager.tick(level);
+            // 巡逻状态按队伍存在，跨维度查找成员；只在主世界驱动一次，避免多维度重复推进同一条路线
+            if (level == server.overworld()) {
+                RtsPatrolService.tick(level);
+            }
         }
     }
 
@@ -296,7 +330,8 @@ public final class RtsTeamService {
         List<RtsTeamSyncPacket.Entry> entries = new ArrayList<>();
         for (RtsTeam team : RtsTeamManager.teamsOf(player.getUUID())) {
             entries.add(new RtsTeamSyncPacket.Entry(team.teamId(), team.leaderUuid(),
-                    team.members(), team.shape().id, team.formationSaved()));
+                    team.members(), team.shape().id, team.formationSaved(),
+                    RtsPatrolService.isPatrolling(team.teamId())));
         }
         PacketDistributor.sendToPlayer(player, new RtsTeamSyncPacket(entries));
         List<RtsTeamRosterPacket.Member> roster = new ArrayList<>();

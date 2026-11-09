@@ -2,6 +2,8 @@ package com.xy2407.kingdom.common.npc;
 
 import java.util.concurrent.ThreadLocalRandom;
 
+import com.xy2407.kingdom.common.entity.NpcEntity;
+
 import net.minecraft.core.BlockPos;
 
 /**
@@ -43,6 +45,11 @@ public final class NpcBrain {
         }
         if (tickCounter % HUNGER_TICK_INTERVAL == 0) {
             owner.setHunger(owner.getHunger() - 1.0);
+        }
+        NpcEntity live = NpcManager.INSTANCE.liveEntity(owner);
+        if (live != null && !live.isRemoved() && live.isArmed()) {
+            setPlan(NpcState.COMBAT, NpcSubState.FIGHTING, live.combatDetail());
+            return;
         }
         if (rtsControlled) {
             setPlan(NpcState.COMMANDED, NpcSubState.MOVING, NpcDetail.COMMANDED_MOVE);
@@ -217,6 +224,7 @@ public final class NpcBrain {
             case RESTING -> hasHome() ? NpcDetail.SLEEPING : NpcDetail.WANDERING;
             case HUNGRY -> NpcDetail.FORAGING;
             case MOVING -> NpcDetail.GOING_WORK;
+            case FIGHTING -> NpcDetail.ARMED_IDLE;
         };
     }
 
@@ -342,6 +350,17 @@ public final class NpcBrain {
 
     public void setRtsControlled(boolean rtsControlled) {
         this.rtsControlled = rtsControlled;
+        if (rtsControlled) {
+            // 收到指令当刻就进入受令状态，不等下一轮状态机重评：
+            // 以前要等 brain 下一 tick 才切到 COMMANDED，中间这一拍 detail 分支还在跑，
+            // 工作服务的寻路会和 RTS 的寻路抢同一组 workPathFuture，移动启动被硬拖慢。
+            forceCommanded();
+        }
+    }
+
+    /** 立即把主状态切到 COMMANDED（移动启动用）。 */
+    public void forceCommanded() {
+        setPlan(NpcState.COMMANDED, NpcSubState.MOVING, NpcDetail.COMMANDED_MOVE);
     }
 
     public boolean isConstructionControlled() {

@@ -29,9 +29,11 @@ public record RtsTeamCreatePacket(List<UUID> members, int shape) implements Cust
     }
 
     public static void encode(RegistryFriendlyByteBuf buf, RtsTeamCreatePacket packet) {
-        buf.writeInt(packet.members().size());
-        for (UUID member : packet.members()) {
-            buf.writeUUID(member);
+        List<UUID> members = packet.members() == null ? List.of() : packet.members();
+        int count = Math.min(members.size(), 256);
+        buf.writeInt(count);
+        for (int index = 0; index < count; index++) {
+            buf.writeUUID(members.get(index));
         }
         buf.writeInt(packet.shape());
     }
