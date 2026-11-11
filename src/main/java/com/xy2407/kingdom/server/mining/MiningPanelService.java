@@ -21,7 +21,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
- * 矿坑操作面板：快照回推、派工切换、暂停恢复与删除。
+ * 矿坑面板服务端，回推各矿坑状态并处理派工分配、暂停恢复与删除
  */
 public final class MiningPanelService {
 
@@ -37,9 +37,8 @@ public final class MiningPanelService {
             PacketDistributor.sendToPlayer(player, MiningPanelStatePacket.outside());
             return;
         }
-        MiningPlot plot = MiningPlotManager.INSTANCE.byBuilding(building.id());
         List<MiningPanelStatePacket.Mine> mines = new ArrayList<>();
-        if (plot != null) {
+        for (MiningPlot plot : MiningPlotManager.INSTANCE.allOf(building.id())) {
             mines.add(new MiningPanelStatePacket.Mine(plot.id(), plot.name(),
                     plot.min().getX(), plot.min().getZ(), plot.max().getX(), plot.max().getZ(),
                     plot.surfaceY(), plot.currentY(), plot.cursor(), plot.layerSize(),
@@ -55,9 +54,9 @@ public final class MiningPanelService {
             respond(player);
             return;
         }
-        MiningPlot plot = MiningPlotManager.INSTANCE.byBuilding(building.id());
-        if (plot == null || packet.plotIdOrNull() == null
-                || !plot.id().equals(packet.plotIdOrNull())) {
+        MiningPlot plot = packet.plotIdOrNull() == null
+                ? null : MiningPlotManager.INSTANCE.byId(packet.plotIdOrNull());
+        if (plot == null || !plot.buildingId().equals(building.id())) {
             player.displayClientMessage(Component.literal("这座建筑还没有矿坑"), true);
             respond(player);
             return;
@@ -79,8 +78,7 @@ public final class MiningPanelService {
     private static void toggleWorker(ServerPlayer player, MiningPlot plot, UUID workerId) {
         if (workerId == null) {
             for (UUID id : new ArrayList<>(plot.workerIds())) {
-                EmploymentService.INSTANCE.dismissAssignment(
-                        player.server, id, EmploymentKind.MINING);
+                attach(plot, id, false);
             }
             return;
         }
@@ -90,21 +88,43 @@ public final class MiningPanelService {
             return;
         }
         if (plot.workerIds().contains(workerId)) {
-            EmploymentService.INSTANCE.dismissAssignment(
-                    player.server, workerId, EmploymentKind.MINING);
+            attach(plot, workerId, false);
             return;
         }
-        var result = EmploymentService.INSTANCE.hire(player.server, workerId,
-                EmploymentTarget.mining(plot.buildingId(), plot.id()));
-        if (!result.success()) {
-            player.displayClientMessage(Component.literal(result.reason()), true);
+        if (!plot.buildingId().toString().equals(npc.getWorkplaceId())) {
+            player.displayClientMessage(
+                    Component.literal("先在这座建筑的用工面板把他雇进来，再来分配"), true);
+            return;
         }
+        for (MiningPlot other : MiningPlotManager.INSTANCE.allOf(plot.buildingId())) {
+            if (!other.id().equals(plot.id()) && other.workerIds().contains(workerId)) {
+                List<UUID> workers = new ArrayList<>(other.workerIds());
+                workers.remove(workerId);
+                MiningPlotManager.INSTANCE.update(other.withWorkerIds(workers));
+            }
+        }
+        attach(plot, workerId, true);
+    }
+
+    private static void attach(MiningPlot plot, UUID workerId, boolean in) {
+        List<UUID> workers = new ArrayList<>(plot.workerIds());
+        if (in && !workers.contains(workerId)) {
+            workers.add(workerId);
+            NpcMiningService.linkWorker(workerId, plot.id());
+        } else if (!in && workers.remove(workerId)) {
+            NpcMiningService.unlinkWorker(workerId);
+        } else {
+            return;
+        }
+        MiningPlot current = MiningPlotManager.INSTANCE.byId(plot.id());
+        MiningPlotManager.INSTANCE.update((current == null ? plot : current).withWorkerIds(workers));
     }
 
     private static List<MiningPanelStatePacket.WorkerOption> roster(UUID buildingId) {
         List<MiningPanelStatePacket.WorkerOption> options = new ArrayList<>();
+        String owner = buildingId == null ? "" : buildingId.toString();
         for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
-            if (npc.isDead()) {
+            if (npc.isDead() || !owner.equals(npc.getWorkplaceId())) {
                 continue;
             }
             options.add(new MiningPanelStatePacket.WorkerOption(npc.getId(), npc.getName(),

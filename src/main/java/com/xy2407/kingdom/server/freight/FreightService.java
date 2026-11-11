@@ -23,6 +23,8 @@ import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.items.IItemHandler;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -36,7 +38,9 @@ public final class FreightService {
     private static final int SCAN_INTERVAL_TICKS = 20;
     private static final int RETRY_DELAY_TICKS = 200;
     private static final double WAREHOUSE_RADIUS = 96.0D;
+    private static final double PRODUCER_RADIUS = 128.0D;
     private static final int MAX_ATTEMPTS = 60;
+    private static final int ORDER_TIMEOUT_TICKS = 12000;
     private static final int FLAG_REFRESH_TICKS = 100;
 
     private static final int SOURCE_POLL_TICKS = 200;
@@ -152,6 +156,26 @@ public final class FreightService {
         return list;
     }
 
+    public List<ItemCount> pendingOf(UUID requesterId) {
+        if (requesterId == null) {
+            return List.of();
+        }
+        Map<String, Integer> byItem = new LinkedHashMap<>();
+        for (FreightOrder order : orders.values()) {
+            if (order.finished() || !requesterId.equals(order.requesterId())) {
+                continue;
+            }
+            for (ItemCount item : order.items()) {
+                byItem.merge(item.item(), item.count(), Integer::sum);
+            }
+        }
+        List<ItemCount> result = new ArrayList<>(byItem.size());
+        for (Map.Entry<String, Integer> entry : byItem.entrySet()) {
+            result.add(new ItemCount(entry.getKey(), entry.getValue()));
+        }
+        return result;
+    }
+
     public void tick(MinecraftServer server) {
         if (server == null) {
             return;
@@ -167,6 +191,7 @@ public final class FreightService {
         if (tickCounter % SCAN_INTERVAL_TICKS != 0) {
             return;
         }
+        reapStalled(server, now);
         for (FreightOrder order : orders.values()) {
             if (order.state() != FreightOrder.State.PENDING || now < order.nextAttemptAt()) {
                 continue;
@@ -174,6 +199,29 @@ public final class FreightService {
             dispatch(server, order, now);
         }
         orders.values().removeIf(FreightOrder::finished);
+    }
+
+    private void reapStalled(MinecraftServer server, long now) {
+        for (FreightOrder order : orders.values()) {
+            if (!order.inProgress()) {
+                continue;
+            }
+            if (order.carrierId() == null) {
+                order.fail("没有配送员");
+                continue;
+            }
+            if (findEntity(server, order.carrierId()) == null) {
+                order.fail("配送员已不存在");
+                continue;
+            }
+            if (order.stateAt() == 0L) {
+                order.setStateAt(now);
+                continue;
+            }
+            if (now - order.stateAt() > ORDER_TIMEOUT_TICKS) {
+                order.fail("配送超时");
+            }
+        }
     }
 
     private void refreshWorkerFlags() {
@@ -195,20 +243,78 @@ public final class FreightService {
             order.fail("需求方已不存在");
             return;
         }
-        BuildingRecord warehouse = findWarehouse(server, order.dimension(), reference, order.items());
+        Map<UUID, Map<String, Integer>> reserved = reservations();
+        BuildingRecord warehouse = findWarehouse(server, order.dimension(), reference, order.items(),
+                reserved);
+        UUID pickupId = null;
         if (warehouse == null) {
-            order.setNextAttemptAt(now + RETRY_DELAY_TICKS);
-            return;
+            BuildingRecord producer = findProducer(server, order.dimension(), reference,
+                    order.items(), reserved);
+            BuildingRecord carrierSource = producer == null ? null
+                    : findCarrierWarehouse(server, order.dimension(), reference);
+            if (producer == null || carrierSource == null) {
+                order.setNextAttemptAt(now + RETRY_DELAY_TICKS);
+                return;
+            }
+            pickupId = producer.id();
+            warehouse = carrierSource;
         }
         NpcData carrier = pickWorker(server, warehouse);
         if (carrier == null) {
             order.setNextAttemptAt(now + RETRY_DELAY_TICKS);
             return;
         }
+        order.setPickupId(pickupId);
         order.setWarehouseId(warehouse.id());
         order.setCarrierId(carrier.getId());
         order.setState(FreightOrder.State.ASSIGNED);
         carrier.getBrain().setFreightControlled(true);
+    }
+
+    private BuildingRecord findProducer(MinecraftServer server, String dimension, BlockPos reference,
+                                        List<ItemCount> items,
+                                        Map<UUID, Map<String, Integer>> reserved) {
+        BuildingRecord best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (BuildingRecord record : BuildingRegistry.INSTANCE.all()) {
+            if (!record.dimension().equals(dimension) || isWarehouse(record)) {
+                continue;
+            }
+            double distance = record.min().distSqr(reference);
+            if (distance > PRODUCER_RADIUS * PRODUCER_RADIUS || distance >= bestDistance) {
+                continue;
+            }
+            BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(record);
+            if (meta == null || meta.storageSlots() <= 0) {
+                continue;
+            }
+            IItemHandler store = BuildingStorageStore.INSTANCE.handlerOf(server, record.id(),
+                    meta.storageSlots());
+            if (store == null || !hasAvailable(store, items, reserved.get(record.id()))) {
+                continue;
+            }
+            bestDistance = distance;
+            best = record;
+        }
+        return best;
+    }
+
+    private BuildingRecord findCarrierWarehouse(MinecraftServer server, String dimension,
+                                                BlockPos reference) {
+        BuildingRecord best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (BuildingRecord record : BuildingRegistry.INSTANCE.all()) {
+            if (!record.dimension().equals(dimension) || !isWarehouse(record)) {
+                continue;
+            }
+            double distance = record.min().distSqr(reference);
+            if (distance > WAREHOUSE_RADIUS * WAREHOUSE_RADIUS || distance >= bestDistance) {
+                continue;
+            }
+            bestDistance = distance;
+            best = record;
+        }
+        return best;
     }
 
     private BlockPos referencePos(FreightOrder order) {
@@ -220,7 +326,8 @@ public final class FreightService {
     }
 
     private BuildingRecord findWarehouse(MinecraftServer server, String dimension, BlockPos reference,
-                                         List<ItemCount> items) {
+                                         List<ItemCount> items,
+                                         Map<UUID, Map<String, Integer>> reserved) {
         BuildingRecord best = null;
         double bestDistance = Double.MAX_VALUE;
         for (BuildingRecord record : BuildingRegistry.INSTANCE.all()) {
@@ -236,7 +343,7 @@ public final class FreightService {
                 continue;
             }
             IItemHandler store = BuildingStorageStore.INSTANCE.handlerOf(server, record.id(), meta.storageSlots());
-            if (store == null || !hasAll(store, items)) {
+            if (store == null || !hasAvailable(store, items, reserved.get(record.id()))) {
                 continue;
             }
             bestDistance = distance;
@@ -298,6 +405,33 @@ public final class FreightService {
         for (ItemCount need : items) {
             Item item = itemOf(need.item());
             if (item == null || countOf(store, item) < need.count()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private Map<UUID, Map<String, Integer>> reservations() {
+        Map<UUID, Map<String, Integer>> result = new HashMap<>();
+        for (FreightOrder order : orders.values()) {
+            if (order.finished() || order.warehouseId() == null) {
+                continue;
+            }
+            Map<String, Integer> byItem = result.computeIfAbsent(order.warehouseId(),
+                    id -> new HashMap<>());
+            for (ItemCount item : order.items()) {
+                byItem.merge(item.item(), item.count(), Integer::sum);
+            }
+        }
+        return result;
+    }
+
+    private static boolean hasAvailable(IItemHandler store, List<ItemCount> items,
+                                        Map<String, Integer> reserved) {
+        for (ItemCount need : items) {
+            Item item = itemOf(need.item());
+            int hold = reserved == null ? 0 : reserved.getOrDefault(need.item(), 0);
+            if (item == null || countOf(store, item) - hold < need.count()) {
                 return false;
             }
         }

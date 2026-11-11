@@ -8,7 +8,7 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 /**
- * 工业网络包注册：请求、操作、状态三个方向
+ * 工业建筑面板的网络包注册，绑定请求、操作与用工状态的收发方向
  */
 @EventBusSubscriber(modid = ModMain.MOD_ID)
 public final class IndustryPayloadRegistration {
@@ -25,5 +25,9 @@ public final class IndustryPayloadRegistration {
                 IndustryPanelActionPacket.STREAM_CODEC, IndustryPanelActionPacket::handle);
         registrar.playToClient(IndustryPanelStatePacket.TYPE,
                 IndustryPanelStatePacket.STREAM_CODEC, IndustryPanelStatePacket::handle);
+        registrar.playToServer(IndustryStaffActionPacket.TYPE,
+                IndustryStaffActionPacket.STREAM_CODEC, IndustryStaffActionPacket::handle);
+        registrar.playToClient(IndustryStaffStatePacket.TYPE,
+                IndustryStaffStatePacket.STREAM_CODEC, IndustryStaffStatePacket::handle);
     }
 }

@@ -99,7 +99,9 @@ public final class ResidentService {
                     workerNote(npc)));
         }
         return new ResidentListPacket(true, building.name(), building.level(),
-                positionText(building), HomeBeds.beds(player.serverLevel(), building).size(),
+                positionText(building),
+                Math.min(HomeBeds.beds(player.serverLevel(), building).size(),
+                        HomeBeds.capacity(building)),
                 residents, workers);
     }
 

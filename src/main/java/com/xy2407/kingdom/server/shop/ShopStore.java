@@ -12,6 +12,7 @@ import java.util.UUID;
 
 import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.common.block.ModBlocks;
+import com.xy2407.kingdom.common.building.BuildingLevelRules;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.persistence.ShopSchema;
@@ -125,6 +126,10 @@ public final class ShopStore {
                     }
                 }
             }
+        }
+        int limit = BuildingLevelRules.shopShelves(building.level());
+        if (found.size() > limit) {
+            return new ArrayList<>(found.subList(0, limit));
         }
         return found;
     }

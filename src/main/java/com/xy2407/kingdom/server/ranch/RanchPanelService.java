@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.xy2407.kingdom.common.building.AnimalSpec;
+import com.xy2407.kingdom.common.building.BuildingLevelRules;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.network.ranch.RanchPanelActionPacket;
 import com.xy2407.kingdom.common.network.ranch.RanchPanelStatePacket;
@@ -50,6 +51,13 @@ public final class RanchPanelService {
             return;
         }
         RanchPen pen = penOf(building, packet.penIdOrNull());
+        if (pen != null && !RanchPenManager.INSTANCE.isEnabled(pen)) {
+            int limit = BuildingLevelRules.ranchPenLimit(building.level());
+            player.displayClientMessage(Component.literal("这块养殖地还没解锁：Lv."
+                    + building.level() + " 最多 " + limit + " 块"), true);
+            respond(player);
+            return;
+        }
         switch (packet.action()) {
             case RanchPanelActionPacket.ACTION_TOGGLE_RUN -> {
                 if (pen != null) {
@@ -110,6 +118,8 @@ public final class RanchPanelService {
     private static RanchPanelStatePacket snapshot(ServerPlayer player, BuildingRecord building) {
         ServerLevel level = levelOf(player, building);
         List<RanchPanelStatePacket.Animal> animals = new ArrayList<>();
+        int limit = BuildingLevelRules.ranchPenLimit(building.level());
+        int index = 0;
         for (AnimalSpec spec : BuildingRegistry.INSTANCE.metaOf(building).animals()) {
             RanchPen pen = RanchPenManager.INSTANCE.byKey(building.id(), spec.id());
             int total = 0;
@@ -119,10 +129,14 @@ public final class RanchPanelService {
                 total = heads[0];
                 adults = heads[1];
             }
+            boolean enabled = index < limit;
+            String status = enabled ? statusLabel(pen)
+                    : "未解锁（Lv." + building.level() + " 上限 " + limit + " 块）";
             animals.add(new RanchPanelStatePacket.Animal(pen == null ? null : pen.id(), spec.id(),
-                    spec.name(), spec.entity(), spec.feed(), spec.output(), spec.mode(), statusLabel(pen),
-                    spec.limit(), total, adults, pen != null && pen.running(),
+                    spec.name(), spec.entity(), spec.feed(), spec.output(), spec.mode(), status,
+                    spec.limit(), total, adults, enabled && pen != null && pen.running(),
                     EmploymentService.aliveOnly(pen == null ? List.of() : pen.keeperIds())));
+            index++;
         }
         return new RanchPanelStatePacket(true, building.name(), building.level(), positionText(building),
                 animals, workerOptions(building.id()));

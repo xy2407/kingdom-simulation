@@ -34,7 +34,9 @@ public final class FreightOrder {
     private final long createdAt;
 
     private State state = State.PENDING;
+    private long stateAt;
     private UUID warehouseId;
+    private UUID pickupId;
     private UUID carrierId;
     private long nextAttemptAt;
     private int attempts;
@@ -97,6 +99,15 @@ public final class FreightOrder {
 
     public void setState(State state) {
         this.state = state;
+        this.stateAt = 0L;
+    }
+
+    public long stateAt() {
+        return stateAt;
+    }
+
+    public void setStateAt(long stateAt) {
+        this.stateAt = stateAt;
     }
 
     public UUID warehouseId() {
@@ -105,6 +116,14 @@ public final class FreightOrder {
 
     public void setWarehouseId(UUID warehouseId) {
         this.warehouseId = warehouseId;
+    }
+
+    public UUID pickupId() {
+        return pickupId;
+    }
+
+    public void setPickupId(UUID pickupId) {
+        this.pickupId = pickupId;
     }
 
     public UUID carrierId() {

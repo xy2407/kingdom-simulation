@@ -59,9 +59,18 @@ public final class FarmPanelService {
                         Math.min(packet.minZ(), packet.maxZ()));
                 BlockPos max = new BlockPos(Math.max(packet.minX(), packet.maxX()), groundY,
                         Math.max(packet.minZ(), packet.maxZ()));
-                manager.create(building, "", packet.value(), DateSystem.totalDay(player.serverLevel()),
+                FarmPlot created = manager.create(building, "", packet.value(),
+                        DateSystem.totalDay(player.serverLevel()),
                         min, max, allowedCrop(building, packet.text()), packet.workerIds(),
                         packet.extraRegions());
+                if (created == null) {
+                    int limit = BuildingLevelRules.farmPlotLimit(building.level());
+                    String why = manager.plotsOf(building.id()).size() >= limit
+                            ? "田块数量已达上限（Lv." + building.level() + " 最多 " + limit + " 块）"
+                            : "农田格子已经用完（Lv." + building.level() + " 共 "
+                                    + BuildingLevelRules.farmSlotTotal(building.level()) + " 格）";
+                    player.displayClientMessage(Component.literal("建不了这块田：" + why), true);
+                }
             }
             case FarmPanelActionPacket.ACTION_SET_SLOTS -> {
                 FarmPlot plot = owned(manager, plotId, building);

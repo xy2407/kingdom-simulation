@@ -9,13 +9,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.common.building.AnimalSpec;
 import com.xy2407.kingdom.common.building.BuildingBlueprints;
-import com.xy2407.kingdom.common.building.BuildingMeta;
-import com.xy2407.kingdom.common.building.BuildingMetaLoader;
+import com.xy2407.kingdom.common.building.BuildingLevelRules;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.persistence.RanchSchema;
@@ -35,7 +33,6 @@ public final class RanchPenManager {
 
     private static final int LOAD_RETRY_DELAY_TICKS = 200;
     private static final int SCAN_INTERVAL_TICKS = 200;
-    private static final Map<String, List<AnimalSpec>> SPEC_CACHE = new ConcurrentHashMap<>();
 
     private final Map<UUID, RanchPen> pens = new LinkedHashMap<>();
     private boolean loaded;
@@ -50,7 +47,6 @@ public final class RanchPenManager {
         loaded = false;
         loadRetryCooldown = 0;
         scanCounter = 0;
-        SPEC_CACHE.clear();
         RanchBounds.reset();
     }
 
@@ -71,6 +67,16 @@ public final class RanchPenManager {
     }
 
     public Collection<RanchPen> all() {
+        List<RanchPen> enabled = new ArrayList<>();
+        for (RanchPen pen : pens.values()) {
+            if (isEnabled(pen)) {
+                enabled.add(pen);
+            }
+        }
+        return enabled;
+    }
+
+    public Collection<RanchPen> allRaw() {
         return pens.values();
     }
 
@@ -104,7 +110,8 @@ public final class RanchPenManager {
         if (pen == null) {
             return null;
         }
-        for (AnimalSpec spec : animalsOf(pen.blueprintName())) {
+        BuildingRecord building = BuildingRegistry.INSTANCE.byId(pen.buildingId());
+        for (AnimalSpec spec : animalsOf(building)) {
             if (spec.id().equals(pen.animalId())) {
                 return spec;
             }
@@ -112,14 +119,32 @@ public final class RanchPenManager {
         return null;
     }
 
-    public List<AnimalSpec> animalsOf(String blueprintName) {
-        if (blueprintName == null || blueprintName.isBlank()) {
+    public List<AnimalSpec> animalsOf(BuildingRecord building) {
+        if (building == null) {
             return List.of();
         }
-        return SPEC_CACHE.computeIfAbsent(blueprintName, name -> {
-            BuildingMeta meta = BuildingMetaLoader.byBuildName(name);
-            return meta == null ? List.of() : meta.animals();
-        });
+        return BuildingRegistry.INSTANCE.metaOf(building).animals();
+    }
+
+    public List<String> enabledAnimalIds(BuildingRecord building) {
+        if (building == null) {
+            return List.of();
+        }
+        List<AnimalSpec> specs = animalsOf(building);
+        int limit = BuildingLevelRules.ranchPenLimit(building.level());
+        List<String> ids = new ArrayList<>();
+        for (int i = 0; i < specs.size() && i < limit; i++) {
+            ids.add(specs.get(i).id());
+        }
+        return ids;
+    }
+
+    public boolean isEnabled(RanchPen pen) {
+        if (pen == null) {
+            return false;
+        }
+        BuildingRecord building = BuildingRegistry.INSTANCE.byId(pen.buildingId());
+        return building != null && enabledAnimalIds(building).contains(pen.animalId());
     }
 
     public RanchPen update(RanchPen pen) {
@@ -146,7 +171,7 @@ public final class RanchPenManager {
             }
         }
         for (BuildingRecord building : BuildingRegistry.INSTANCE.all()) {
-            for (AnimalSpec spec : animalsOf(building.name())) {
+            for (AnimalSpec spec : animalsOf(building)) {
                 if (spec.id().isBlank()) {
                     continue;
                 }

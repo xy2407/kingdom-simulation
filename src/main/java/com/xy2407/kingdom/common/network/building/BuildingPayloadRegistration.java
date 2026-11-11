@@ -8,7 +8,7 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 /**
- * 建筑网络包注册，绑定投影下发与放置确认两个方向
+ * 建筑网络包注册，绑定投影、面板、选区、住户、餐厅与搬移的收发方向
  */
 @EventBusSubscriber(modid = ModMain.MOD_ID)
 public final class BuildingPayloadRegistration {
@@ -27,6 +27,10 @@ public final class BuildingPayloadRegistration {
                 BuildingPanelRequestPacket.STREAM_CODEC, BuildingPanelRequestPacket::handle);
         registrar.playToClient(BuildingPanelStatePacket.TYPE,
                 BuildingPanelStatePacket.STREAM_CODEC, BuildingPanelStatePacket::handle);
+        registrar.playToClient(BuildingWorkChoicePacket.TYPE,
+                BuildingWorkChoicePacket.STREAM_CODEC, BuildingWorkChoicePacket::handle);
+        registrar.playToServer(BuildingWorkSelectPacket.TYPE,
+                BuildingWorkSelectPacket.STREAM_CODEC, BuildingWorkSelectPacket::handle);
         registrar.playToServer(ResidentListRequestPacket.TYPE,
                 ResidentListRequestPacket.STREAM_CODEC, ResidentListRequestPacket::handle);
         registrar.playToServer(ResidentActionPacket.TYPE,

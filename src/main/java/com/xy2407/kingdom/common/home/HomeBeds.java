@@ -5,6 +5,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import com.xy2407.kingdom.common.building.BuildingLevelRules;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.npc.NpcData;
 import com.xy2407.kingdom.common.npc.NpcManager;
@@ -52,13 +53,29 @@ public final class HomeBeds {
         return found;
     }
 
+    public static int capacity(BuildingRecord building) {
+        return building == null ? 0 : BuildingLevelRules.bedCapacity(building.level());
+    }
+
+    public static List<BlockPos> usableBeds(ServerLevel level, BuildingRecord building) {
+        if (building == null) {
+            return List.of();
+        }
+        List<BlockPos> all = beds(level, building);
+        int cap = capacity(building);
+        if (all.size() <= cap) {
+            return all;
+        }
+        return new ArrayList<>(all.subList(0, cap));
+    }
+
     public static int occupied(BuildingRecord building) {
         return takenBeds(building).size();
     }
 
     public static BlockPos assignFree(ServerLevel level, BuildingRecord building) {
         Set<BlockPos> taken = takenBeds(building);
-        for (BlockPos bed : beds(level, building)) {
+        for (BlockPos bed : usableBeds(level, building)) {
             if (!taken.contains(bed)) {
                 return bed;
             }

@@ -187,8 +187,11 @@
             flex-direction: column;
             overflow: hidden;
 
+            /* 分类格底：深框浅面。card_gen.png 是深褐木框卡（拉伸到 120px 格上
+               整格发深，与"边框深、内部浅"的风格相悖），换成浅羊皮纸底卡，
+               深色由 2px 描边与 inset 坡承担。 */
             background-color: var(--parchment-hi);
-            background-image: url('/tex/card_gen.png');
+            background-image: url('/tex/parchment_card.png');
             background-size: 100% 100%;
             background-repeat: no-repeat;
             border: 2px solid var(--border-dark);
@@ -369,7 +372,8 @@
             flex-direction: column;
             overflow: hidden;
 
-            background-image: url('/tex/card_gen.png');
+            /* 建筑卡同样换浅羊皮纸底（深褐木框卡在 132px 小卡上整卡发深） */
+            background-image: url('/tex/parchment_card.png');
             background-size: 100% 100%;
             background-repeat: no-repeat;
             background-color: var(--parchment);
@@ -577,8 +581,9 @@
             flex-direction: column;
             overflow: hidden;
 
+            /* 同 .band：card_gen.png 深褐底换成浅羊皮纸，深框浅面 */
             background-color: var(--parchment-hi);
-            background-image: url('/tex/card_gen.png');
+            background-image: url('/tex/parchment_card.png');
             background-size: 100% 100%;
             background-repeat: no-repeat;
             border: 2px solid var(--border-dark);

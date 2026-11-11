@@ -23,7 +23,7 @@ import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 
 /**
- * 服务端施工调度入口，每 tick 推进建筑任务
+ * 服务端施工调度入口，每 tick 推进建筑任务并定时触发各类派工
  */
 @EventBusSubscriber(modid = ModMain.MOD_ID)
 public final class BuildingServerTick {
@@ -53,6 +53,8 @@ public final class BuildingServerTick {
             NpcRestaurantService.assignWorkers(event.getServer());
             NpcShopService.assignWorkers(event.getServer());
         }
+        com.xy2407.kingdom.server.military.SoldierService.tick(event.getServer());
+        com.xy2407.kingdom.server.forge.ForgeService.INSTANCE.tick(event.getServer());
     }
 
     @SubscribeEvent

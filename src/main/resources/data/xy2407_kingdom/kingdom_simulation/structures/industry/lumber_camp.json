@@ -1,9 +1,0 @@
-{
-  "name": "伐木场",
-  "type": "INDUSTRY",
-  "industry_kind": "伐木",
-  "tags": ["lumber", "wood", "gather"],
-  "level": 1,
-  "jobs": 2,
-  "storage_slots": 27
-}

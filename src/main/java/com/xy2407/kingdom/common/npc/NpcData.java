@@ -11,13 +11,14 @@ import com.google.gson.reflect.TypeToken;
 import com.xy2407.kingdom.common.persistence.NpcSchema;
 
 /**
- * 市民数据POJO，dirty标记驱动增量落库
+ * 市民档案数据类，记录身份、天赋、饥饿、职业与工作居住绑定
  */
 public final class NpcData {
     private static final Gson GSON = new Gson();
     public static final double HUNGER_MAX = 20.0;
 
-    /** 战斗指令：只存玩家显式下达的坚守/进攻，自动索敌、反击等瞬时状态不入库。 */
+    public static final String JOB_SOLDIER = "士兵";
+
     public static final String COMBAT_STANDBY = "STANDBY";
     public static final String COMBAT_HOLD = "HOLD";
     public static final String COMBAT_ATTACK = "ATTACK";
@@ -384,7 +385,6 @@ public final class NpcData {
         }
         this.strength = strength;
         markDirty();
-        // 值真的变了才通知活着的实体重算属性（不进 tick）
         NpcManager.INSTANCE.onTalentChanged(this);
     }
 

@@ -1,8 +1,11 @@
 package com.xy2407.kingdom.client.block;
 
 import net.minecraft.core.Direction;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.api.distmarker.OnlyIn;
 
 /** 货架九宫格几何：三层台阶的顶面高度、三列横向位置，以及朝向换算。 */
+@OnlyIn(Dist.CLIENT)
 public final class ShopShelfLayout {
 
     public static final double[] ROW_Y = {14.0D / 16.0D, 12.0D / 16.0D, 10.0D / 16.0D};

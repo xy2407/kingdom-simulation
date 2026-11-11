@@ -34,6 +34,7 @@ public final class BuildingSchema implements Migration {
     public static final String COL_LEVEL = "level";
     public static final String COL_BUILD_STATE = "build_state";
     public static final String COL_STRUCTURE_NAME = "structure_name";
+    public static final String COL_WORK = "work";
     public static final String COL_ROTATION = "rotation";
     public static final String COL_RESIDENT_IDS = "resident_ids";
     public static final String COL_WORKER_IDS = "worker_ids";
@@ -43,7 +44,7 @@ public final class BuildingSchema implements Migration {
 
     @Override
     public int version() {
-        return 7;
+        return 38;
     }
 
     @Override
@@ -122,6 +123,7 @@ public final class BuildingSchema implements Migration {
         defs.put(COL_LEVEL, "INTEGER NOT NULL DEFAULT 1");
         defs.put(COL_BUILD_STATE, "TEXT NOT NULL DEFAULT 'COMPLETED'");
         defs.put(COL_STRUCTURE_NAME, "TEXT NOT NULL DEFAULT ''");
+        defs.put(COL_WORK, "TEXT NOT NULL DEFAULT ''");
         defs.put(COL_ROTATION, "INTEGER NOT NULL DEFAULT 0");
         defs.put(COL_RESIDENT_IDS, "TEXT NOT NULL DEFAULT '[]'");
         defs.put(COL_WORKER_IDS, "TEXT NOT NULL DEFAULT '[]'");
@@ -136,7 +138,7 @@ public final class BuildingSchema implements Migration {
                 COL_UUID, COL_CODE, COL_NAME, COL_TYPE, COL_CATEGORY, COL_TAGS, COL_NATION,
                 COL_TERRITORY_ID, COL_DIMENSION, COL_MIN_X, COL_MIN_Y, COL_MIN_Z,
                 COL_MAX_X, COL_MAX_Y, COL_MAX_Z, COL_LEVEL, COL_BUILD_STATE, COL_STRUCTURE_NAME,
-                COL_ROTATION, COL_RESIDENT_IDS, COL_WORKER_IDS, COL_FARM_SLOTS,
+                COL_WORK, COL_ROTATION, COL_RESIDENT_IDS, COL_WORKER_IDS, COL_FARM_SLOTS,
                 COL_CREATED_DAY, COL_UPDATED_AT
         });
     }

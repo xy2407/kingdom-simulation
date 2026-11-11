@@ -1,10 +1,9 @@
 package com.xy2407.kingdom.common.restaurant;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
+import com.xy2407.kingdom.common.building.BuildingLevelRules;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 
 import net.minecraft.core.BlockPos;
@@ -28,7 +27,7 @@ public final class RestaurantSeats {
         }
         String dimension = level.dimension().location().toString();
         List<BlockPos> chairs = new ArrayList<>();
-        Set<BlockPos> tables = new HashSet<>();
+        List<BlockPos> tables = new ArrayList<>();
         int scanned = 0;
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         for (int y = building.min().getY(); y <= building.max().getY() && scanned < MAX_SCAN; y++) {
@@ -43,18 +42,28 @@ public final class RestaurantSeats {
                     if (RestaurantFurniture.isChair(state)) {
                         chairs.add(new BlockPos(x, y, z));
                     } else if (RestaurantFurniture.isTable(state)) {
-                        tables.add(new BlockPos(x, y, z));
+                        BlockPos table = new BlockPos(x, y, z);
+                        if (!tables.contains(table)) {
+                            tables.add(table);
+                        }
                     }
                 }
             }
         }
-        for (BlockPos chair : chairs) {
-            result.add(new RestaurantSeat(building.id(), dimension, chair, nearestTable(chair, tables)));
+        int tableLimit = BuildingLevelRules.restaurantTables(building.level());
+        List<BlockPos> tablesInUse = tables.size() <= tableLimit
+                ? tables : tables.subList(0, tableLimit);
+        int chairLimit = BuildingLevelRules.restaurantChairs(building.level());
+        int seatCount = Math.min(chairs.size(), chairLimit);
+        for (int index = 0; index < seatCount; index++) {
+            BlockPos chair = chairs.get(index);
+            result.add(new RestaurantSeat(building.id(), dimension, chair,
+                    nearestTable(chair, tablesInUse)));
         }
         return result;
     }
 
-    private static BlockPos nearestTable(BlockPos chair, Set<BlockPos> tables) {
+    private static BlockPos nearestTable(BlockPos chair, List<BlockPos> tables) {
         if (tables.isEmpty()) {
             return null;
         }

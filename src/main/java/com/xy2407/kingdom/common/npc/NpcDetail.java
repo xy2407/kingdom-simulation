@@ -27,6 +27,7 @@ public enum NpcDetail {
     FOLLOWING(NpcSubState.MOVING),
     DELIVERING(NpcSubState.MOVING),
     COMMANDED_MOVE(NpcSubState.MOVING),
+    GARRISON(NpcSubState.WORKING),
     ARMED_IDLE(NpcSubState.FIGHTING),
     PATROLLING(NpcSubState.FIGHTING),
     HOLDING_GROUND(NpcSubState.FIGHTING),
@@ -67,6 +68,7 @@ public enum NpcDetail {
             case FOLLOWING -> "跟随";
             case DELIVERING -> "送货";
             case COMMANDED_MOVE -> "执行指令";
+            case GARRISON -> "驻防";
             case ARMED_IDLE -> "手持武器待命";
             case PATROLLING -> "巡逻中";
             case HOLDING_GROUND -> "坚守中";

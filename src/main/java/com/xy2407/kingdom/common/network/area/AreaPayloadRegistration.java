@@ -25,5 +25,9 @@ public final class AreaPayloadRegistration {
                 AreaStateRequestPacket.STREAM_CODEC, AreaStateRequestPacket::handle);
         registrar.playToClient(AreaStatePacket.TYPE,
                 AreaStatePacket.STREAM_CODEC, AreaStatePacket::handle);
+        registrar.playToServer(AreaOverviewRequestPacket.TYPE,
+                AreaOverviewRequestPacket.STREAM_CODEC, AreaOverviewRequestPacket::handle);
+        registrar.playToClient(AreaOverviewPacket.TYPE,
+                AreaOverviewPacket.STREAM_CODEC, AreaOverviewPacket::handle);
     }
 }

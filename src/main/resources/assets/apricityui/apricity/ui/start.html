@@ -166,9 +166,15 @@ body{
 }
 
 .flap-emblem{
+  /* 居中不能用 left:50%（AUI 无 transform，translateX(-50%) 不存在，
+     浏览器里原稿也没写 —— 符号串会整体右偏半个自身宽度）。
+     绝对定位 left:0 + right:0 把盒子撑满信封盖，再 text-align:center 居中，
+     引擎里和浏览器里走的是同一条不依赖 transform 的路径。 */
   position:absolute;
-  left:50%;
+  left:0;
+  right:0;
   top:32%;
+  text-align:center;
   font-family:'Zpix',monospace;
   font-size:18px;
   color:rgba(140,105,52,.55);
@@ -408,10 +414,28 @@ body.modal-open{
   margin-top:10px;
 }
 
+/* 旗帜卡列表：不用 grid（引擎里 fr 分栏会塌，D5）。
+   三行 .card-row 各自 flex 水平居中，卡片锁死 240px，
+   浏览器与 AUI 走同一条不依赖 fr 的路径。 */
 .grid{
-  display:grid;
-  grid-template-columns:repeat(4,1fr);
-  gap:16px;
+  display:block;
+}
+
+.card-row{
+  display:flex;
+  justify-content:center;
+}
+
+.card-row + .card-row{
+  margin-top:16px;
+}
+
+.card-row .card{
+  flex:0 0 auto;
+  width:236px;
+  /* 卡间距用对称 margin（横排 flex gap 在引擎里不可靠，D4）；
+     236×4 + 8×8 = 1008 ≤ 卷轴内容宽 1012，正好放下一行 */
+  margin:0 8px;
 }
 
 .card{
@@ -708,6 +732,9 @@ body.modal-open{
 .modal{
   width:880px;
   display:none;
+  /* modal-close 的绝对定位锚：明确给弹窗本体一个定位上下文，
+     避免关闭按钮的 containing block 落到 .overlay（fixed 全屏）上 */
+  position:relative;
   background-color:var(--parchment);
   background-image:repeating-linear-gradient(0deg,rgba(122,90,40,.06) 0 2px,rgba(122,90,40,0) 2px 4px);
   padding:32px 28px;
@@ -818,7 +845,11 @@ body.modal-open{
 }
 
 .form{
-  flex:1;
+  /* flex:1 简写在引擎里没被完整解析（曾把按钮挤偏）；显式三属性 */
+  flex-grow:1;
+  flex-shrink:1;
+  flex-basis:0%;
+  min-width:0;
   display:flex;
   flex-direction:column;
   gap:18px;
@@ -904,13 +935,19 @@ body.modal-open{
     0 0 0 2px var(--gold),
     0 0 0 3px var(--border-deep);
 }
+/* 弹窗底部按钮：不用 flex + justify-content:flex-end（引擎下 flex-end
+   与横排 gap 都不可靠，按钮曾整排飞到屏幕右上角）。
+   改成块级容器 text-align:right，按钮 inline-block 排一行靠右 ——
+   纯流内布局，引擎与浏览器同路径。 */
 .modal-foot{
-  display:flex;
-  gap:12px;
-  justify-content:flex-end;
   padding-top:18px;
   margin-top:22px;
   border-top:2px solid var(--border-mid);
+  text-align:right;
+}
+.modal-foot .btn{
+  display:inline-block;
+  margin-left:12px;
 }
 
 .toast{

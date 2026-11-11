@@ -24,6 +24,9 @@ public final class BuildingMetaLoader {
     private static final java.util.Map<String, BuildingMeta> BY_BUILD_NAME =
             new java.util.concurrent.ConcurrentHashMap<>();
 
+    private static final java.util.Map<BuildingWork, BuildingMeta> WORK_TEMPLATES =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     private static final java.util.concurrent.atomic.AtomicBoolean scanned =
             new java.util.concurrent.atomic.AtomicBoolean();
 
@@ -54,6 +57,9 @@ public final class BuildingMetaLoader {
             type = work.type();
         }
         if (type == null) {
+            type = typeOfFolder(id);
+        }
+        if (type == null) {
             ModMain.LOGGER.warn("建筑定义缺少 type 字段，已忽略: {}", jsonFile);
             return BuildingMeta.fallback(id, null);
         }
@@ -62,12 +68,9 @@ public final class BuildingMetaLoader {
                     jsonFile.getFileName(), work, type);
             work = null;
         }
-        if (work == null) {
-            ModMain.LOGGER.warn("建筑定义 {} 缺少 work 字段", jsonFile.getFileName());
-        }
         String name = string(root, "name", "");
         if (name == null || name.isBlank()) {
-            name = BuildingMeta.shortName(id);
+            name = type.label() + "建筑";
         }
         String buildName = string(root, "buildname", id);
         BuildingMeta shared = buildName == null ? null : BY_BUILD_NAME.get(buildName);
@@ -111,6 +114,38 @@ public final class BuildingMetaLoader {
         return BY_BUILD_NAME.get(buildName);
     }
 
+    public static BuildingType typeOfFolder(String id) {
+        if (id == null) {
+            return null;
+        }
+        String normalized = id.replace('\\', '/');
+        int slash = normalized.indexOf('/');
+        if (slash <= 0) {
+            return null;
+        }
+        return BuildingType.parse(normalized.substring(0, slash));
+    }
+
+    public static BuildingMeta templateForWork(BuildingWork work) {
+        if (work == null) {
+            return null;
+        }
+        BuildingMeta cached = WORK_TEMPLATES.get(work);
+        if (cached != null) {
+            return cached;
+        }
+        scan();
+        for (BuildingMeta meta : BY_BUILD_NAME.values()) {
+            if (meta.work() == work) {
+                WORK_TEMPLATES.put(work, meta);
+                return meta;
+            }
+        }
+        BuildingMeta fallbackMeta = BuildingWorkCatalog.metaOf(work, 1);
+        WORK_TEMPLATES.put(work, fallbackMeta);
+        return fallbackMeta;
+    }
+
     public static java.util.List<String> allBuildNames() {
         scan();
         java.util.Set<String> names = new java.util.TreeSet<>(BY_BUILD_NAME.keySet());
@@ -149,6 +184,7 @@ public final class BuildingMetaLoader {
 
     public static void clearIndex() {
         BY_BUILD_NAME.clear();
+        WORK_TEMPLATES.clear();
         scanned.set(false);
     }
 

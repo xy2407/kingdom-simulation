@@ -93,8 +93,7 @@ public final class BuildingMoveService {
 
         BlockPos newMax = newMin.offset(oldMax.getX() - oldMin.getX(),
                 oldMax.getY() - oldMin.getY(), oldMax.getZ() - oldMin.getZ());
-        BuildingRecord moved = new BuildingRecord(old.id(), old.name(), old.dimension(), newMin, newMax,
-                old.level(), old.rotation(), old.farmSlots(), old.createdDay());
+        BuildingRecord moved = old.withBounds(newMin, newMax);
         BuildingRegistry.INSTANCE.update(moved);
 
         int homes = shiftHomes(buildingId, delta);

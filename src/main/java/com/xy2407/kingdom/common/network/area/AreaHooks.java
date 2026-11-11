@@ -9,11 +9,20 @@ public final class AreaHooks {
 
     public static volatile Consumer<AreaStatePacket> stateSink;
 
+    public static volatile Consumer<AreaOverviewPacket> overviewSink;
+
     private AreaHooks() {
     }
 
     public static void accept(AreaStatePacket packet) {
         Consumer<AreaStatePacket> sink = stateSink;
+        if (sink != null) {
+            sink.accept(packet);
+        }
+    }
+
+    public static void acceptOverview(AreaOverviewPacket packet) {
+        Consumer<AreaOverviewPacket> sink = overviewSink;
         if (sink != null) {
             sink.accept(packet);
         }

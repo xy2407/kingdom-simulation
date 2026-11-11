@@ -54,18 +54,24 @@ public final class NpcFreightService {
             FreightService.INSTANCE.fail(order, "需求方已不存在");
             return;
         }
+        BuildingRecord pickup = order.pickupId() == null ? warehouse
+                : BuildingRegistry.INSTANCE.byId(order.pickupId());
+        if (pickup == null) {
+            FreightService.INSTANCE.fail(order, "取货点已不存在");
+            return;
+        }
         switch (order.state()) {
             case ASSIGNED -> {
-                if (walkTo(npc, center(warehouse))) {
+                if (walkTo(npc, center(pickup))) {
                     order.setState(FreightOrder.State.PICKING_UP);
                 }
             }
             case PICKING_UP -> {
-                if (!hasAll(level, warehouse, order)) {
-                    FreightService.INSTANCE.fail(order, "仓库库存不足");
+                if (!hasAll(level, pickup, order)) {
+                    FreightService.INSTANCE.fail(order, "取货点库存不足");
                     return;
                 }
-                loadOnboard(level, npc, warehouse, order);
+                loadOnboard(level, npc, pickup, order);
                 order.setState(FreightOrder.State.DELIVERING);
             }
             case DELIVERING -> {

@@ -18,7 +18,9 @@ import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingMetaLoader;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.building.BuildingTask;
+import com.xy2407.kingdom.common.building.BuildingLevelRules;
 import com.xy2407.kingdom.common.building.BuildingType;
+import com.xy2407.kingdom.common.building.BuildingWorkCatalog;
 import com.xy2407.kingdom.common.persistence.BuildingSchema;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.server.mapoverlay.MapOverlayCollector;
@@ -31,7 +33,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
 /**
- * 建筑登记表，完工落库并在玩家进入包围盒时提示。
+ * 建筑登记表，负责完工落库、按包围盒定位建筑并提示玩家当前状态
  */
 public final class BuildingRegistry {
     public static final BuildingRegistry INSTANCE = new BuildingRegistry();
@@ -42,7 +44,6 @@ public final class BuildingRegistry {
 
     private final List<BuildingRecord> records = new ArrayList<>();
     private final Map<UUID, BuildingRecord> index = new HashMap<>();
-    private final Map<String, Boolean> diningCache = new ConcurrentHashMap<>();
     private final Map<String, BuildingMeta> metaCache = new ConcurrentHashMap<>();
     private boolean loaded;
     private int tickCounter;
@@ -65,9 +66,18 @@ public final class BuildingRegistry {
         Vec3i size = task.plan().size();
         BlockPos min = task.origin();
         BlockPos max = min.offset(size.getX() - 1, size.getY() - 1, size.getZ() - 1);
+        BuildingMeta blueprint = BuildingMetaLoader.byBuildName(task.blueprintName());
+        BuildingType type = blueprint != null && blueprint.type() != null
+                ? blueprint.type()
+                : BuildingMetaLoader.typeOfFolder(task.blueprintName());
+        BuildingWork work = blueprint == null ? null : blueprint.work();
+        if (work == null) {
+            work = BuildingWorkCatalog.soleWork(type);
+        }
+        int farmSlots = BuildingLevelRules.farmSlotsOf(work, task.level());
         BuildingRecord building = new BuildingRecord(task.id(), task.blueprintName(),
                 task.dimension().location().toString(), min, max, task.level(), task.rotation(),
-                farmSlotsOf(task.blueprintName()), task.createdDay());
+                farmSlots, task.createdDay(), type, work);
         records.add(building);
         index.put(building.id(), building);
         KingdomPersistence.submit(BuildingSchema.TABLE_BUILDING, BuildingSchema.COL_UUID,
@@ -76,14 +86,14 @@ public final class BuildingRegistry {
         BuildingRoadAccess.markBuildingDirty(building.id());
     }
 
-    private static int farmSlotsOf(String blueprintName) {
-        BuildingMeta meta = BuildingMetaLoader.byBuildName(blueprintName);
-        return meta == null ? 0 : meta.farmSlots();
-    }
-
     public BuildingMeta metaOf(BuildingRecord building) {
         if (building == null || building.name() == null || building.name().isBlank()) {
             return BuildingMeta.fallback("", null);
+        }
+        BuildingWork work = building.work();
+        if (work != null) {
+            return BuildingWorkCatalog.withLevel(BuildingMetaLoader.templateForWork(work),
+                    work, building.level());
         }
         BuildingMeta cached = metaCache.get(building.name());
         if (cached != null) {
@@ -208,7 +218,7 @@ public final class BuildingRegistry {
         BlockPos best = null;
         double bestSqr = radius * radius;
         for (BuildingRecord record : records) {
-            if (!dimensionId.equals(record.dimension()) || !isDining(record.name())) {
+            if (!dimensionId.equals(record.dimension()) || record.work() != BuildingWork.RESTAURANT) {
                 continue;
             }
             double spotX = clamp(x, record.min().getX() - 1.0D, record.max().getX() + 2.0D);
@@ -228,22 +238,10 @@ public final class BuildingRegistry {
         return Math.max(low, Math.min(high, value));
     }
 
-    private boolean isDining(String blueprintName) {
-        if (blueprintName == null || blueprintName.isBlank()) {
-            return false;
-        }
-        return diningCache.computeIfAbsent(blueprintName, BuildingRegistry::resolveDining);
-    }
-
-    private static boolean resolveDining(String blueprintName) {
-        BuildingMeta meta = BuildingMetaLoader.byBuildName(blueprintName);
-        if (meta == null) {
-            meta = BuildingMetaLoader.load(BuildingMetaLoader.blueprintFile(blueprintName), blueprintName);
-        }
-        return meta.isWork(BuildingWork.RESTAURANT);
-    }
-
     private static Component prompt(BuildingRecord building) {
+        if (!building.typed() && BuildingWorkCatalog.needsChoice(building.type())) {
+            return Component.literal("这座" + building.type().label() + "建筑还没定用途 · 按 Tab 选择");
+        }
         return Component.literal(String.format("建筑 %s  包围盒 (%d,%d,%d)-(%d,%d,%d)  等级 %d",
                 building.name(),
                 building.min().getX(), building.min().getY(), building.min().getZ(),
@@ -255,7 +253,11 @@ public final class BuildingRegistry {
         Map<String, Object> values = new LinkedHashMap<>();
         values.put(BuildingSchema.COL_UUID, building.id().toString());
         values.put(BuildingSchema.COL_NAME, building.name());
+        values.put(BuildingSchema.COL_CODE, building.name());
         values.put(BuildingSchema.COL_STRUCTURE_NAME, building.name());
+        values.put(BuildingSchema.COL_TYPE, building.type() == null ? "" : building.type().name());
+        values.put(BuildingSchema.COL_CATEGORY, building.type() == null ? "" : building.type().label());
+        values.put(BuildingSchema.COL_WORK, building.work() == null ? "" : building.work().name());
         values.put(BuildingSchema.COL_DIMENSION, building.dimension());
         values.put(BuildingSchema.COL_MIN_X, building.min().getX());
         values.put(BuildingSchema.COL_MIN_Y, building.min().getY());
@@ -273,9 +275,24 @@ public final class BuildingRegistry {
     }
 
     private static BuildingRecord readRow(ResultSet rs) throws SQLException {
+        String name = rs.getString(BuildingSchema.COL_NAME);
+        BuildingMeta blueprint = BuildingMetaLoader.byBuildName(name);
+        BuildingType type = blueprint != null && blueprint.type() != null
+                ? blueprint.type()
+                : BuildingType.parse(rs.getString(BuildingSchema.COL_TYPE));
+        if (type == null) {
+            type = BuildingMetaLoader.typeOfFolder(name);
+        }
+        BuildingWork work = BuildingWork.parse(rs.getString(BuildingSchema.COL_WORK));
+        if (work == null && blueprint != null) {
+            work = blueprint.work();
+        }
+        if (work == null) {
+            work = BuildingWorkCatalog.soleWork(type);
+        }
         return new BuildingRecord(
                 UUID.fromString(rs.getString(BuildingSchema.COL_UUID)),
-                rs.getString(BuildingSchema.COL_NAME),
+                name,
                 rs.getString(BuildingSchema.COL_DIMENSION),
                 new BlockPos(rs.getInt(BuildingSchema.COL_MIN_X), rs.getInt(BuildingSchema.COL_MIN_Y),
                         rs.getInt(BuildingSchema.COL_MIN_Z)),
@@ -283,7 +300,9 @@ public final class BuildingRegistry {
                         rs.getInt(BuildingSchema.COL_MAX_Z)),
                 rs.getInt(BuildingSchema.COL_LEVEL),
                 rs.getInt(BuildingSchema.COL_ROTATION),
-                rs.getInt(BuildingSchema.COL_FARM_SLOTS),
-                rs.getInt(BuildingSchema.COL_CREATED_DAY));
+                BuildingLevelRules.farmSlotsOf(work, rs.getInt(BuildingSchema.COL_LEVEL)),
+                rs.getInt(BuildingSchema.COL_CREATED_DAY),
+                type,
+                work);
     }
 }

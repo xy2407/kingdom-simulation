@@ -7,7 +7,7 @@ import com.xy2407.kingdom.common.entity.NpcEntity;
 import net.minecraft.core.BlockPos;
 
 /**
- * 市民状态机，按昼夜排班与饥饿驱动三主状态
+ * 市民状态机，按昼夜排班与饥饿驱动主状态，士兵固定驻防不排班
  */
 public final class NpcBrain {
     public static final int HUNGER_TICK_INTERVAL = 1200;
@@ -23,11 +23,13 @@ public final class NpcBrain {
     private boolean farmControlled;
     private boolean ranchControlled;
     private boolean industryControlled;
+    private boolean forgeControlled;
     private boolean restaurantControlled;
     private boolean shopControlled;
     private boolean miningControlled;
     private boolean lumberControlled;
     private boolean freightControlled;
+    private boolean soldierControlled;
     private boolean lumberForced;
     private WanderStyle wanderStyle = WanderStyle.RANDOM_WALK;
     private boolean forageDue;
@@ -53,6 +55,10 @@ public final class NpcBrain {
         }
         if (rtsControlled) {
             setPlan(NpcState.COMMANDED, NpcSubState.MOVING, NpcDetail.COMMANDED_MOVE);
+            return;
+        }
+        if (soldierControlled || NpcData.JOB_SOLDIER.equals(owner.getJob())) {
+            setPlan(NpcState.DAY, NpcSubState.WORKING, NpcDetail.GARRISON);
             return;
         }
         if (owner.getSubState() == NpcSubState.HUNGRY) {
@@ -117,6 +123,10 @@ public final class NpcBrain {
                 return;
             }
         }
+        if (forgeControlled) {
+            setPlan(phase(), NpcSubState.WORKING, NpcDetail.PRODUCING);
+            return;
+        }
         if (industryControlled) {
             if (NpcSchedule.subState(owner.getShift(), owner.getDayTime()) == NpcSubState.WORKING) {
                 setPlan(phase(), NpcSubState.WORKING, NpcDetail.PRODUCING);
@@ -155,8 +165,8 @@ public final class NpcBrain {
 
     private void correctDrift() {
         if (rtsControlled || constructionControlled || farmControlled || ranchControlled
-                || industryControlled || restaurantControlled || shopControlled || miningControlled
-                || lumberControlled || freightControlled) {
+                || industryControlled || forgeControlled || restaurantControlled || shopControlled
+                || miningControlled || lumberControlled || freightControlled) {
             return;
         }
         NpcSubState subState = owner.getSubState();
@@ -341,7 +351,8 @@ public final class NpcBrain {
                 + " 工=" + industryControlled
                 + " 餐=" + restaurantControlled
                 + " 商=" + shopControlled
-                + " 矿=" + miningControlled + "]";
+                + " 矿=" + miningControlled
+                + " 兵=" + soldierControlled + "]";
     }
 
     public boolean isRtsControlled() {
@@ -351,14 +362,10 @@ public final class NpcBrain {
     public void setRtsControlled(boolean rtsControlled) {
         this.rtsControlled = rtsControlled;
         if (rtsControlled) {
-            // 收到指令当刻就进入受令状态，不等下一轮状态机重评：
-            // 以前要等 brain 下一 tick 才切到 COMMANDED，中间这一拍 detail 分支还在跑，
-            // 工作服务的寻路会和 RTS 的寻路抢同一组 workPathFuture，移动启动被硬拖慢。
             forceCommanded();
         }
     }
 
-    /** 立即把主状态切到 COMMANDED（移动启动用）。 */
     public void forceCommanded() {
         setPlan(NpcState.COMMANDED, NpcSubState.MOVING, NpcDetail.COMMANDED_MOVE);
     }
@@ -389,6 +396,14 @@ public final class NpcBrain {
 
     public boolean isIndustryControlled() {
         return industryControlled;
+    }
+
+    public void setForgeControlled(boolean forgeControlled) {
+        this.forgeControlled = forgeControlled;
+    }
+
+    public boolean isForgeControlled() {
+        return forgeControlled;
     }
 
     public void setIndustryControlled(boolean industryControlled) {
@@ -424,6 +439,14 @@ public final class NpcBrain {
 
     public void setRestaurantControlled(boolean restaurantControlled) {
         this.restaurantControlled = restaurantControlled;
+    }
+
+    public boolean isSoldierControlled() {
+        return soldierControlled;
+    }
+
+    public void setSoldierControlled(boolean soldierControlled) {
+        this.soldierControlled = soldierControlled;
     }
 
     public boolean isFreightControlled() {

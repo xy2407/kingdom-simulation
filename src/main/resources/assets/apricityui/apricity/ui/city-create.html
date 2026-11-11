@@ -287,7 +287,13 @@ body{
   overflow:hidden;
 }
 
-/* 框内的中世纪纹样：淡淡一层，只做质感，不接交互 */
+/* 框内的中世纪纹样：淡淡一层，只做质感，不接交互。
+   ⚠ pointer-events:none 在 AUI 里【不继承】（Style.INHERITED_PROPERTIES 没有它，
+   浏览器里它继承）——只写在这层 div 上时，子元素 <svg> 的计算值仍是 auto，
+   依旧参与命中测试。六个纹样 svg 里有两个（46×46 / 40×40）几乎正好压在
+   取消/确认两个按钮上，症状就是「按钮只有边缘几像素能点、内部全死」，
+   而浏览器里因为继承是正常的。
+   修法：给 svg 显式声明 pointer-events:none（2026-11-11）。 */
 .cc-deco{
   position:absolute;
   left:0;
@@ -301,6 +307,7 @@ body{
   position:absolute;
   display:block;
   opacity:.13;
+  pointer-events:none;
   shape-rendering:crispEdges;
   image-rendering:pixelated;
 }

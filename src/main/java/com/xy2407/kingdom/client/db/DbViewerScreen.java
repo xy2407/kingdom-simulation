@@ -12,11 +12,14 @@ import com.xy2407.kingdom.server.db.DbViewerService;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.api.distmarker.OnlyIn;
 import org.lwjgl.glfw.GLFW;
 
 /**
  * 数据库查看器界面，分页切换表并滚动浏览全部字段
  */
+@OnlyIn(Dist.CLIENT)
 public final class DbViewerScreen extends Screen {
     private static final int ROW_HEIGHT = 14;
     private static final int HEADER_HEIGHT = 16;

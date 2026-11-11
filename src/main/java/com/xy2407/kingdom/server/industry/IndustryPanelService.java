@@ -109,7 +109,8 @@ public final class IndustryPanelService {
 
     private static IndustryPanelStatePacket snapshot(BuildingRecord building) {
         List<IndustryPanelStatePacket.Recipe> recipes = new ArrayList<>();
-        List<RecipeSpec> specs = BuildingRegistry.INSTANCE.metaOf(building).recipes();
+        BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(building);
+        List<RecipeSpec> specs = meta.recipes();
         for (int index = 0; index < specs.size(); index++) {
             RecipeSpec spec = specs.get(index);
             String key = recipeKey(spec, index);
@@ -118,7 +119,8 @@ public final class IndustryPanelService {
                     summarize(spec.inputs()), summarize(spec.outputs()), spec.ticks(),
                     crew.isEmpty() ? "待派工" : "已派 " + crew.size() + " 人", crew));
         }
-        return new IndustryPanelStatePacket(true, building.name(), building.level(),
+        String title = meta.name() == null || meta.name().isBlank() ? building.name() : meta.name();
+        return new IndustryPanelStatePacket(true, title, building.level(),
                 positionText(building), recipes, roster(building.id()));
     }
 

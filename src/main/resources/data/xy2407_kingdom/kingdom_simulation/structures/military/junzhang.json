@@ -1,19 +1,5 @@
 {
-  "buildname": "junzhang",
   "type": "MILITARY",
-  "work": "BARRACKS",
-  "file": "military/junzhang",
-  "name": "军帐",
-  "tags": ["military", "camp", "troop"],
   "level": 1,
-  "jobs": 2,
-  "hire": [2, 4, 8],
-  "storage_slots": 27,
-  "patrol_radius": 16,
-  "troops": [
-    { "id": "militia", "name": "民兵", "capacity": 6, "wage": 1,
-      "weapon": "minecraft:iron_sword", "armor": "minecraft:chainmail_chestplate" },
-    { "id": "archer", "name": "弓手", "capacity": 3, "wage": 2, "ranged": true,
-      "weapon": "minecraft:bow", "armor": "minecraft:leather_chestplate" }
-  ]
+  "file": "military/junzhang"
 }

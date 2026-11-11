@@ -1,10 +1,13 @@
 package com.xy2407.kingdom.server.employment;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import com.xy2407.kingdom.common.building.BuildingWork;
+import com.xy2407.kingdom.common.building.BuildingLevelRules;
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.building.BuildingType;
@@ -23,6 +26,7 @@ import com.xy2407.kingdom.common.npc.NpcRole;
 import com.xy2407.kingdom.common.npc.NpcShopService;
 import com.xy2407.kingdom.common.ranch.RanchPen;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
+import com.xy2407.kingdom.server.military.SoldierService;
 import com.xy2407.kingdom.server.farm.FarmPlotManager;
 import com.xy2407.kingdom.server.mining.MiningPlotManager;
 import com.xy2407.kingdom.server.ranch.RanchPenManager;
@@ -202,8 +206,13 @@ public final class EmploymentService {
                     brain.setIndustryControlled(false);
                     brain.setRestaurantControlled(false);
                     brain.setShopControlled(false);
+                    brain.setForgeControlled(false);
+                    brain.setSoldierControlled(false);
                     if (NpcShopService.JOB_NAME.equals(npc.getJob())) {
                         npc.setJob("");
+                    }
+                    if (SoldierService.isSoldier(npc)) {
+                        SoldierService.clearSoldier(npc);
                     }
                 }
                 default -> {
@@ -325,8 +334,7 @@ public final class EmploymentService {
                 return 0;
             }
             case FARM -> {
-                FarmPlot plot = farmPlotOf(target);
-                return plot == null ? 0 : Math.max(0, plot.slots());
+                return farmPlotOf(target) == null ? 0 : 1;
             }
             case RANCH -> {
                 return ranchPenOf(target) == null ? 0 : 1;
@@ -334,24 +342,37 @@ public final class EmploymentService {
             case RESIDENCE -> {
                 BuildingRecord building = buildingById(target.buildingId());
                 ServerLevel level = levelOf(server, building);
-                return building == null || level == null
-                        ? 0 : HomeBeds.beds(level, building).size();
-            }
-            case BUILDING, LUMBER, MINING -> {
-                BuildingRecord building = buildingById(target.buildingId());
-                BuildingMeta meta = building == null ? null : BuildingRegistry.INSTANCE.metaOf(building);
-                if (meta == null) {
+                if (building == null || level == null) {
                     return 0;
                 }
-                if (meta.isWork(BuildingWork.SHOP)) {
-                    return 1;
-                }
-                return meta.hireLimit();
+                int physical = HomeBeds.beds(level, building).size();
+                return Math.min(physical, HomeBeds.capacity(building));
+            }
+            case BUILDING, LUMBER, MINING -> {
+                return capacityOfBuilding(target);
             }
             default -> {
                 return 0;
             }
         }
+    }
+
+    private int capacityOfBuilding(EmploymentTarget target) {
+        BuildingRecord building = buildingById(target.buildingId());
+        BuildingMeta meta = building == null ? null : BuildingRegistry.INSTANCE.metaOf(building);
+        if (building == null || meta == null || meta.work() == null) {
+            return 0;
+        }
+        int level = building.level();
+        return switch (meta.work()) {
+            case MINE, LUMBER -> BuildingLevelRules.industryWorkers(level);
+            case SHOP -> BuildingLevelRules.shopClerks(level);
+            case RESTAURANT -> 2;
+            case WAREHOUSE -> BuildingLevelRules.warehouseCouriers(level);
+            case BUILDER_HUT -> BuildingLevelRules.builderHutCrew(level);
+            case BARRACKS -> BuildingLevelRules.militaryTroops(level);
+            default -> meta.hireLimit();
+        };
     }
 
     public int occupants(EmploymentTarget target) {
@@ -368,8 +389,17 @@ public final class EmploymentService {
                 return pen == null ? 0 : pen.keeperIds().size();
             }
             case MINING -> {
-                MiningPlot plot = miningPlotOf(target);
-                return plot == null ? 0 : plot.workerIds().size();
+                BuildingRecord building = buildingById(target.buildingId());
+                if (building == null) {
+                    return 0;
+                }
+                Set<UUID> crew = new HashSet<>();
+                for (MiningPlot plot : MiningPlotManager.INSTANCE.all()) {
+                    if (building.id().equals(plot.buildingId())) {
+                        crew.addAll(plot.workerIds());
+                    }
+                }
+                return crew.size();
             }
             case RESIDENCE -> {
                 int count = 0;
@@ -485,9 +515,21 @@ public final class EmploymentService {
         return true;
     }
 
+    private boolean isBarracks(EmploymentTarget target) {
+        if (target == null || target.buildingId() == null) {
+            return false;
+        }
+        BuildingRecord building = BuildingRegistry.INSTANCE.byId(target.buildingId());
+        BuildingMeta meta = building == null ? null : BuildingRegistry.INSTANCE.metaOf(building);
+        return meta != null && meta.isWork(BuildingWork.BARRACKS);
+    }
+
     private void applyControl(NpcData npc, EmploymentTarget target) {
         NpcBrain brain = npc.getBrain();
         clearControls(brain);
+        if (SoldierService.isSoldier(npc) && !isBarracks(target)) {
+            SoldierService.clearSoldier(npc);
+        }
         switch (target.kind()) {
             case FARM -> brain.setFarmControlled(true);
             case RANCH -> brain.setRanchControlled(true);
@@ -510,6 +552,11 @@ public final class EmploymentService {
                     brain.setLumberControlled(true);
                 } else if (meta.isWork(BuildingWork.MINE)) {
                     brain.setMiningControlled(true);
+                } else if (meta.isWork(BuildingWork.FORGE)) {
+                    brain.setForgeControlled(true);
+                } else if (meta.isWork(BuildingWork.BARRACKS)) {
+                    brain.setSoldierControlled(true);
+                    npc.setJob(SoldierService.JOB);
                 } else if (meta.isType(BuildingType.INDUSTRY)) {
                     brain.setIndustryControlled(true);
                 }
@@ -525,9 +572,11 @@ public final class EmploymentService {
         brain.setMiningControlled(false);
         brain.setLumberControlled(false);
         brain.setIndustryControlled(false);
+        brain.setForgeControlled(false);
         brain.setRestaurantControlled(false);
         brain.setShopControlled(false);
         brain.setConstructionControlled(false);
+        brain.setSoldierControlled(false);
     }
 
     private static FarmPlot farmPlotOf(EmploymentTarget target) {

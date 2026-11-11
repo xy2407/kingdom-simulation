@@ -77,6 +77,8 @@ public final class ModMain {
         KingdomPersistence.registerMigration(new com.xy2407.kingdom.common.persistence.PlotAreaSchema());
         KingdomPersistence.registerMigration(
                 new com.xy2407.kingdom.common.persistence.BuildingTaskSchema());
+        KingdomPersistence.registerMigration(
+                new com.xy2407.kingdom.common.persistence.ForgeTaskSchema());
         NeoForge.EVENT_BUS.register(ServerLifecycle.class);
         NeoForge.EVENT_BUS.register(DateServerTick.class);
         NeoForge.EVENT_BUS.register(NpcJoinWorldHandler.class);

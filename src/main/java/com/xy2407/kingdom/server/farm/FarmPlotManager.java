@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import com.xy2407.kingdom.ModMain;
+import com.xy2407.kingdom.common.building.BuildingLevelRules;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.farm.FarmPlot;
 import com.xy2407.kingdom.common.farm.FarmRegion;
@@ -144,7 +145,13 @@ public final class FarmPlotManager {
         if (building == null) {
             return null;
         }
+        if (plotsOf(building.id()).size() >= BuildingLevelRules.farmPlotLimit(building.level())) {
+            return null;
+        }
         int wanted = Math.max(0, Math.min(slots, remainingSlots(building)));
+        if (wanted <= 0) {
+            return null;
+        }
         FarmPlot plot = new FarmPlot(UUID.randomUUID(), building.id(), building.name(),
                 name == null || name.isBlank() ? defaultName(building.id()) : name.trim(),
                 wanted, cropId == null ? "" : cropId,

@@ -4,20 +4,24 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import com.xy2407.kingdom.common.area.PlotArea;
+import com.xy2407.kingdom.common.building.BuildingLevelRules;
+import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.area.PlotAreaKind;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.common.persistence.PlotAreaSchema;
-
+import com.xy2407.kingdom.server.building.BuildingRegistry;
 import net.minecraft.server.MinecraftServer;
 
 /**
- * 作业范围管理器：伐木/养殖范围共用，懒加载 + upsert。
+ * 作业范围管理器，伐木与养殖共用，支持同建筑多块并负责加载与落库
  */
 public final class PlotAreaManager {
 
@@ -108,6 +112,10 @@ public final class PlotAreaManager {
         return result;
     }
 
+    public PlotArea byId(UUID id) {
+        return id == null ? null : areas.get(id);
+    }
+
     public PlotArea byBuilding(UUID buildingId, PlotAreaKind kind) {
         if (buildingId == null || kind == null) {
             return null;
@@ -122,13 +130,74 @@ public final class PlotAreaManager {
 
     public PlotArea upsert(UUID buildingId, PlotAreaKind kind, String dimension,
                            List<Long> cells, long createdDay) {
-        if (buildingId == null || kind == null) {
+        if (buildingId == null || kind == null || cells == null || cells.isEmpty()) {
             return null;
         }
-        PlotArea existing = byBuilding(buildingId, kind);
+        PlotArea existing = overlapping(buildingId, kind, dimension, cells);
+        if (existing == null && countOf(buildingId, kind) >= plotLimit(buildingId, kind)) {
+            return null;
+        }
         PlotArea area = existing == null
-                ? new PlotArea(UUID.randomUUID(), buildingId, kind, dimension, cells, createdDay)
+                ? new PlotArea(UUID.randomUUID(), buildingId, kind, dimension, cells, createdDay,
+                        List.of())
                 : existing.withCells(cells);
+        areas.put(area.id(), area);
+        persist(area);
+        return area;
+    }
+
+    public List<PlotArea> allOf(UUID buildingId, PlotAreaKind kind) {
+        List<PlotArea> result = new ArrayList<>();
+        if (buildingId == null || kind == null) {
+            return result;
+        }
+        for (PlotArea area : areas.values()) {
+            if (area.kind() == kind && buildingId.equals(area.buildingId())) {
+                result.add(area);
+            }
+        }
+        return result;
+    }
+
+    public int countOf(UUID buildingId, PlotAreaKind kind) {
+        return allOf(buildingId, kind).size();
+    }
+
+    private static int plotLimit(UUID buildingId, PlotAreaKind kind) {
+        if (kind != PlotAreaKind.LUMBER) {
+            return Integer.MAX_VALUE;
+        }
+        BuildingRecord building = BuildingRegistry.INSTANCE.byId(buildingId);
+        return building == null ? 0 : BuildingLevelRules.industryPlotLimit(building.level());
+    }
+
+    private PlotArea overlapping(UUID buildingId, PlotAreaKind kind, String dimension,
+                                 List<Long> cells) {
+        Set<Long> probe = new HashSet<>(cells);
+        for (PlotArea area : areas.values()) {
+            if (area.kind() != kind || !buildingId.equals(area.buildingId())) {
+                continue;
+            }
+            if (dimension != null && !dimension.equals(area.dimension())) {
+                continue;
+            }
+            List<Long> owned = area.cells();
+            if (owned == null || owned.isEmpty()) {
+                continue;
+            }
+            for (long cell : owned) {
+                if (probe.contains(cell)) {
+                    return area;
+                }
+            }
+        }
+        return null;
+    }
+
+    public PlotArea update(PlotArea area) {
+        if (area == null || !areas.containsKey(area.id())) {
+            return null;
+        }
         areas.put(area.id(), area);
         persist(area);
         return area;
@@ -155,6 +224,7 @@ public final class PlotAreaManager {
         values.put(PlotAreaSchema.COL_KIND, area.kind().id());
         values.put(PlotAreaSchema.COL_DIMENSION, area.dimension());
         values.put(PlotAreaSchema.COL_CELLS, joinCells(area.cells()));
+        values.put(PlotAreaSchema.COL_WORKERS, joinIds(area.workerIds()));
         values.put(PlotAreaSchema.COL_CREATED_DAY, area.createdDay());
         values.put(PlotAreaSchema.COL_UPDATED_AT, System.currentTimeMillis());
         return values;
@@ -188,6 +258,41 @@ public final class PlotAreaManager {
         return cells;
     }
 
+    private static String joinIds(List<UUID> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return "";
+        }
+        StringBuilder joined = new StringBuilder(ids.size() * 37);
+        for (UUID id : ids) {
+            if (id == null) {
+                continue;
+            }
+            if (joined.length() > 0) {
+                joined.append(',');
+            }
+            joined.append(id);
+        }
+        return joined.toString();
+    }
+
+    private static List<UUID> parseIds(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        List<UUID> ids = new ArrayList<>();
+        for (String token : raw.split(",")) {
+            String trimmed = token.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            try {
+                ids.add(UUID.fromString(trimmed));
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+        return ids;
+    }
+
     private static PlotArea readRow(ResultSet rs) throws SQLException {
         UUID id;
         try {
@@ -207,6 +312,7 @@ public final class PlotAreaManager {
         }
         return new PlotArea(id, buildingId, kind, rs.getString(PlotAreaSchema.COL_DIMENSION),
                 parseCells(rs.getString(PlotAreaSchema.COL_CELLS)),
-                rs.getLong(PlotAreaSchema.COL_CREATED_DAY));
+                rs.getLong(PlotAreaSchema.COL_CREATED_DAY),
+                parseIds(rs.getString(PlotAreaSchema.COL_WORKERS)));
     }
 }

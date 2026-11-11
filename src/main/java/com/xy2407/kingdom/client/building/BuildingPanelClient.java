@@ -5,6 +5,7 @@ import com.xy2407.kingdom.client.industry.IndustryPanelScreen;
 import com.xy2407.kingdom.client.ranch.RanchPanelScreen;
 import com.xy2407.kingdom.common.network.building.BuildingPanelRequestPacket;
 import com.xy2407.kingdom.common.network.building.BuildingPanelStatePacket;
+import com.xy2407.kingdom.common.network.building.BuildingWorkChoicePacket;
 import com.xy2407.kingdom.common.network.building.ResidentListPacket;
 import com.xy2407.kingdom.common.network.building.RestaurantMenuPacket;
 import com.xy2407.kingdom.common.network.shop.ShopPanelStatePacket;
@@ -37,8 +38,7 @@ public final class BuildingPanelClient {
         if (minecraft.player == null) {
             return;
         }
-        if (packet.hasPage()) {
-            if (FarmPanelScreen.PAGE.equals(packet.page())) {
+        if (packet.hasPage()) {            if (FarmPanelScreen.PAGE.equals(packet.page())) {
                 minecraft.setScreen(new FarmPanelScreen());
                 return;
             }
@@ -58,6 +58,15 @@ public final class BuildingPanelClient {
                 ? String.format("%s  Lv.%d · 建筑操作界面尚未完成", packet.name(), packet.level())
                 : "这里没有已完工的建筑";
         minecraft.player.displayClientMessage(Component.literal(message), true);
+    }
+
+    public static void acceptWorkChoice(BuildingWorkChoicePacket packet) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player == null || packet.works().isEmpty()) {
+            return;
+        }
+        minecraft.setScreen(new BuildingWorkSelectScreen(packet.buildingId(), packet.category(),
+                packet.works()));
     }
 
     public static void acceptResidents(ResidentListPacket packet) {

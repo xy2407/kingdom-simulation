@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.xy2407.kingdom.common.building.BuildingLevelRules;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.mining.MiningPlot;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
@@ -98,9 +99,25 @@ public final class MiningPlotManager {
         return null;
     }
 
+    public List<MiningPlot> allOf(UUID buildingId) {
+        List<MiningPlot> result = new ArrayList<>();
+        if (buildingId == null) {
+            return result;
+        }
+        for (MiningPlot plot : plots.values()) {
+            if (plot.buildingId().equals(buildingId)) {
+                result.add(plot);
+            }
+        }
+        return result;
+    }
+
     public MiningPlot create(BuildingRecord building, String name, BlockPos min, BlockPos max,
                              int surfaceY, List<UUID> workerIds, long day, List<Long> cells) {
         if (building == null || min == null || max == null) {
+            return null;
+        }
+        if (allOf(building.id()).size() >= BuildingLevelRules.industryPlotLimit(building.level())) {
             return null;
         }
         MiningPlot plot = new MiningPlot(UUID.randomUUID(), building.id(),

@@ -28,8 +28,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
 /**
- * 伐木/养殖范围选区：RTS 下右键按住拖动刷地面格，保留原始形状；Enter 保存，C 撤销，Esc 取消。
- * 进入模式时会向服务端请求该维度已有的同类型范围，用于高亮。
+ * 伐木与养殖范围选区，右键刷格、Enter 保存，并按块保留服务端已有的范围
  */
 @OnlyIn(Dist.CLIENT)
 public final class AreaSelectionState {
@@ -42,7 +41,7 @@ public final class AreaSelectionState {
 
     private static final Deque<Set<Long>> UNDO = new ArrayDeque<>();
 
-    private static final Map<UUID, List<Long>> EXISTING = new LinkedHashMap<>();
+    private static final List<long[]> EXISTING = new ArrayList<>();
 
     private static PlotAreaKind kind;
 
@@ -69,6 +68,7 @@ public final class AreaSelectionState {
         stroke = null;
         hint(value.label() + "：右键按住拖动圈选地面，Enter 保存，C 撤销，Esc 取消");
         PacketDistributor.sendToServer(new AreaStateRequestPacket(value));
+        AreaOverviewCache.request();
     }
 
     public static boolean isActive() {
@@ -83,7 +83,7 @@ public final class AreaSelectionState {
         return PENDING;
     }
 
-    public static Map<UUID, List<Long>> existing() {
+    public static List<long[]> existing() {
         return EXISTING;
     }
 
@@ -232,14 +232,10 @@ public final class AreaSelectionState {
             return;
         }
         for (int index = 0; index < ids.length && index < cells.length; index++) {
-            if (ids[index] == null || cells[index] == null) {
+            if (ids[index] == null || cells[index] == null || cells[index].length == 0) {
                 continue;
             }
-            List<Long> list = new ArrayList<>(cells[index].length);
-            for (long cell : cells[index]) {
-                list.add(cell);
-            }
-            EXISTING.put(ids[index], list);
+            EXISTING.add(cells[index]);
         }
     }
 

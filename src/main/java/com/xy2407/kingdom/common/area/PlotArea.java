@@ -9,16 +9,24 @@ import java.util.UUID;
 import net.minecraft.core.BlockPos;
 
 /**
- * 作业范围：玩家在 RTS 下用右键刷出的逐格集合（保留原始形状，不转矩形）。
- * 同一建筑同一类型只保留一份，重新框选即整体替换。
+ * 作业范围，玩家刷出的逐格集合，可多块并各自记录被分到这里的工人
  */
 public record PlotArea(UUID id, UUID buildingId, PlotAreaKind kind, String dimension,
-                       List<Long> cells, long createdDay) {
+                       List<Long> cells, long createdDay, List<UUID> workerIds) {
 
     public static final int MAX_CELLS = 65536;
 
+    public PlotArea {
+        cells = cells == null ? List.of() : List.copyOf(cells);
+        workerIds = workerIds == null ? List.of() : List.copyOf(workerIds);
+    }
+
     public PlotArea withCells(List<Long> newCells) {
-        return new PlotArea(id, buildingId, kind, dimension, newCells, createdDay);
+        return new PlotArea(id, buildingId, kind, dimension, newCells, createdDay, workerIds);
+    }
+
+    public PlotArea withWorkerIds(List<UUID> workers) {
+        return new PlotArea(id, buildingId, kind, dimension, cells, createdDay, workers);
     }
 
     public boolean hasArea() {

@@ -69,6 +69,7 @@ public final class BuildingPlacementManager {
         baseY = startOrigin.getY();
         origin = startOrigin.immutable();
         active = true;
+        com.xy2407.kingdom.client.area.AreaOverviewCache.request();
         rebuildMesh();
     }
 

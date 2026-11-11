@@ -5,6 +5,8 @@ import com.sighs.apricityui.layout.Position;
 import com.sighs.apricityui.layout.Size;
 import com.sighs.apricityui.render.Graph;
 import org.joml.Matrix4f;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.api.distmarker.OnlyIn;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -12,6 +14,7 @@ import java.util.List;
 /**
  * 像素缓冲：按设备像素落笔，取用时把相邻同色像素合并成矩形提交给 AUI。
  */
+@OnlyIn(Dist.CLIENT)
 final class SpanSheet {
 
     record Span(int y0, int y1, int x0, int x1, int color) {

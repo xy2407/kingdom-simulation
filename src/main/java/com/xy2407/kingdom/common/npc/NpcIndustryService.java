@@ -107,7 +107,7 @@ public final class NpcIndustryService {
 
     private static boolean isMiningKind(BuildingRecord building) {
         BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(building);
-        return meta != null && meta.isWork(BuildingWork.MINE);
+        return meta != null && (meta.isWork(BuildingWork.MINE) || meta.isWork(BuildingWork.FORGE));
     }
 
     private static void handOver(BuildingRecord building, List<NpcData> crew) {

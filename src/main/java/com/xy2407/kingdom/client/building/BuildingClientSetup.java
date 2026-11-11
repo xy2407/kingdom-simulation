@@ -42,7 +42,7 @@ import net.neoforged.neoforge.client.settings.KeyConflictContext;
 import org.lwjgl.glfw.GLFW;
 
 /**
- * 建筑放置的客户端接线：注册确认键并挂上各面板的回调。
+ * 建筑客户端接线，注册放置确认键并挂上各建筑面板的网络回调
  */
 @EventBusSubscriber(modid = ModMain.MOD_ID, value = Dist.CLIENT)
 @OnlyIn(Dist.CLIENT)
@@ -63,6 +63,7 @@ public final class BuildingClientSetup {
     public static void onClientSetup(FMLClientSetupEvent event) {
         BuildingSiteHooks.siteSink = BuildingSiteManager::accept;
         BuildingPanelHooks.stateSink = BuildingPanelClient::accept;
+        BuildingPanelHooks.workChoiceSink = BuildingPanelClient::acceptWorkChoice;
         BuilderHooks.openSink = BuilderBoardScreen::acceptOpen;
         BuilderHooks.dataSink = BuilderBoardScreen::accept;
         ResidentHooks.listSink = BuildingPanelClient::acceptResidents;
@@ -70,6 +71,12 @@ public final class BuildingClientSetup {
         ShopPanelHooks.stateSink = BuildingPanelClient::acceptShop;
         BuildingMoveHooks.syncSink = ClientBuildingStore::accept;
         IndustryPanelHooks.stateSink = IndustryPanelScreen::accept;
+        com.xy2407.kingdom.common.network.industry.IndustryStaffHooks.stateSink =
+                com.xy2407.kingdom.client.industry.IndustryStaffScreen::accept;
+        com.xy2407.kingdom.common.network.military.MilitaryPanelHooks.stateSink =
+                com.xy2407.kingdom.client.military.MilitaryPanelScreen::accept;
+        com.xy2407.kingdom.common.network.forge.ForgePanelHooks.stateSink =
+                com.xy2407.kingdom.client.forge.ForgePanelScreen::accept;
         MiningPanelHooks.setStateSink(IndustryPanelScreen::acceptMines);
         FarmPanelHooks.stateSink = FarmPanelScreen::accept;
         RanchPanelHooks.stateSink = RanchPanelScreen::accept;
@@ -84,6 +91,8 @@ public final class BuildingClientSetup {
         RoadHooks.loadedSink = RoadClientStore::setLoadedChunks;
         com.xy2407.kingdom.common.network.area.AreaHooks.stateSink =
                 com.xy2407.kingdom.client.area.AreaSelectionState::accept;
+        com.xy2407.kingdom.common.network.area.AreaHooks.overviewSink =
+                com.xy2407.kingdom.client.area.AreaOverviewCache::accept;
         com.xy2407.kingdom.common.network.employment.EmploymentHooks.openSink =
                 com.xy2407.kingdom.client.employment.EmploymentScreen::open;
     }
@@ -97,8 +106,6 @@ public final class BuildingClientSetup {
     @SubscribeEvent
     public static void onClientTick(ClientTickEvent.Post event) {
         while (CONFIRM_PLACE.consumeClick()) {
-            // 没有待建投影时什么都不做：以前无条件调 confirmAll()，导致 RTS 里按 Enter
-            // （阵型编辑器回网格等）也会弹出"还没有待建投影"。
             if (BuildingPlacementManager.hasPending()) {
                 BuildingPlacementManager.confirmAll();
             }

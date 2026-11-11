@@ -16,7 +16,7 @@ public final class PlotAreaSchema implements Migration {
 
     private static final Map<String, String> COLUMN_DEFS = buildColumnDefs();
 
-    private static final int VERSION = 24;
+    private static final int VERSION = 39;
 
     public static final String TABLE_PLOT_AREA = "plot_area";
     public static final String COL_UUID = "uuid";
@@ -24,6 +24,7 @@ public final class PlotAreaSchema implements Migration {
     public static final String COL_KIND = "kind";
     public static final String COL_DIMENSION = "dimension";
     public static final String COL_CELLS = "cells";
+    public static final String COL_WORKERS = "worker_ids";
     public static final String COL_CREATED_DAY = "created_day";
     public static final String COL_UPDATED_AT = "updated_at";
 
@@ -95,6 +96,7 @@ public final class PlotAreaSchema implements Migration {
         defs.put(COL_KIND, "TEXT NOT NULL DEFAULT ''");
         defs.put(COL_DIMENSION, "TEXT NOT NULL DEFAULT ''");
         defs.put(COL_CELLS, "TEXT NOT NULL DEFAULT ''");
+        defs.put(COL_WORKERS, "TEXT NOT NULL DEFAULT ''");
         defs.put(COL_CREATED_DAY, "INTEGER NOT NULL DEFAULT 0");
         defs.put(COL_UPDATED_AT, "INTEGER NOT NULL DEFAULT 0");
         return defs;
@@ -102,7 +104,7 @@ public final class PlotAreaSchema implements Migration {
 
     public static String columns() {
         return String.join(", ", new String[] {
-                COL_UUID, COL_BUILDING_ID, COL_KIND, COL_DIMENSION, COL_CELLS,
+                COL_UUID, COL_BUILDING_ID, COL_KIND, COL_DIMENSION, COL_CELLS, COL_WORKERS,
                 COL_CREATED_DAY, COL_UPDATED_AT
         });
     }

@@ -1,14 +1,17 @@
 package com.xy2407.kingdom.server.area;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 import com.xy2407.kingdom.common.area.PlotArea;
 import com.xy2407.kingdom.common.area.PlotAreaKind;
 import com.xy2407.kingdom.common.building.BuildingWork;
+import com.xy2407.kingdom.common.building.BuildingLevelRules;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.building.BuildingType;
 import com.xy2407.kingdom.common.date.DateSystem;
+import com.xy2407.kingdom.common.network.area.AreaOverviewPacket;
 import com.xy2407.kingdom.common.network.area.AreaStatePacket;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
 
@@ -42,9 +45,17 @@ public final class PlotAreaService {
                     "范围为空，请至少刷到一格地面"), false);
             return;
         }
-        PlotAreaManager.INSTANCE.upsert(building.id(), kind,
+        PlotArea saved = PlotAreaManager.INSTANCE.upsert(building.id(), kind,
                 level.dimension().location().toString(), normalized,
                 DateSystem.totalDay(level));
+        if (saved == null) {
+            int limit = kind == PlotAreaKind.LUMBER
+                    ? BuildingLevelRules.industryPlotLimit(building.level())
+                    : PlotAreaManager.INSTANCE.countOf(building.id(), kind);
+            player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                    kind.label() + "数量已达上限（Lv." + building.level() + " 最多 " + limit + " 块）"), false);
+            return;
+        }
         player.displayClientMessage(net.minecraft.network.chat.Component.literal(
                 kind.label() + "已保存：" + normalized.size() + " 格"), false);
         respond(player, kind);
@@ -65,6 +76,28 @@ public final class PlotAreaService {
             cells[index] = area.toArray();
         }
         PacketDistributor.sendToPlayer(player, new AreaStatePacket(kind, buildingIds, cells));
+    }
+
+    public static void respondOverview(ServerPlayer player) {
+        if (player == null) {
+            return;
+        }
+        ServerLevel level = player.serverLevel();
+        String dimension = level.dimension().location().toString();
+        List<PlotAreaKind> kinds = new ArrayList<>();
+        List<UUID> buildingIds = new ArrayList<>();
+        List<long[]> cells = new ArrayList<>();
+        for (PlotAreaKind kind : PlotAreaKind.values()) {
+            for (PlotArea area : PlotAreaManager.INSTANCE.all(dimension, kind)) {
+                kinds.add(kind);
+                buildingIds.add(area.buildingId());
+                cells.add(area.toArray());
+            }
+        }
+        PacketDistributor.sendToPlayer(player, new AreaOverviewPacket(
+                kinds.toArray(new PlotAreaKind[0]),
+                buildingIds.toArray(new UUID[0]),
+                cells.toArray(new long[0][])));
     }
 
     private static BuildingRecord nearestBuilding(ServerLevel level, PlotAreaKind kind,

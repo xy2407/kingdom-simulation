@@ -1,8 +1,12 @@
 package com.xy2407.kingdom.client.aui;
 
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.api.distmarker.OnlyIn;
+
 /**
  * AUI 屏幕文档的居中偏移计算，供客户端两个居中 mixin 共用。
  */
+@OnlyIn(Dist.CLIENT)
 public final class AuiDocPlacement {
 
     public static final double UP_BIAS = 24.0d;

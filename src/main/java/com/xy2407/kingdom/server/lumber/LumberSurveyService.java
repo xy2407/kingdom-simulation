@@ -6,6 +6,7 @@ import java.util.Deque;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.UUID;
 import java.util.Set;
 
 import com.xy2407.kingdom.common.area.PlotArea;
@@ -23,9 +24,7 @@ import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
- * 伐木轮询：每 2400 tick 对每个伐木范围做一次轻量扫描——
- * 逐列找原木 → 竖直向上找到顶 → 顶部必须是自然生成树叶 → 相邻查询收整棵树，
- * 记录树基座坐标形成砍伐队列（NPC 自己去推进）。
+ * 伐木轮询服务，定时扫描各块林地收集树木，并按林地的工人名单派活
  */
 public final class LumberSurveyService {
 
@@ -68,12 +67,13 @@ public final class LumberSurveyService {
                 continue;
             }
             List<BlockPos> trees = surveyPlot(level, area);
-            distribute(level, building, trees);
+            distribute(level, building, area, trees);
         }
     }
 
-    private void distribute(ServerLevel level, BuildingRecord building, List<BlockPos> trees) {
-        List<NpcEntity> workers = NpcLumberService.workersFor(level, building, 4);
+    private void distribute(ServerLevel level, BuildingRecord building, PlotArea area,
+                            List<BlockPos> trees) {
+        List<NpcEntity> workers = workersOf(level, area);
         for (NpcEntity npc : workers) {
             NpcLumberService.clearQueue(npc);
         }
@@ -86,6 +86,23 @@ public final class LumberSurveyService {
         for (NpcEntity npc : workers) {
             NpcLumberService.markActive(npc, building.id());
         }
+    }
+
+    private static List<NpcEntity> workersOf(ServerLevel level, PlotArea area) {
+        List<NpcEntity> workers = new ArrayList<>();
+        if (area.workerIds().isEmpty() || level.getServer() == null) {
+            return workers;
+        }
+        for (UUID id : area.workerIds()) {
+            for (ServerLevel candidate : level.getServer().getAllLevels()) {
+                net.minecraft.world.entity.Entity entity = candidate.getEntity(id);
+                if (entity instanceof NpcEntity npc && !npc.isRemoved()) {
+                    workers.add(npc);
+                    break;
+                }
+            }
+        }
+        return workers;
     }
 
     private List<BlockPos> surveyPlot(ServerLevel level, PlotArea area) {

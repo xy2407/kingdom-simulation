@@ -3,6 +3,7 @@ package com.xy2407.kingdom.server.task;
 import java.util.*;
 
 import com.xy2407.kingdom.ModMain;
+import com.xy2407.kingdom.common.building.BuildingLevelRules;
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.building.BuildingWork;
@@ -326,6 +327,11 @@ public final class RegionTaskService {
             if (isEmployed(npcId)) {
                 return;
             }
+            int capacity = capacityTotal();
+            if (!isEmployed(npcId) && employees.size() >= capacity) {
+                feedback(player, "建筑工位已满（当前工棚等级合计最多 " + capacity + " 人）");
+                return;
+            }
             String conflict = EmploymentService.INSTANCE.conflictAt(npc, null);
             if (conflict != null) {
                 feedback(player, npc.getName() + " " + conflict + "，不能同时加入建筑工队");
@@ -391,6 +397,17 @@ public final class RegionTaskService {
             }
         }
         return best;
+    }
+
+    public int capacityTotal() {
+        int total = 0;
+        for (BuildingRecord building : BuildingRegistry.INSTANCE.all()) {
+            BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(building);
+            if (meta != null && meta.isWork(BuildingWork.BUILDER_HUT)) {
+                total += BuildingLevelRules.builderHutCrew(building.level());
+            }
+        }
+        return total;
     }
 
     public boolean hireBySystem(UUID npcId) {
@@ -484,9 +501,6 @@ public final class RegionTaskService {
         task.advance();
     }
 
-    /**
-     * 填充扣料：从离任务最近的建筑工方块材料箱取一格，没有材料箱时保持免料施工
-     */
     private boolean consumeFill(ServerLevel level, RegionTask task) {
         if (!com.xy2407.kingdom.common.building.BuildRequirements.required()) {
             return true;
