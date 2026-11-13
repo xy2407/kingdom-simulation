@@ -84,7 +84,7 @@ public final class NpcBrain {
             boolean goingWork = scheduled == NpcSubState.MOVING
                     && NpcSchedule.moveDetail(owner.getShift(), owner.getDayTime()) == NpcDetail.GOING_WORK;
             if (scheduled == NpcSubState.WORKING || goingWork) {
-                setPlan(phase(), NpcSubState.WORKING, NpcDetail.MINING);
+                setPlan(phase(), NpcSubState.WORKING, miningDetail());
                 return;
             }
             if (owner.getSubState() == NpcSubState.WORKING) {
@@ -95,14 +95,14 @@ public final class NpcBrain {
         }
         if (lumberControlled) {
             if (lumberForced) {
-                setPlan(phase(), NpcSubState.WORKING, NpcDetail.LOGGING);
+                setPlan(phase(), NpcSubState.WORKING, lumberDetail());
                 return;
             }
             NpcSubState scheduled = NpcSchedule.subState(owner.getShift(), owner.getDayTime());
             boolean goingWork = scheduled == NpcSubState.MOVING
                     && NpcSchedule.moveDetail(owner.getShift(), owner.getDayTime()) == NpcDetail.GOING_WORK;
             if (scheduled == NpcSubState.WORKING || goingWork) {
-                setPlan(phase(), NpcSubState.WORKING, NpcDetail.LOGGING);
+                setPlan(phase(), NpcSubState.WORKING, lumberDetail());
                 return;
             }
             if (owner.getSubState() == NpcSubState.WORKING) {
@@ -119,7 +119,7 @@ public final class NpcBrain {
         }
         if (ranchControlled) {
             if (NpcSchedule.subState(owner.getShift(), owner.getDayTime()) == NpcSubState.WORKING) {
-                setPlan(phase(), NpcSubState.WORKING, NpcDetail.RANCHING);
+                setPlan(phase(), NpcSubState.WORKING, ranchDetail());
                 return;
             }
         }
@@ -311,6 +311,24 @@ public final class NpcBrain {
 
     private NpcDetail farmDetail() {
         return NpcFarmService.detailOf(owner.getId());
+    }
+
+    private NpcDetail miningDetail() {
+        NpcEntity live = NpcManager.INSTANCE.liveEntity(owner);
+        NpcDetail detail = live == null ? null : NpcMiningService.detailOf(live.getUUID());
+        return detail == null ? NpcDetail.MINING : detail;
+    }
+
+    private NpcDetail ranchDetail() {
+        NpcDetail storing = com.xy2407.kingdom.server.ranch.RanchWorkService.detailOf(owner.getId());
+        return storing == null ? NpcDetail.RANCHING : storing;
+    }
+
+    private NpcDetail lumberDetail() {
+        NpcEntity live = NpcManager.INSTANCE.liveEntity(owner);
+        NpcDetail detail = live == null ? null
+                : com.xy2407.kingdom.server.lumber.NpcLumberService.detailOf(live.getUUID());
+        return detail == null ? NpcDetail.LOGGING : detail;
     }
 
     public boolean isStarving() {

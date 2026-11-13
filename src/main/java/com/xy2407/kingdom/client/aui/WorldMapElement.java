@@ -1623,7 +1623,7 @@ public class WorldMapElement extends Canvas {
             return;
         }
         event.preventDefault();
-        double next = clampZoom(zoom * (e.scrollDelta > 0.0 ? ZOOM_PER_NOTCH : 1.0 / ZOOM_PER_NOTCH));
+        double next = clampZoom(zoom * (e.scrollDelta < 0.0 ? ZOOM_PER_NOTCH : 1.0 / ZOOM_PER_NOTCH));
         if (Math.abs(next - zoom) > 1e-6) {
             zoom = next;
             setAttribute(ATTR_ZOOM, String.valueOf(next));

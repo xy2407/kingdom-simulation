@@ -139,13 +139,15 @@ public final class RanchPanelService {
             index++;
         }
         return new RanchPanelStatePacket(true, building.name(), building.level(), positionText(building),
-                animals, workerOptions(building.id()));
+                animals, workerOptions(player, building.id()));
     }
 
-    private static List<RanchPanelStatePacket.Worker> workerOptions(UUID buildingId) {
+    private static List<RanchPanelStatePacket.Worker> workerOptions(ServerPlayer player,
+                                                                    UUID buildingId) {
         List<RanchPanelStatePacket.Worker> options = new ArrayList<>();
+        String lordId = player.getUUID().toString();
         for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
-            if (npc.isDead()) {
+            if (npc.isDead() || !lordId.equals(npc.getOwnerId())) {
                 continue;
             }
             options.add(new RanchPanelStatePacket.Worker(npc.getId(), npc.getName(), npc.getSkin(),

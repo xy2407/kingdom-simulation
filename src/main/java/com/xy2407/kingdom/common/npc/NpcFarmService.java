@@ -8,6 +8,7 @@ import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.date.DateSystem;
 import com.xy2407.kingdom.common.entity.NpcEntity;
 import com.xy2407.kingdom.common.farm.CropCatalog;
+import com.xy2407.kingdom.common.farm.FarmCropCompat;
 import com.xy2407.kingdom.common.farm.FarmPlot;
 import com.xy2407.kingdom.common.farm.FarmRegion;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
@@ -43,6 +44,8 @@ public final class NpcFarmService {
     private static final int ACTION_INTERVAL_TICKS = 20;
     private static final double ARRIVE_SQR = 2.25D;
     private static final int AREA_LIMIT = 4096;
+    private static final int STORE_GIVE_UP_TICKS = 400;
+    private static final int STALL_RECHECK_TICKS = 40;
 
     private static final Map<UUID, Work> WORKS = new ConcurrentHashMap<>();
     private static final Set<UUID> ASSIGNED = new HashSet<>();
@@ -61,6 +64,11 @@ public final class NpcFarmService {
         private int cooldown;
         private int resumeCooldown;
         private boolean confirmed;
+        private boolean storing;
+        private BlockPos storePos;
+        private int storeTicks;
+        private boolean stalled;
+        private int stallTicks;
         private final Deque<Task> route = new ArrayDeque<>();
     }
 
@@ -119,6 +127,10 @@ public final class NpcFarmService {
         int scanned = 0;
         int occupied = 0;
         int groundY = plot.min().getY();
+        String cropId = plot.cropId();
+        boolean water = FarmCropCompat.needsWater(cropId);
+        boolean dirt = FarmCropCompat.keepsDirt(cropId);
+        boolean skipTill = FarmCropCompat.skipsTill(cropId);
         scan:
         for (int index = -1; index < plot.extra().size(); index++) {
             FarmRegion box = regionOf(plot, index);
@@ -138,19 +150,23 @@ public final class NpcFarmService {
                         occupied++;
                         continue;
                     }
-                    BlockState above = level.getBlockState(soil.above());
+                    BlockState above = level.getBlockState(FarmCropCompat.cropPos(soil, cropId));
                     if (FarmActionExecutor.isMature(above)) {
                         harvests.add(new Task(soil, Action.HARVEST));
                         occupied++;
                         continue;
                     }
-                    if (!above.isAir()) {
+                    if (FarmCropCompat.isPlanted(level, soil, cropId)) {
+                        occupied++;
+                        continue;
+                    }
+                    if (!openFor(above, water)) {
                         occupied++;
                         continue;
                     }
                     BlockState soilState = level.getBlockState(soil);
                     if (isPlantable(soilState)) {
-                        if (soilState.is(BlockTags.DIRT)) {
+                        if (!dirt && !skipTill && soilState.is(BlockTags.DIRT)) {
                             tills.add(new Task(soil, Action.TILL));
                         } else {
                             plants.add(new Task(soil, Action.PLANT));
@@ -197,6 +213,9 @@ public final class NpcFarmService {
 
     public static NpcDetail detailOf(UUID npcId) {
         Work work = WORKS.get(npcId);
+        if (work != null && (work.storing || work.stalled)) {
+            return NpcDetail.STORING_PRODUCE;
+        }
         if (work == null) {
             return NpcDetail.FARMING;
         }
@@ -283,12 +302,25 @@ public final class NpcFarmService {
         }
         FarmPlot plot = plotOf(data.getId());
         if (plot == null) {
+            Work lost = WORKS.get(data.getId());
+            if (lost != null) {
+                lost.storing = false;
+                lost.stalled = false;
+            }
             npc.haltFarm();
             return;
         }
         Work work = WORKS.computeIfAbsent(data.getId(), id -> new Work());
         if (work.cooldown > 0) {
             work.cooldown--;
+            return;
+        }
+        if (work.storing) {
+            tickStore(level, npc, plot, work);
+            return;
+        }
+        if (work.stalled) {
+            tickStalled(level, npc, plot, work);
             return;
         }
         if (work.target == null && !work.route.isEmpty()) {
@@ -303,6 +335,10 @@ public final class NpcFarmService {
                 work.resumeCooldown = 0;
                 work.cooldown = ACTION_INTERVAL_TICKS;
                 npc.clearFarmTarget();
+                // 背包 24 格塞满了：本轮先停，把产物送回建筑仓库
+                if (!ProduceStoring.bagHasRoom(npc.getNpcInventory())) {
+                    beginStore(level, npc, plot, work);
+                }
             } else if (npc.isTravelling()) {
                 npc.tickTravelPath(work.target);
             } else {
@@ -324,7 +360,89 @@ public final class NpcFarmService {
             take(npc, data, next);
             return;
         }
+        // 这轮活干完了：背包里还压着产物就先去入库，再算收工
+        if (ProduceStoring.bagHasProduce(npc.getNpcInventory())) {
+            beginStore(level, npc, plot, work);
+            return;
+        }
         npc.haltFarm();
+    }
+
+    private static void beginStore(ServerLevel level, NpcEntity npc, FarmPlot plot, Work work) {
+        BuildingRecord building = BuildingRegistry.INSTANCE.byId(plot.buildingId());
+        if (building == null) {
+            return;
+        }
+        work.storing = true;
+        work.stalled = false;
+        work.storeTicks = 0;
+        work.storePos = ProduceStoring.storePoint(level, building);
+        npc.setFarmTarget(work.storePos);
+    }
+
+    private static void tickStore(ServerLevel level, NpcEntity npc, FarmPlot plot, Work work) {
+        BuildingRecord building = BuildingRegistry.INSTANCE.byId(plot.buildingId());
+        if (building == null) {
+            work.storing = false;
+            return;
+        }
+        if (nearStore(npc, building)) {
+            npc.clearFarmTarget();
+            boolean emptied = ProduceStoring.depositBag(level, npc, building);
+            work.storing = false;
+            work.storeTicks = 0;
+            work.storePos = null;
+            if (emptied) {
+                work.confirmed = false;
+                return;
+            }
+            // 能存多少存多少了，剩下的等运输来清仓
+            ProduceStoring.requestPickup(level, building);
+            work.stalled = true;
+            work.stallTicks = 0;
+            npc.haltFarm();
+            return;
+        }
+        BlockPos storePos = work.storePos;
+        if (storePos == null) {
+            storePos = ProduceStoring.storePoint(level, building);
+            work.storePos = storePos;
+        }
+        npc.tickTravelPath(storePos);
+        if (++work.storeTicks > STORE_GIVE_UP_TICKS) {
+            work.storing = false;
+            work.storeTicks = 0;
+            work.storePos = null;
+        }
+    }
+
+    private static void tickStalled(ServerLevel level, NpcEntity npc, FarmPlot plot, Work work) {
+        work.stallTicks++;
+        if (work.stallTicks < STALL_RECHECK_TICKS) {
+            return;
+        }
+        work.stallTicks = 0;
+        if (!ProduceStoring.bagHasProduce(npc.getNpcInventory())) {
+            work.stalled = false;
+            work.confirmed = false;
+            return;
+        }
+        BuildingRecord building = BuildingRegistry.INSTANCE.byId(plot.buildingId());
+        if (ProduceStoring.storeHasRoom(level, building)) {
+            work.stalled = false;
+            beginStore(level, npc, plot, work);
+            return;
+        }
+        // 之前的运输订单可能已失败/被清掉，复查时补一次（600t 冷却兜底）
+        ProduceStoring.requestPickup(level, building);
+    }
+
+    private static boolean nearStore(NpcEntity npc, BuildingRecord building) {
+        BlockPos min = building.min();
+        BlockPos max = building.max();
+        return npc.getX() >= min.getX() - 2.0D && npc.getX() <= max.getX() + 3.0D
+                && npc.getZ() >= min.getZ() - 2.0D && npc.getZ() <= max.getZ() + 3.0D
+                && npc.getY() >= min.getY() - 2.0D && npc.getY() <= max.getY() + 4.0D;
     }
 
     private static void resumeOrDrop(NpcEntity npc, Work work) {
@@ -357,6 +475,10 @@ public final class NpcFarmService {
 
     private static boolean isPlantable(BlockState state) {
         return isFarmland(state) || state.is(BlockTags.DIRT);
+    }
+
+    private static boolean openFor(BlockState above, boolean water) {
+        return above.isAir() || (water && above.is(Blocks.WATER));
     }
 
     private static BlockPos resolveSoil(ServerLevel level, int x, int y, int z) {

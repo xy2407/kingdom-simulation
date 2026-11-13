@@ -348,8 +348,11 @@ body.modal-open{
 }
 
 .scroll{
-  width:1100px;
-  max-width:100%;
+  /* 不写死 1100：视口（mode=gui 逻辑宽）可能比它窄，引擎里 max-width:100%
+     与裸通配的 box-sizing 一样不可靠——width:100% 在两种环境下都收敛到视口宽，
+     max-width:1100 只在浏览器宽屏时生效 */
+  width:100%;
+  max-width:1100px;
   position:relative;
   background-color:var(--parchment);
   background-image:repeating-linear-gradient(0deg,rgba(122,90,40,.06) 0 2px,rgba(122,90,40,0) 2px 4px);
@@ -432,9 +435,14 @@ body.modal-open{
 
 .card-row .card{
   flex:0 0 auto;
-  width:236px;
-  /* 卡间距用对称 margin（横排 flex gap 在引擎里不可靠，D4）；
-     236×4 + 8×8 = 1008 ≤ 卷轴内容宽 1012，正好放下一行 */
+  /* ⚠ width 必须按 content-box 口径写：裸 `*` 通配的 box-sizing:border-box
+     在引擎里不命中（浏览器里命中），按 border-box 写 236 时引擎实际渲染
+     236+padding24+border4=264，一行 1120 直接溢出卷轴背景（2026-11-12 截图）。
+     显式 content-box + 204：单卡总宽恒 204+24+4=232；
+     行占位 4×232 + 4×16(margin) = 992 ≤ 卷轴内容宽（1086 视口 − 88 padding = 998）。
+     卡间距 16px 与原稿 grid 的 gap 一致。 */
+  box-sizing:content-box;
+  width:204px;
   margin:0 8px;
 }
 
@@ -491,17 +499,18 @@ body.modal-open{
   height:100%;
 }
 .card-emblem{
+  /* 符号必须骑在盾徽左右两色的中缝上：flex 的 justify-content:center
+     在引擎里不生效（符号一直靠在左半边），改用块级 text-align:center
+     + 行高撑满区域高（96 − 底部 28 = 68）做水平/垂直双居中 */
   position:absolute;
   left:0;
   right:0;
   top:0;
   bottom:28px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
+  text-align:center;
+  line-height:68px;
   font-family:'Zpix',monospace;
   font-size:24px;
-  line-height:1;
 }
 
 .card-name{
@@ -538,9 +547,9 @@ body.modal-open{
   background-color:#a8261c;
   border:1px solid #4a0a0a;
   border-radius:50%;
-  display:flex;
-  align-items:center;
-  justify-content:center;
+  /* flex 居中在引擎里不可靠 → text-align + 行高（32 − 2 边框 = 30） */
+  text-align:center;
+  line-height:30px;
   font-family:'Zpix',monospace;
   font-size:14px;
   color:rgba(255,222,200,.95);
@@ -579,9 +588,8 @@ body.modal-open{
   right:8px;
   width:22px;
   height:22px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
+  text-align:center;
+  line-height:20px;
   font-family:'Zpix',monospace;
   font-size:12px;
   color:var(--ink-2);
@@ -770,9 +778,8 @@ body.modal-open{
   right:0;
   width:28px;
   height:28px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
+  text-align:center;
+  line-height:24px;
   font-family:'Zpix',monospace;
   font-size:14px;
   color:var(--ink-2);
@@ -810,17 +817,16 @@ body.modal-open{
   height:100%;
 }
 .preview-emblem{
+  /* 同 .card-emblem：text-align + 行高居中，不依赖 flex（130 − 40 = 90） */
   position:absolute;
   left:0;
   right:0;
   top:0;
   bottom:40px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
+  text-align:center;
+  line-height:90px;
   font-family:'Zpix',monospace;
   font-size:34px;
-  line-height:1;
 }
 .preview-name{
   font-family:'Zpix',monospace;
@@ -906,9 +912,8 @@ body.modal-open{
 .crest-btn{
   width:24px;
   height:32px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
+  text-align:center;
+  line-height:28px;
   font-family:'Zpix',monospace;
   font-size:20px;
   color:var(--ink-2);

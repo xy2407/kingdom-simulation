@@ -41,7 +41,7 @@ public final class FarmPanelService {
             PacketDistributor.sendToPlayer(player, FarmPanelStatePacket.outside());
             return;
         }
-        PacketDistributor.sendToPlayer(player, snapshot(building));
+        PacketDistributor.sendToPlayer(player, snapshot(player, building));
     }
 
     public static void apply(ServerPlayer player, FarmPanelActionPacket packet) {
@@ -127,7 +127,7 @@ public final class FarmPanelService {
         respond(player);
     }
 
-    private static FarmPanelStatePacket snapshot(BuildingRecord building) {
+    private static FarmPanelStatePacket snapshot(ServerPlayer player, BuildingRecord building) {
         List<FarmPanelStatePacket.Plot> plots = new ArrayList<>();
         for (FarmPlot plot : FarmPlotManager.INSTANCE.plotsOf(building.id())) {
             plots.add(new FarmPanelStatePacket.Plot(plot.id(), plot.name(), plot.slots(), plot.cropId(),
@@ -138,7 +138,7 @@ public final class FarmPanelService {
         }
         return new FarmPanelStatePacket(true, building.name(), building.farmSlots(),
                 FarmPlotManager.INSTANCE.usedSlots(building.id()), plots,
-                cropOptions(building), workerOptions(building.id()));
+                cropOptions(building), workerOptions(player, building.id()));
     }
 
     private static List<FarmPanelStatePacket.CropOption> cropOptions(BuildingRecord building) {
@@ -176,10 +176,12 @@ public final class FarmPanelService {
         return "";
     }
 
-    private static List<FarmPanelStatePacket.WorkerOption> workerOptions(UUID buildingId) {
+    private static List<FarmPanelStatePacket.WorkerOption> workerOptions(ServerPlayer player,
+                                                                         UUID buildingId) {
         List<FarmPanelStatePacket.WorkerOption> options = new ArrayList<>();
+        String lordId = player.getUUID().toString();
         for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
-            if (npc.isDead()) {
+            if (npc.isDead() || !lordId.equals(npc.getOwnerId())) {
                 continue;
             }
             options.add(new FarmPanelStatePacket.WorkerOption(npc.getId(), npc.getName(), npc.getSkin(),

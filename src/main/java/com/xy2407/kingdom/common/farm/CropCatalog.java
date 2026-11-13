@@ -48,6 +48,8 @@ public final class CropCatalog {
         SPECIAL_SEEDS.put("vinery:jungle_grape_seeds_red", "vinery:jungle_grape_bush_red");
         SPECIAL_SEEDS.put("vinery:jungle_grape_seeds_white", "vinery:jungle_grape_bush_white");
         SPECIAL_SEEDS.put("kaleidoscope_tavern:grapevine", "kaleidoscope_tavern:grape_crop");
+        SPECIAL_SEEDS.put("kaleidoscope_tavern:ice_grape", "kaleidoscope_tavern:ice_grape_crop");
+        SPECIAL_SEEDS.put("kaleidoscope_tavern:gold_grape", "kaleidoscope_tavern:gold_grape_crop");
         SPECIAL_SEEDS.put("brewery:hops", "brewery:hops_crop");
         SPECIAL_SEEDS.put("kawaiidishes:coffee_berries", "kawaiidishes:coffee_bush");
         SPECIAL_SEEDS.put("culturaldelights:cucumber_seeds", "culturaldelights:cucumbers");
@@ -62,6 +64,8 @@ public final class CropCatalog {
         SPECIAL_SEEDS.put("kaleidoscope_cookery:tomato_seed", "kaleidoscope_cookery:tomato_crop");
         SPECIAL_SEEDS.put("kaleidoscope_cookery:chili_seed", "kaleidoscope_cookery:chili_crop");
         SPECIAL_SEEDS.put("kaleidoscope_cookery:lettuce_seed", "kaleidoscope_cookery:lettuce_crop");
+        SPECIAL_SEEDS.put("kaleidoscope_cookery:rice_seed", "kaleidoscope_cookery:rice_crop");
+        SPECIAL_SEEDS.put("kaleidoscope_cookery:tea_seed", "kaleidoscope_cookery:tea_tree");
     }
 
     private CropCatalog() {

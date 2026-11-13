@@ -9,8 +9,10 @@ import java.util.UUID;
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.entity.NpcEntity;
+import com.xy2407.kingdom.common.npc.NpcDetail;
 import com.xy2407.kingdom.common.npc.NpcInventory;
 import com.xy2407.kingdom.common.npc.NpcManager;
+import com.xy2407.kingdom.common.npc.ProduceStoring;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
 import com.xy2407.kingdom.server.building.BuildingStorageStore;
 
@@ -77,6 +79,15 @@ public final class NpcLumberService {
 
     public static void reset() {
         WORKS.clear();
+    }
+
+    /** 伐木工明细：背包产物入库阶段显示「正在存入产物」（键为实体 UUID）。 */
+    public static NpcDetail detailOf(UUID entityId) {
+        Work work = entityId == null ? null : WORKS.get(entityId);
+        if (work != null && (work.storing || work.stalled)) {
+            return NpcDetail.STORING_PRODUCE;
+        }
+        return NpcDetail.LOGGING;
     }
 
 
@@ -342,6 +353,11 @@ public final class NpcLumberService {
             work.storing = false;
             work.storePos = null;
             work.storeTicks = 0;
+            if (!ProduceStoring.bagHasProduce(npc.getNpcInventory())) {
+                return;
+            }
+            // 仓库没腾出足够空间：能存多少存多少，剩下的催运输来清仓，然后原地等
+            ProduceStoring.requestPickup(level, building);
             if (!inventoryHasRoom(npc.getNpcInventory()) && !storeHasRoom(level, building)) {
                 work.stalled = true;
                 work.stallTicks = 0;
@@ -373,7 +389,10 @@ public final class NpcLumberService {
         work.stallTicks = 0;
         if (inventoryHasRoom(npc.getNpcInventory()) || storeHasRoom(level, building)) {
             work.stalled = false;
+            return;
         }
+        // 之前的运输订单可能已失败/被清掉，复查时补一次（600t 冷却兜底）
+        ProduceStoring.requestPickup(level, building);
     }
 
     private static boolean inventoryHasRoom(NpcInventory inventory) {
@@ -398,7 +417,7 @@ public final class NpcLumberService {
             return;
         }
         NpcInventory inventory = npc.getNpcInventory();
-        for (int slot = 0; slot < inventory.getSlots(); slot++) {
+        for (int slot = NpcInventory.BAG_START; slot < NpcInventory.SLOT_COUNT; slot++) {
             ItemStack stack = inventory.getStackInSlot(slot);
             if (stack.isEmpty()) {
                 continue;

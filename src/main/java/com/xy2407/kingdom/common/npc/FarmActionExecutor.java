@@ -1,11 +1,11 @@
 package com.xy2407.kingdom.common.npc;
 
-import java.util.Collections;
 import java.util.List;
 
 import com.xy2407.kingdom.common.date.DateSystem;
 import com.xy2407.kingdom.common.entity.NpcEntity;
 import com.xy2407.kingdom.common.farm.CropCatalog;
+import com.xy2407.kingdom.common.farm.FarmCropCompat;
 import com.xy2407.kingdom.common.farm.FarmPlot;
 import com.xy2407.kingdom.server.farm.FarmLandRegistry;
 
@@ -21,8 +21,6 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.FarmBlock;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.IntegerProperty;
-import net.minecraft.world.level.block.state.properties.Property;
 
 /**
  * 农田动作执行：耕地、播种、收割（收割后立即补种）。
@@ -34,7 +32,7 @@ final class FarmActionExecutor {
 
     static void apply(ServerLevel level, FarmPlot plot, NpcFarmService.Action action,
                       BlockPos soil, NpcEntity npc) {
-        BlockPos cropPos = soil.above();
+        BlockPos cropPos = FarmCropCompat.cropPos(soil, plot.cropId());
         BlockState cropState = level.getBlockState(cropPos);
         if (action == NpcFarmService.Action.HARVEST) {
             if (!isMature(cropState)) {
@@ -47,47 +45,38 @@ final class FarmActionExecutor {
             till(level, soil);
             return;
         }
-        plant(level, plot, soil, cropPos, cropState);
+        plant(level, plot, soil);
     }
 
     static boolean isMature(BlockState state) {
-        for (Property<?> property : state.getProperties()) {
-            if (property instanceof IntegerProperty age && "age".equals(property.getName())) {
-                return state.getValue(age) >= Collections.max(age.getPossibleValues());
-            }
-        }
-        return false;
+        return FarmCropCompat.isMature(state);
     }
 
     private static void harvest(ServerLevel level, FarmPlot plot, NpcEntity npc,
                                 BlockPos soil, BlockPos cropPos, BlockState cropState) {
         List<ItemStack> drops = Block.getDrops(cropState, level, cropPos, null, npc, ItemStack.EMPTY);
-        level.setBlock(cropPos, Blocks.AIR.defaultBlockState(), Block.UPDATE_CLIENTS);
+        level.setBlock(cropPos, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
         FarmProduceDeposit.hold(level, plot, cropPos, npc, drops);
-        plant(level, plot, soil, cropPos, level.getBlockState(cropPos));
+        plant(level, plot, soil);
     }
 
-    private static void plant(ServerLevel level, FarmPlot plot, BlockPos soil, BlockPos cropPos,
-                              BlockState cropState) {
-        if (!cropState.isAir()) {
-            return;
-        }
+    private static void plant(ServerLevel level, FarmPlot plot, BlockPos soil) {
         Block crop = cropBlock(plot.cropId());
         if (crop == null) {
             return;
         }
-        BlockState planted = crop.defaultBlockState();
-        if (!planted.canSurvive(level, cropPos)) {
-            return;
-        }
-        level.setBlock(cropPos, planted, Block.UPDATE_ALL);
+        FarmCropCompat.plant(level, soil, crop, plot);
     }
 
     private static void till(ServerLevel level, BlockPos soil) {
         if (!level.getBlockState(soil).is(BlockTags.DIRT)) {
             return;
         }
-        if (!level.getBlockState(soil.above()).isAir()) {
+        BlockPos above = soil.above();
+        if (level.getBlockState(above).is(Blocks.WATER)) {
+            level.setBlock(above, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+        }
+        if (!level.getBlockState(above).isAir()) {
             return;
         }
         level.setBlock(soil, Blocks.FARMLAND.defaultBlockState()

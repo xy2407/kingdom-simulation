@@ -53,5 +53,7 @@ public final class RtsServerEvents {
         RtsTeamService.load(event.getServer().overworld());
         com.xy2407.kingdom.server.faction.WildTerritoryService.INSTANCE
                 .load(event.getServer().overworld());
+        // 游客寿命必须先于实体 tick 读回，否则重启会把存档里的到期时刻覆盖成新寿命
+        com.xy2407.kingdom.server.tourism.TourismService.INSTANCE.load(event.getServer());
     }
 }

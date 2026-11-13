@@ -86,6 +86,7 @@ public final class ResidentService {
 
     private static ResidentListPacket snapshot(ServerPlayer player, BuildingRecord building) {
         String buildingId = building.id().toString();
+        String owner = player.getUUID().toString();
         List<UUID> residents = new ArrayList<>();
         List<ResidentListPacket.Worker> workers = new ArrayList<>();
         for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
@@ -94,6 +95,10 @@ public final class ResidentService {
             }
             if (buildingId.equals(npc.getHomeId())) {
                 residents.add(npc.getId());
+            }
+            String homeId = npc.getHomeId();
+            if (!owner.equals(npc.getOwnerId()) || (homeId != null && !homeId.isBlank())) {
+                continue;
             }
             workers.add(new ResidentListPacket.Worker(npc.getId(), npc.getName(), npc.getSkin(),
                     workerNote(npc)));
@@ -106,11 +111,7 @@ public final class ResidentService {
     }
 
     private static String workerNote(NpcData npc) {
-        if (npc.getBrain().isStarving()) {
-            return "饥饿";
-        }
-        String homeId = npc.getHomeId();
-        return homeId == null || homeId.isBlank() ? "" : "另有住处";
+        return npc.getBrain().isStarving() ? "饥饿" : "";
     }
 
     private static String positionText(BuildingRecord building) {

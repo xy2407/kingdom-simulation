@@ -534,6 +534,14 @@ public final class NpcMiningService {
         return false;
     }
 
+    public static NpcDetail detailOf(UUID npcId) {
+        Work work = npcId == null ? null : WORKS.get(npcId);
+        if (work != null && (work.storing || work.stalled)) {
+            return NpcDetail.STORING_PRODUCE;
+        }
+        return NpcDetail.MINING;
+    }
+
     private static void tickStore(ServerLevel level, NpcEntity npc, MiningPlot plot, Work work) {
         BuildingRecord building = BuildingRegistry.INSTANCE.byId(plot.buildingId());
         if (building == null) {
@@ -547,6 +555,11 @@ public final class NpcMiningService {
             work.storeTicks = 0;
             work.bestStandDistance = Double.MAX_VALUE;
             work.standFailTicks = 0;
+            if (!ProduceStoring.bagHasProduce(npc.getNpcInventory())) {
+                return;
+            }
+            // 仓库没腾出足够空间：能存多少存多少，剩下的催运输来清仓，然后原地等
+            ProduceStoring.requestPickup(level, building);
             if (!inventoryHasRoom(npc.getNpcInventory())) {
                 work.stalled = true;
                 work.stallTicks = 0;
@@ -579,7 +592,7 @@ public final class NpcMiningService {
             return;
         }
         NpcInventory inventory = npc.getNpcInventory();
-        for (int slot = 0; slot < inventory.getSlots(); slot++) {
+        for (int slot = NpcInventory.BAG_START; slot < NpcInventory.SLOT_COUNT; slot++) {
             ItemStack stack = inventory.getStackInSlot(slot);
             if (stack.isEmpty()) {
                 continue;
@@ -628,11 +641,16 @@ public final class NpcMiningService {
             return;
         }
         BuildingRecord building = BuildingRegistry.INSTANCE.byId(plot.buildingId());
-        if (building == null || !storeHasRoom(level, building)) {
+        if (building == null) {
             return;
         }
-        work.stalled = false;
-        work.idleWait = 0;
+        if (storeHasRoom(level, building)) {
+            work.stalled = false;
+            work.idleWait = 0;
+            return;
+        }
+        // 之前的运输订单可能已失败/被清掉，复查时补一次（600t 冷却兜底）
+        ProduceStoring.requestPickup(level, building);
     }
 
     private static boolean storeHasRoom(ServerLevel level, BuildingRecord building) {

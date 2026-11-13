@@ -15,12 +15,15 @@ import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.building.ItemCount;
+import com.xy2407.kingdom.common.entity.NpcEntity;
 import com.xy2407.kingdom.common.forge.ForgePlan;
 import com.xy2407.kingdom.common.forge.ForgeRecipePlanner;
 import com.xy2407.kingdom.common.forge.ForgeStep;
 import com.xy2407.kingdom.common.forge.ForgeTask;
 import com.xy2407.kingdom.common.npc.NpcData;
+import com.xy2407.kingdom.common.npc.NpcInventory;
 import com.xy2407.kingdom.common.npc.NpcManager;
+import com.xy2407.kingdom.common.npc.ProduceStoring;
 import com.xy2407.kingdom.common.persistence.ForgeTaskSchema;
 import com.xy2407.kingdom.common.persistence.KingdomPersistence;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
@@ -259,6 +262,19 @@ public final class ForgeService {
         if (crew.isEmpty()) {
             return;
         }
+        // 三级产物链：工人背包里压着的上一炉产出，先存进建筑仓库；仓库满就催运输
+        ServerLevel level = levelOf(server, building.dimension());
+        for (NpcData npc : crew) {
+            NpcEntity entity = NpcManager.INSTANCE.liveEntity(npc);
+            if (entity == null || !ProduceStoring.bagHasProduce(entity.getNpcInventory())) {
+                continue;
+            }
+            if (ProduceStoring.storeHasRoom(level, building)) {
+                ProduceStoring.depositBag(level, entity, building);
+            } else {
+                ProduceStoring.requestPickup(level, building);
+            }
+        }
         assign(task, crew);
         Map<String, Integer> stock = stockOf(store);
         for (NpcData npc : crew) {
@@ -276,7 +292,7 @@ public final class ForgeService {
                 workerStep.put(npc.getId(), step.key());
                 workerProgress.put(npc.getId(), 0);
             }
-            advance(task, step, npc.getId(), store, stock);
+            advance(task, step, npc.getId(), building, store, stock);
         }
         repairShortage(task, stock);
     }
@@ -382,8 +398,8 @@ public final class ForgeService {
         return null;
     }
 
-    private void advance(ForgeTask task, ForgeStep step, UUID npcId, ItemStackHandler store,
-                         Map<String, Integer> stock) {
+    private void advance(ForgeTask task, ForgeStep step, UUID npcId, BuildingRecord building,
+                         ItemStackHandler store, Map<String, Integer> stock) {
         if (task.remainingOf(step) <= 0) {
             return;
         }
@@ -393,8 +409,15 @@ public final class ForgeService {
             workerProgress.put(npcId, progress);
             return;
         }
-        if (!canFit(store, step.output(), step.outputCount())) {
+        NpcEntity worker = liveWorker(npcId);
+        boolean storeRoom = canFit(store, step.output(), step.outputCount());
+        boolean bagRoom = worker == null || canFitBag(worker, step.output(), step.outputCount());
+        if (!storeRoom && !bagRoom) {
+            // 仓库和背包都塞不下：不消耗原料，催运输把仓库清出空间
             workerProgress.put(npcId, step.ticks() - 1);
+            if (worker != null && worker.level() instanceof ServerLevel level) {
+                ProduceStoring.requestPickup(level, building);
+            }
             return;
         }
         if (!canRun(task, stock, step)) {
@@ -404,7 +427,7 @@ public final class ForgeService {
         if (!consume(store, step.inputs())) {
             return;
         }
-        produce(store, step.output(), step.outputCount());
+        produce(worker, building, store, step.output(), step.outputCount());
         for (ItemCount input : step.inputs()) {
             task.noteConsume(input.item(), input.count());
             stock.merge(input.item(), -input.count(), Integer::sum);
@@ -533,16 +556,70 @@ public final class ForgeService {
         return true;
     }
 
-    private static void produce(ItemStackHandler store, String itemId, int count) {
+    /** 三级产物链：产出先进工人背包 24 格，随即存进建筑仓库；装不下的留在背包等下一轮或催运输。 */
+    private static void produce(NpcEntity worker, BuildingRecord building, ItemStackHandler store,
+                                String itemId, int count) {
         Item item = itemOf(itemId);
         if (item == null) {
             return;
         }
         int remaining = count;
+        if (worker != null) {
+            NpcInventory inventory = worker.getNpcInventory();
+            for (int slot = NpcInventory.BAG_START; slot < NpcInventory.SLOT_COUNT
+                    && remaining > 0; slot++) {
+                ItemStack left = inventory.insertItem(slot, new ItemStack(item, remaining), false);
+                remaining = left.getCount();
+            }
+            if (remaining < count && worker.level() instanceof ServerLevel level) {
+                ProduceStoring.depositBag(level, worker, building);
+            }
+        }
         for (int slot = 0; slot < store.getSlots() && remaining > 0; slot++) {
             ItemStack left = store.insertItem(slot, new ItemStack(item, remaining), false);
             remaining = left.getCount();
         }
+        if (remaining > 0 && worker != null && worker.level() instanceof ServerLevel level) {
+            net.minecraft.world.level.block.Block.popResource(level, worker.blockPosition(),
+                    new ItemStack(item, remaining));
+        }
+    }
+
+    /** 工人背包 24 格还能塞下多少件指定物品。 */
+    private static boolean canFitBag(NpcEntity worker, String itemId, int count) {
+        Item item = itemOf(itemId);
+        if (item == null || worker == null) {
+            return false;
+        }
+        NpcInventory inventory = worker.getNpcInventory();
+        int room = 0;
+        for (int slot = NpcInventory.BAG_START; slot < NpcInventory.SLOT_COUNT; slot++) {
+            ItemStack stack = inventory.getStackInSlot(slot);
+            int limit = Math.min(inventory.getSlotLimit(slot), item.getDefaultMaxStackSize());
+            if (stack.isEmpty()) {
+                room += limit;
+            } else if (stack.is(item)) {
+                room += Math.max(0, limit - stack.getCount());
+            }
+            if (room >= count) {
+                return true;
+            }
+        }
+        return room >= count;
+    }
+
+    private static NpcEntity liveWorker(UUID npcId) {
+        NpcData data = NpcManager.INSTANCE.getNpc(npcId);
+        return data == null ? null : NpcManager.INSTANCE.liveEntity(data);
+    }
+
+    private static ServerLevel levelOf(MinecraftServer server, String dimension) {
+        for (ServerLevel level : server.getAllLevels()) {
+            if (level.dimension().location().toString().equals(dimension)) {
+                return level;
+            }
+        }
+        return null;
     }
 
     private static boolean canFit(ItemStackHandler store, String itemId, int count) {

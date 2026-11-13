@@ -125,11 +125,7 @@ public final class RoadRouteService {
     }
 
     private static BuildingRecord buildingAt(String dimension, BlockPos stand) {
-        for (BuildingRecord record : BuildingRegistry.INSTANCE.all()) {
-            if (record.contains(dimension, stand.getX() + 0.5D, stand.getY(), stand.getZ() + 0.5D)) {
-                return record;
-            }
-        }
-        return null;
+        return BuildingRegistry.INSTANCE.at(dimension,
+                stand.getX() + 0.5D, stand.getY(), stand.getZ() + 0.5D);
     }
 }

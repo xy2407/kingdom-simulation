@@ -390,6 +390,10 @@ public final class StructureDebugKeybind {
         }
         setFieldActive(document, FIELD_NONE);
         setSideMode(document, true);
+        Element lazyListHost = document.getElementById(SIDE_LIST_ID);
+        if (lazyListHost != null) {
+            AuiLazyList.clear(lazyListHost);
+        }
         if (isRoadPage()) {
             renderRoadEntries(document);
             return;

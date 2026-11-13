@@ -41,7 +41,7 @@ public final class IndustryPanelService {
             PacketDistributor.sendToPlayer(player, IndustryPanelStatePacket.outside());
             return;
         }
-        PacketDistributor.sendToPlayer(player, snapshot(building));
+        PacketDistributor.sendToPlayer(player, snapshot(player, building));
     }
 
     public static void apply(ServerPlayer player, IndustryPanelActionPacket packet) {
@@ -107,7 +107,7 @@ public final class IndustryPanelService {
         }
     }
 
-    private static IndustryPanelStatePacket snapshot(BuildingRecord building) {
+    private static IndustryPanelStatePacket snapshot(ServerPlayer player, BuildingRecord building) {
         List<IndustryPanelStatePacket.Recipe> recipes = new ArrayList<>();
         BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(building);
         List<RecipeSpec> specs = meta.recipes();
@@ -121,7 +121,7 @@ public final class IndustryPanelService {
         }
         String title = meta.name() == null || meta.name().isBlank() ? building.name() : meta.name();
         return new IndustryPanelStatePacket(true, title, building.level(),
-                positionText(building), recipes, roster(building.id()));
+                positionText(building), recipes, roster(player, building.id()));
     }
 
     private static List<UUID> crewOf(BuildingRecord building, String recipeKey) {
@@ -138,10 +138,12 @@ public final class IndustryPanelService {
         return crew;
     }
 
-    private static List<IndustryPanelStatePacket.Worker> roster(UUID buildingId) {
+    private static List<IndustryPanelStatePacket.Worker> roster(ServerPlayer player,
+                                                                UUID buildingId) {
         List<IndustryPanelStatePacket.Worker> options = new ArrayList<>();
+        String lordId = player.getUUID().toString();
         for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
-            if (npc.isDead()) {
+            if (npc.isDead() || !lordId.equals(npc.getOwnerId())) {
                 continue;
             }
             options.add(new IndustryPanelStatePacket.Worker(npc.getId(), npc.getName(), npc.getSkin(),

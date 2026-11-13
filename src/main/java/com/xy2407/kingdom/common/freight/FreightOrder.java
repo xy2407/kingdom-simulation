@@ -22,7 +22,9 @@ public final class FreightOrder {
 
     public enum Target {
         BUILDING,
-        CONTAINER
+        CONTAINER,
+        /** 清仓运输：把货源地（requesterId）建筑仓库的货物搬到 warehouseId 仓库。 */
+        WAREHOUSE
     }
 
     private final UUID id;
@@ -63,6 +65,18 @@ public final class FreightOrder {
                                            List<ItemCount> items, long createdAt) {
         return new FreightOrder(UUID.randomUUID(), Target.CONTAINER, null, destination,
                 dimension, items, createdAt);
+    }
+
+    public static FreightOrder toWarehousePickup(UUID sourceId, String dimension,
+                                                  List<ItemCount> items, long createdAt) {
+        return new FreightOrder(UUID.randomUUID(), Target.WAREHOUSE, sourceId, null,
+                dimension, items, createdAt);
+    }
+
+    public static FreightOrder restore(UUID id, Target target, UUID requesterId,
+                                       BlockPos destination, String dimension,
+                                       List<ItemCount> items, long createdAt) {
+        return new FreightOrder(id, target, requesterId, destination, dimension, items, createdAt);
     }
 
     public UUID id() {
@@ -146,6 +160,10 @@ public final class FreightOrder {
         return attempts;
     }
 
+    public void setAttempts(int attempts) {
+        this.attempts = Math.max(0, attempts);
+    }
+
     public int incrementAttempts() {
         return ++attempts;
     }
@@ -164,7 +182,14 @@ public final class FreightOrder {
     }
 
     public boolean sameRequirement(FreightOrder other) {
-        if (other == null || other.target != target || !other.items.equals(items)) {
+        if (other == null || other.target != target) {
+            return false;
+        }
+        if (target == Target.WAREHOUSE) {
+            // 清仓订单按货源地去重，货物清单允许随仓库实时内容变化
+            return requesterId != null && requesterId.equals(other.requesterId);
+        }
+        if (!other.items.equals(items)) {
             return false;
         }
         return target == Target.BUILDING

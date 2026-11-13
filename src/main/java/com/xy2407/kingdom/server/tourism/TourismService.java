@@ -20,6 +20,8 @@ import com.xy2407.kingdom.common.npc.NpcData;
 import com.xy2407.kingdom.common.npc.NpcManager;
 import com.xy2407.kingdom.common.npc.NpcRestaurantService;
 import com.xy2407.kingdom.common.npc.NpcRole;
+import com.xy2407.kingdom.common.persistence.KingdomPersistence;
+import com.xy2407.kingdom.common.persistence.TouristSchema;
 import com.xy2407.kingdom.common.restaurant.RestaurantOrder;
 import com.xy2407.kingdom.common.restaurant.RestaurantSeat;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
@@ -34,6 +36,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
+
+import java.sql.ResultSet;
+import java.sql.Statement;
 
 /**
  * 游客：白天按领地在道路上闲逛，每三次触发逛店、每五次触发用餐，消费直接进领地金库
@@ -94,13 +99,26 @@ public final class TourismService {
 
     private static final int SHELF_WAIT_TIMEOUT = 600;
 
+    private static final int LOAD_RETRY_DELAY_TICKS = 200;
+
+    private static final int CLEANUP_INTERVAL_TICKS = 600;
+
     private final Map<UUID, Tourist> runtime = new HashMap<>();
+
+    /** 数据库里挂着、实体还没接管的游客：citizenId → 寿命截止 gameTime。 */
+    private final Map<UUID, Long> persisted = new HashMap<>();
 
     private final Map<String, CachedRoads> roadCache = new HashMap<>();
 
     private final Map<String, Long> income = new HashMap<>();
 
     private final Map<Long, ArrayDeque<UUID>> shelfQueues = new HashMap<>();
+
+    private boolean loaded;
+
+    private int loadRetryCooldown;
+
+    private int cleanupTimer;
 
     private TourismService() {
     }
@@ -118,7 +136,10 @@ public final class TourismService {
     }
 
     private static final class Tourist {
-        private long remaining;
+        /** 寿命截止时刻（世界 gameTime）：一到，所有存在痕迹一并清除。 */
+        private long deadline;
+        /** 所属市民数据 id（数据库行主键）。 */
+        private UUID citizenId;
         private Mode mode = Mode.WANDER_MOVING;
         private int wanderCooldown;
         private int wanderCount;
@@ -140,9 +161,13 @@ public final class TourismService {
 
     public void reset() {
         runtime.clear();
+        persisted.clear();
         roadCache.clear();
         income.clear();
         shelfQueues.clear();
+        loaded = false;
+        loadRetryCooldown = 0;
+        cleanupTimer = 0;
     }
 
     public long incomeOf(String territoryId) {
@@ -155,6 +180,22 @@ public final class TourismService {
     }
 
     public void tick(MinecraftServer server) {
+        if (server == null) {
+            return;
+        }
+        if (!loaded) {
+            if (loadRetryCooldown > 0) {
+                loadRetryCooldown--;
+                return;
+            }
+            loadTourists(server);
+            if (!loaded) {
+                return;
+            }
+        }
+        if (++cleanupTimer % CLEANUP_INTERVAL_TICKS == 0) {
+            cleanupExpired(server, server.overworld().getGameTime());
+        }
         for (Territory territory : TerritoryRegistry.INSTANCE.all()) {
             if (territory == null || territory.owner() == null) {
                 continue;
@@ -189,7 +230,15 @@ public final class TourismService {
         if (npc == null || data == null || !(npc.level() instanceof ServerLevel level)) {
             return;
         }
-        Tourist tourist = runtime.computeIfAbsent(npc.getUUID(), key -> newTourist(level));
+        if (!loaded && loadRetryCooldown == 0 && level.getServer() != null) {
+            // 兜底：开服钩子没跑成时，第一次遇到游客再读库
+            loadTourists(level.getServer());
+        }
+        Tourist tourist = runtime.get(npc.getUUID());
+        if (tourist == null) {
+            tourist = restoreOrCreate(level, data);
+            runtime.put(npc.getUUID(), tourist);
+        }
         if (tourist.territoryId == null) {
             Territory territory = TerritoryRegistry.INSTANCE.byBlock(
                     level.dimension().location().toString(), npc.getX(), npc.getZ());
@@ -198,19 +247,42 @@ public final class TourismService {
         tick(level, npc, data, tourist);
     }
 
+    /** 开服加载：必须在实体 tick 之前调用，否则会覆盖存档里的寿命。 */
+    public void load(MinecraftServer server) {
+        if (!loaded) {
+            loadTourists(server);
+        }
+    }
+
+    /** 重启后实体重新接管：优先沿用数据库里挂着的寿命，没有才新建。 */
+    private Tourist restoreOrCreate(ServerLevel level, NpcData data) {
+        Tourist tourist = newTourist(level);
+        tourist.citizenId = data.getId();
+        Long deadline = persisted.remove(data.getId());
+        if (deadline != null) {
+            tourist.deadline = deadline;
+            return tourist;
+        }
+        // 还没读到库时不写行：避免把上一局的到期时刻覆盖成新寿命
+        if (loaded) {
+            insertRow(data.getId(), tourist.deadline);
+        }
+        return tourist;
+    }
+
     private static Tourist newTourist(ServerLevel level) {
         Tourist tourist = new Tourist();
-        tourist.remaining = LIFETIME_MIN + level.random.nextInt(LIFETIME_MAX - LIFETIME_MIN + 1);
+        tourist.deadline = level.getGameTime() + LIFETIME_MIN
+                + level.random.nextInt(LIFETIME_MAX - LIFETIME_MIN + 1);
         tourist.wanderCooldown = WANDER_COOLDOWN;
         return tourist;
     }
 
     private void tick(ServerLevel level, NpcEntity npc, NpcData data, Tourist tourist) {
-        if (isWandering(tourist.mode)) {
-            if (--tourist.remaining <= 0L) {
-                despawn(npc, data, tourist);
-                return;
-            }
+        // 每位游客按自己的内部 tick 倒数寿命，到期就清掉全部存在痕迹
+        if (level.getGameTime() >= tourist.deadline) {
+            despawn(npc, data, tourist);
+            return;
         }
         switch (tourist.mode) {
             case WANDER_MOVING -> tickWanderMoving(level, npc, data, tourist);
@@ -229,7 +301,6 @@ public final class TourismService {
     private static boolean isWandering(Mode mode) {
         return mode == Mode.WANDER_MOVING || mode == Mode.WANDER_REST;
     }
-
     private void tickWanderMoving(ServerLevel level, NpcEntity npc, NpcData data, Tourist tourist) {
         if (tourist.target == null) {
             tourist.target = pickWanderTarget(level, npc, tourist.territoryId);
@@ -849,7 +920,9 @@ public final class TourismService {
         level.addFreshEntity(npc);
         Tourist tourist = newTourist(level);
         tourist.territoryId = territory.id();
+        tourist.citizenId = data.getId();
         runtime.put(npc.getUUID(), tourist);
+        insertRow(data.getId(), tourist.deadline);
         return true;
     }
 
@@ -866,8 +939,124 @@ public final class TourismService {
         }
         RestaurantOrderStore.INSTANCE.remove(data.getId());
         runtime.remove(npc.getUUID());
+        persisted.remove(data.getId());
+        deleteRow(data.getId());
         NpcManager.INSTANCE.removeNpc(data.getId());
         npc.discard();
+    }
+
+    // ==================== 游客落库 ====================
+
+    /** 启动后懒加载：恢复存档里还活着的游客；市民数据已丢失的行直接清掉。 */
+    private void loadTourists(MinecraftServer server) {
+        if (!KingdomPersistence.isReady()) {
+            loadRetryCooldown = LOAD_RETRY_DELAY_TICKS;
+            return;
+        }
+        try {
+            Map<UUID, Long> rows = KingdomPersistence.querySync(connection -> {
+                Map<UUID, Long> result = new HashMap<>();
+                try (Statement st = connection.createStatement();
+                     ResultSet rs = st.executeQuery("SELECT " + TouristSchema.COL_NPC_ID
+                             + ", " + TouristSchema.COL_EXPIRE_AT
+                             + " FROM " + TouristSchema.TABLE_TOURIST)) {
+                    while (rs.next()) {
+                        try {
+                            result.put(UUID.fromString(rs.getString(TouristSchema.COL_NPC_ID)),
+                                    rs.getLong(TouristSchema.COL_EXPIRE_AT));
+                        } catch (RuntimeException ignored) {
+                        }
+                    }
+                }
+                return result;
+            });
+            for (Map.Entry<UUID, Long> entry : rows.entrySet()) {
+                if (NpcManager.INSTANCE.getNpc(entry.getKey()) == null) {
+                    deleteRow(entry.getKey());
+                } else {
+                    persisted.put(entry.getKey(), entry.getValue());
+                }
+            }
+            loaded = true;
+            if (!persisted.isEmpty()) {
+                com.xy2407.kingdom.ModMain.LOGGER.info("已恢复 {} 名游客的行程", persisted.size());
+            }
+        } catch (Exception exception) {
+            loadRetryCooldown = LOAD_RETRY_DELAY_TICKS;
+            com.xy2407.kingdom.ModMain.LOGGER.error("加载游客数据失败", exception);
+        }
+    }
+
+    /**
+     * 周期清理：市民数据丢了、或寿命已到但实体再也不会上线的游客，
+     * 直接把数据库与内存里的所有痕迹抹掉。
+     */
+    private void cleanupExpired(MinecraftServer server, long now) {
+        // 数据库挂着、实体还没接管的
+        for (UUID id : new ArrayList<>(persisted.keySet())) {
+            NpcData data = NpcManager.INSTANCE.getNpc(id);
+            if (data == null) {
+                persisted.remove(id);
+                deleteRow(id);
+                continue;
+            }
+            Long deadline = persisted.get(id);
+            if (deadline != null && now >= deadline
+                    && NpcManager.INSTANCE.liveEntity(data) == null) {
+                clearTraces(id);
+                persisted.remove(id);
+            }
+        }
+        // 实体已接管的：市民数据丢失的清行；寿命已到但实体不在场的清全部痕迹
+        for (Map.Entry<UUID, Tourist> entry : new ArrayList<>(runtime.entrySet())) {
+            Tourist tourist = entry.getValue();
+            UUID citizenId = tourist.citizenId;
+            NpcData data = citizenId == null ? null : NpcManager.INSTANCE.getNpc(citizenId);
+            if (data == null) {
+                runtime.remove(entry.getKey());
+                if (citizenId != null) {
+                    deleteRow(citizenId);
+                }
+                continue;
+            }
+            if (now >= tourist.deadline && NpcManager.INSTANCE.liveEntity(data) == null) {
+                clearTraces(citizenId);
+                runtime.remove(entry.getKey());
+            }
+        }
+    }
+
+    /** 清除一名游客的全部存在痕迹：座席、订单、市民数据与游客行。 */
+    private void clearTraces(UUID citizenId) {
+        RestaurantOrder order = RestaurantOrderStore.INSTANCE.byCustomer(citizenId);
+        if (order != null) {
+            if (order.seat() != null) {
+                RestaurantOrderStore.INSTANCE.releaseSeat(order.seat());
+            }
+            RestaurantOrderStore.INSTANCE.remove(citizenId);
+        }
+        NpcManager.INSTANCE.removeNpc(citizenId);
+        deleteRow(citizenId);
+    }
+
+    private static void insertRow(UUID citizenId, long deadline) {
+        if (citizenId == null) {
+            return;
+        }
+        Map<String, Object> values = new HashMap<>();
+        values.put(TouristSchema.COL_NPC_ID, citizenId.toString());
+        values.put(TouristSchema.COL_EXPIRE_AT, deadline);
+        values.put(TouristSchema.COL_UPDATED_AT, System.currentTimeMillis());
+        KingdomPersistence.submit(TouristSchema.TABLE_TOURIST, TouristSchema.COL_NPC_ID,
+                citizenId.toString(), values);
+    }
+
+    private static void deleteRow(UUID citizenId) {
+        if (citizenId == null) {
+            return;
+        }
+        KingdomPersistence.delete(TouristSchema.TABLE_TOURIST, TouristSchema.COL_NPC_ID,
+                citizenId.toString());
     }
 
     private int countOf(String territoryId) {

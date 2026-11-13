@@ -1987,6 +1987,16 @@ public class NpcEntity extends PathfinderMob {
                 NpcFreightService.tick(this, data);
             }
             case RANCHING -> stopSitting();
+            case STORING_PRODUCE -> {
+                stopSitting();
+                if (brain.isMiningControlled()) {
+                    NpcMiningService.tick(this, data);
+                } else if (brain.isFarmControlled()) {
+                    NpcFarmService.tick(this, data);
+                } else if (brain.isLumberControlled()) {
+                    com.xy2407.kingdom.server.lumber.NpcLumberService.tick(this);
+                }
+            }
             case TOURIST -> com.xy2407.kingdom.server.tourism.TourismService.INSTANCE
                     .tickTourist(this, data);
             case GOING_WORK -> {

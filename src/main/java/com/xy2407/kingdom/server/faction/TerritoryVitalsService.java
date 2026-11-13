@@ -25,7 +25,6 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.level.ChunkPos;
 
 /**
  * 领地民心三值的规则引擎：每日结算凝聚力（战斗损失、开战惩罚、投降）与忠诚幸福导致的人口流失。
@@ -186,14 +185,10 @@ public final class TerritoryVitalsService {
     public static Census census(Territory territory) {
         List<NpcData> homelessOrJobless = new ArrayList<>();
         int population = 0;
+        String lordId = territory == null || territory.owner() == null ? ""
+                : territory.owner().toString();
         for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
-            if (npc == null || npc.isDead()) {
-                continue;
-            }
-            if (!territory.dimension().equals(npc.getDimension())) {
-                continue;
-            }
-            if (!territory.containsChunk(ChunkPos.getX(npc.getChunk()), ChunkPos.getZ(npc.getChunk()))) {
+            if (npc == null || npc.isDead() || lordId.isEmpty() || !lordId.equals(npc.getOwnerId())) {
                 continue;
             }
             population++;

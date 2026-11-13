@@ -46,18 +46,18 @@ public final class NpcFreightService {
         }
         BuildingRecord warehouse = BuildingRegistry.INSTANCE.byId(order.warehouseId());
         if (warehouse == null) {
-            FreightService.INSTANCE.fail(order, "仓库已不存在");
+            FreightService.INSTANCE.failCarrying(level.getServer(), order, "仓库已不存在");
             return;
         }
         BlockPos destination = destinationOf(level, order);
         if (destination == null) {
-            FreightService.INSTANCE.fail(order, "需求方已不存在");
+            FreightService.INSTANCE.failCarrying(level.getServer(), order, "需求方已不存在");
             return;
         }
         BuildingRecord pickup = order.pickupId() == null ? warehouse
                 : BuildingRegistry.INSTANCE.byId(order.pickupId());
         if (pickup == null) {
-            FreightService.INSTANCE.fail(order, "取货点已不存在");
+            FreightService.INSTANCE.failCarrying(level.getServer(), order, "取货点已不存在");
             return;
         }
         switch (order.state()) {
@@ -67,15 +67,23 @@ public final class NpcFreightService {
                 }
             }
             case PICKING_UP -> {
-                if (!hasAll(level, pickup, order)) {
-                    FreightService.INSTANCE.fail(order, "取货点库存不足");
-                    return;
+                if (order.target() == FreightOrder.Target.WAREHOUSE) {
+                    // 清仓订单：货源有多少搬多少，一件都没有才算失败
+                    if (!loadOnboard(level, npc, pickup, order)) {
+                        FreightService.INSTANCE.fail(order, "货源地已清空");
+                        return;
+                    }
+                } else {
+                    if (!hasAll(level, pickup, order)) {
+                        FreightService.INSTANCE.fail(order, "取货点库存不足");
+                        return;
+                    }
+                    loadOnboard(level, npc, pickup, order);
                 }
-                loadOnboard(level, npc, pickup, order);
                 order.setState(FreightOrder.State.DELIVERING);
             }
             case DELIVERING -> {
-                if (walkTo(npc, destination) && unload(level, npc, order, destination)) {
+                if (walkTo(npc, destination) && unload(level, npc, order, destination, pickup)) {
                     order.setState(FreightOrder.State.RETURNING);
                 }
             }
@@ -96,6 +104,10 @@ public final class NpcFreightService {
                 return null;
             }
             return level.getBlockEntity(pos) instanceof Container ? pos : null;
+        }
+        if (order.target() == FreightOrder.Target.WAREHOUSE) {
+            BuildingRecord target = BuildingRegistry.INSTANCE.byId(order.warehouseId());
+            return target == null ? null : center(target);
         }
         BuildingRecord requester = BuildingRegistry.INSTANCE.byId(order.requesterId());
         return requester == null ? null : center(requester);
@@ -131,11 +143,14 @@ public final class NpcFreightService {
         return store != null && FreightService.hasAll(store, order.items());
     }
 
-    private static void loadOnboard(ServerLevel level, NpcEntity npc, BuildingRecord warehouse, FreightOrder order) {
+    /** 从货源装载订单货物；返回是否至少搬到了一件。 */
+    private static boolean loadOnboard(ServerLevel level, NpcEntity npc, BuildingRecord warehouse,
+                                       FreightOrder order) {
         IItemHandler store = storeOf(level, warehouse);
         if (store == null) {
-            return;
+            return false;
         }
+        boolean loaded = false;
         for (ItemCount need : order.items()) {
             Item item = FreightService.itemOf(need.item());
             if (item == null) {
@@ -153,15 +168,19 @@ public final class NpcFreightService {
                     continue;
                 }
                 remaining -= extracted.getCount();
+                loaded = true;
                 insertOnboard(npc, store, extracted);
             }
         }
+        return loaded;
     }
 
+    /** 只往背包 24 格装货；装不下的原样放回货源。 */
     private static void insertOnboard(NpcEntity npc, IItemHandler store, ItemStack stack) {
         int remaining = stack.getCount();
-        for (int slot = 0; slot < npc.getNpcInventory().getSlots() && remaining > 0; slot++) {
-            ItemStack left = npc.getNpcInventory().insertItem(slot, new ItemStack(stack.getItem(), remaining), false);
+        NpcInventory inventory = npc.getNpcInventory();
+        for (int slot = NpcInventory.BAG_START; slot < NpcInventory.SLOT_COUNT && remaining > 0; slot++) {
+            ItemStack left = inventory.insertItem(slot, new ItemStack(stack.getItem(), remaining), false);
             remaining = left.getCount();
         }
         if (remaining > 0) {
@@ -169,29 +188,54 @@ public final class NpcFreightService {
         }
     }
 
-    private static boolean unload(ServerLevel level, NpcEntity npc, FreightOrder order, BlockPos destination) {
+    private static boolean unload(ServerLevel level, NpcEntity npc, FreightOrder order,
+                                  BlockPos destination, BuildingRecord pickup) {
         if (order.target() == FreightOrder.Target.CONTAINER) {
             if (!(level.getBlockEntity(destination) instanceof Container container)) {
                 return false;
             }
             for (ItemCount need : order.items()) {
-                takeFromOnboard(npc, need, stack -> insertIntoContainer(container, stack));
+                takeFromOnboard(npc, need, stack -> {
+                    insertIntoContainer(container, stack);
+                    return ItemStack.EMPTY;
+                });
             }
             return true;
         }
-        BuildingRecord requester = BuildingRegistry.INSTANCE.byId(order.requesterId());
+        UUID deliverTo = order.target() == FreightOrder.Target.WAREHOUSE
+                ? order.warehouseId() : order.requesterId();
+        BuildingRecord requester = BuildingRegistry.INSTANCE.byId(deliverTo);
         IItemHandler store = requester == null ? null : storeOf(level, requester);
         if (store == null) {
             return false;
         }
+        if (order.target() == FreightOrder.Target.WAREHOUSE) {
+            // 清仓交付：能卸多少卸多少，卸不掉的当场回族源地，货物不卡在运输员身上
+            IItemHandler source = pickup == null ? null : storeOf(level, pickup);
+            for (ItemCount need : order.items()) {
+                takeFromOnboard(npc, need, stack -> {
+                    ItemStack rest = insertIntoHandler(store, stack);
+                    if (!rest.isEmpty() && source != null) {
+                        rest = insertIntoHandler(source, rest);
+                    }
+                    // 退不回去就留在背包里，绝不让货物凭空消失
+                    return rest;
+                });
+            }
+            return true;
+        }
         for (ItemCount need : order.items()) {
-            takeFromOnboard(npc, need, stack -> insertIntoHandler(store, stack));
+            takeFromOnboard(npc, need, stack -> {
+                insertIntoHandler(store, stack);
+                return ItemStack.EMPTY;
+            });
         }
         return true;
     }
 
     private interface Sink {
-        void accept(ItemStack stack);
+        /** 接收一 stack，返回没接收的部分。 */
+        ItemStack accept(ItemStack stack);
     }
 
     private static void takeFromOnboard(NpcEntity npc, ItemCount need, Sink sink) {
@@ -200,27 +244,32 @@ public final class NpcFreightService {
             return;
         }
         int remaining = need.count();
-        for (int slot = 0; slot < npc.getNpcInventory().getSlots() && remaining > 0; slot++) {
-            ItemStack stack = npc.getNpcInventory().getStackInSlot(slot);
+        NpcInventory inventory = npc.getNpcInventory();
+        for (int slot = NpcInventory.BAG_START; slot < NpcInventory.SLOT_COUNT && remaining > 0; slot++) {
+            ItemStack stack = inventory.getStackInSlot(slot);
             if (stack.isEmpty() || !stack.is(item)) {
                 continue;
             }
             int take = Math.min(remaining, stack.getCount());
-            ItemStack extracted = npc.getNpcInventory().extractItem(slot, take, false);
+            ItemStack extracted = inventory.extractItem(slot, take, false);
             if (extracted.isEmpty()) {
                 continue;
             }
             remaining -= extracted.getCount();
-            sink.accept(extracted);
+            ItemStack rest = sink.accept(extracted);
+            if (rest != null && !rest.isEmpty()) {
+                inventory.insertItem(slot, rest, false);
+            }
         }
     }
 
-    private static void insertIntoHandler(IItemHandler store, ItemStack stack) {
+    private static ItemStack insertIntoHandler(IItemHandler store, ItemStack stack) {
         int remaining = stack.getCount();
         for (int slot = 0; slot < store.getSlots() && remaining > 0; slot++) {
             ItemStack left = store.insertItem(slot, new ItemStack(stack.getItem(), remaining), false);
             remaining = left.getCount();
         }
+        return remaining <= 0 ? ItemStack.EMPTY : new ItemStack(stack.getItem(), remaining);
     }
 
     private static void insertIntoContainer(Container container, ItemStack stack) {

@@ -8,6 +8,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -31,6 +33,8 @@ import net.minecraft.core.Vec3i;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Mth;
+import net.minecraft.world.level.ChunkPos;
 
 /**
  * 建筑登记表，负责完工落库、按包围盒定位建筑并提示玩家当前状态
@@ -41,9 +45,12 @@ public final class BuildingRegistry {
     private static final int PROMPT_INTERVAL_TICKS = 20;
     private static final int LOAD_RETRY_DELAY_TICKS = 200;
     private static final String COMPLETED = "COMPLETED";
+    // 空间索引外扩：contains 容差 +1 格、findDining 餐位 clamp 外扩到 +2/-1，统一外扩 2 覆盖全部查询语义
+    private static final int INDEX_PAD = 2;
 
     private final List<BuildingRecord> records = new ArrayList<>();
     private final Map<UUID, BuildingRecord> index = new HashMap<>();
+    private final Map<String, Map<Long, List<BuildingRecord>>> byChunk = new HashMap<>();
     private final Map<String, BuildingMeta> metaCache = new ConcurrentHashMap<>();
     private boolean loaded;
     private int tickCounter;
@@ -55,11 +62,17 @@ public final class BuildingRegistry {
     public void reset() {
         records.clear();
         index.clear();
+        byChunk.clear();
         loaded = false;
         metaCache.clear();
         BuildingMetaLoader.clearIndex();
         tickCounter = 0;
         loadRetryCooldown = 0;
+    }
+
+    /** 建筑表是否已经从数据库读完；仓库归属要等它读完再校验，否则会把有效绑定当失效清掉。 */
+    public boolean isLoaded() {
+        return loaded;
     }
 
     public void register(BuildingTask task) {
@@ -80,6 +93,7 @@ public final class BuildingRegistry {
                 farmSlots, task.createdDay(), type, work);
         records.add(building);
         index.put(building.id(), building);
+        indexBuilding(building);
         KingdomPersistence.submit(BuildingSchema.TABLE_BUILDING, BuildingSchema.COL_UUID,
                 building.id().toString(), toValues(building));
         MapOverlayCollector.pushAll();
@@ -127,12 +141,21 @@ public final class BuildingRegistry {
         if (building == null) {
             return;
         }
+        BuildingRecord previous = null;
         for (int i = 0; i < records.size(); i++) {
             if (records.get(i).id().equals(building.id())) {
+                previous = records.get(i);
+                deindexBuilding(previous);
                 records.set(i, building);
                 index.put(building.id(), building);
+                indexBuilding(building);
                 break;
             }
+        }
+        // 仓库改成别的工种：它名下所有建筑立即解绑并删库，避免指向一个不再是仓库的建筑
+        if (previous != null && previous.work() == BuildingWork.WAREHOUSE
+                && building.work() != BuildingWork.WAREHOUSE) {
+            WarehouseLinkStore.INSTANCE.clearWarehouse(building.id());
         }
         KingdomPersistence.submit(BuildingSchema.TABLE_BUILDING, BuildingSchema.COL_UUID,
                 building.id().toString(), toValues(building));
@@ -178,8 +201,10 @@ public final class BuildingRegistry {
             records.clear();
             records.addAll(rows);
             index.clear();
+            byChunk.clear();
             for (BuildingRecord row : rows) {
                 index.put(row.id(), row);
+                indexBuilding(row);
             }
             loaded = true;
             ModMain.LOGGER.info("已加载 {} 座建筑", records.size());
@@ -190,20 +215,24 @@ public final class BuildingRegistry {
     }
 
     public BuildingRecord locate(ServerPlayer player) {
-        String dimension = player.level().dimension().location().toString();
-        for (BuildingRecord building : records) {
-            if (building.contains(dimension, player.getX(), player.getY(), player.getZ())) {
-                return building;
-            }
-        }
-        return null;
+        return at(player.level().dimension().location().toString(),
+                player.getX(), player.getY(), player.getZ());
     }
 
     public BuildingRecord at(String dimension, double x, double y, double z) {
         if (dimension == null || !loaded) {
             return null;
         }
-        for (BuildingRecord building : records) {
+        Map<Long, List<BuildingRecord>> chunks = byChunk.get(dimension);
+        if (chunks == null) {
+            return null;
+        }
+        List<BuildingRecord> candidates = chunks.get(
+                ChunkPos.asLong(Mth.floor(x) >> 4, Mth.floor(z) >> 4));
+        if (candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+        for (BuildingRecord building : candidates) {
             if (building.contains(dimension, x, y, z)) {
                 return building;
             }
@@ -212,26 +241,77 @@ public final class BuildingRegistry {
     }
 
     public BlockPos findDining(String dimensionId, double x, double y, double z, double radius) {
-        if (!loaded || records.isEmpty() || dimensionId == null) {
+        if (!loaded || dimensionId == null) {
             return null;
         }
+        Map<Long, List<BuildingRecord>> chunks = byChunk.get(dimensionId);
+        if (chunks == null) {
+            return null;
+        }
+        int minChunkX = Mth.floor(x - radius) >> 4;
+        int maxChunkX = Mth.floor(x + radius) >> 4;
+        int minChunkZ = Mth.floor(z - radius) >> 4;
+        int maxChunkZ = Mth.floor(z + radius) >> 4;
         BlockPos best = null;
         double bestSqr = radius * radius;
-        for (BuildingRecord record : records) {
-            if (!dimensionId.equals(record.dimension()) || record.work() != BuildingWork.RESTAURANT) {
-                continue;
-            }
-            double spotX = clamp(x, record.min().getX() - 1.0D, record.max().getX() + 2.0D);
-            double spotZ = clamp(z, record.min().getZ() - 1.0D, record.max().getZ() + 2.0D);
-            double dx = x - spotX;
-            double dz = z - spotZ;
-            double distSqr = dx * dx + dz * dz;
-            if (distSqr <= bestSqr) {
-                bestSqr = distSqr;
-                best = BlockPos.containing(spotX, record.min().getY(), spotZ);
+        Set<UUID> seen = new HashSet<>();
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+            for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
+                List<BuildingRecord> candidates = chunks.get(ChunkPos.asLong(chunkX, chunkZ));
+                if (candidates == null) {
+                    continue;
+                }
+                for (BuildingRecord record : candidates) {
+                    if (!seen.add(record.id()) || record.work() != BuildingWork.RESTAURANT) {
+                        continue;
+                    }
+                    double spotX = clamp(x, record.min().getX() - 1.0D, record.max().getX() + 2.0D);
+                    double spotZ = clamp(z, record.min().getZ() - 1.0D, record.max().getZ() + 2.0D);
+                    double dx = x - spotX;
+                    double dz = z - spotZ;
+                    double distSqr = dx * dx + dz * dz;
+                    if (distSqr <= bestSqr) {
+                        bestSqr = distSqr;
+                        best = BlockPos.containing(spotX, record.min().getY(), spotZ);
+                    }
+                }
             }
         }
         return best;
+    }
+
+    private void indexBuilding(BuildingRecord building) {
+        Map<Long, List<BuildingRecord>> chunks = byChunk.computeIfAbsent(
+                building.dimension(), key -> new HashMap<>());
+        int minChunkX = (building.min().getX() - INDEX_PAD) >> 4;
+        int maxChunkX = (building.max().getX() + INDEX_PAD) >> 4;
+        int minChunkZ = (building.min().getZ() - INDEX_PAD) >> 4;
+        int maxChunkZ = (building.max().getZ() + INDEX_PAD) >> 4;
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+            for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
+                chunks.computeIfAbsent(ChunkPos.asLong(chunkX, chunkZ),
+                        key -> new ArrayList<>()).add(building);
+            }
+        }
+    }
+
+    private void deindexBuilding(BuildingRecord building) {
+        Map<Long, List<BuildingRecord>> chunks = byChunk.get(building.dimension());
+        if (chunks == null) {
+            return;
+        }
+        int minChunkX = (building.min().getX() - INDEX_PAD) >> 4;
+        int maxChunkX = (building.max().getX() + INDEX_PAD) >> 4;
+        int minChunkZ = (building.min().getZ() - INDEX_PAD) >> 4;
+        int maxChunkZ = (building.max().getZ() + INDEX_PAD) >> 4;
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+            for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
+                List<BuildingRecord> candidates = chunks.get(ChunkPos.asLong(chunkX, chunkZ));
+                if (candidates != null) {
+                    candidates.remove(building);
+                }
+            }
+        }
     }
 
     private static double clamp(double value, double low, double high) {

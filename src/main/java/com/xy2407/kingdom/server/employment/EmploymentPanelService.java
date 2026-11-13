@@ -131,8 +131,12 @@ public final class EmploymentPanelService {
         String dimension = level.dimension().location().toString();
         Territory territory = TerritoryRegistry.INSTANCE.byBlock(dimension,
                 playerPos.getX(), playerPos.getZ());
+        String lordId = player.getUUID().toString();
         for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
             if (npc.isDead() || npc.getRole() == NpcRole.TOURIST) {
+                continue;
+            }
+            if (!lordId.equals(npc.getOwnerId())) {
                 continue;
             }
             if (!dimension.equals(npc.getDimension())) {

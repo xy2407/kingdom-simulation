@@ -52,7 +52,11 @@ public final class CityHallDataCollector {
         }
 
         List<CityHallDataPacket.Citizen> citizens = new ArrayList<>();
+        String lordId = player.getUUID().toString();
         for (NpcData npc : npcs) {
+            if (npc == null || npc.isDead() || !lordId.equals(npc.getOwnerId())) {
+                continue;
+            }
             if (citizens.size() < CITIZEN_LIMIT) {
                 citizens.add(new CityHallDataPacket.Citizen(
                         npc.getName(), npc.getSkin(), npc.getJob(), describe(npc)));

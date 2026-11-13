@@ -110,6 +110,10 @@ canvas,img{
   flex:1 1 auto;
   min-height:0;
   overflow:hidden;
+  /* 顶部 56px 让位给置顶的四件护甲槽（.armor-row 绝对定位盖在这条带里）；
+     用 padding 不用 margin：引擎对"元素自身 margin 不计入绘制定位"的怪癖
+     会让框体绘制的位置和布局错位，padding 只收缩内容区、不动框体位置 */
+  padding-top:56px;
   background-color:rgba(58,40,20,.10);
   background-image:
     linear-gradient(rgba(58,40,20,.10) 1px, transparent 1px),
@@ -282,29 +286,50 @@ npc-bar{display:block;width:100%;height:22px;}
   cursor:pointer;
 }
 
-/* 装备栏：6 格竖排，绝对定位到左侧模型框内的左边缘。
-   .pane-bag 是 position:relative，负的 left/top 把它挪回左侧栏；
-   尺寸取 48px（与行囊面板一致），避免比背包格更抢眼，也不遮挡模型本体。 */
-.equip-col{
+/* ============================================================
+   装备槽布局（2026-11-12 重排）：
+   · 四件护甲置顶：横排在左栏最顶（模型框上方让出的 56px 条带里）；
+   · 主副手：NPC 渲染框内的底部左右两边（血量条上方），左主手、右副手。
+   两组都必须留在 <container id="entity"> 标签内（槽位收集按标签），
+   用 absolute + 负 left 挂回左栏（与旧 .equip-col 同一手法）：
+   pane-bag 的 padding-box 左缘 = card-right 左缘，
+   card-left 左缘 = −356px（340 栏宽 + 16 缝），宽 340 正好盖满左栏。
+   垂直坐标推导：card-left 高 766 = 模型框 626 + gap 12 + vitals 128；
+   model-box padding-top 56 → 内容底 = 626；hands-row 槽高 48 + 底边距 8
+   → top = 626 − 56(已含在内容坐标系) − 48 − 8 = 570（相对 pane-bag 顶）。
+   若以后增减血条行数，这里要跟着重算。
+   ============================================================ */
+.armor-row{
   position:absolute;
-  left:-372px;
-  top:-14px;
+  left:-356px;
+  top:0;
+  width:340px;
   display:flex;
-  flex-direction:column;
+  justify-content:center;
 }
+
+.hands-row{
+  position:absolute;
+  left:-356px;
+  top:570px;
+  width:340px;
+  display:flex;
+  justify-content:space-between;
+  padding:0 14px;
+}
+
 .slot.equip{
   width:48px;
   height:48px;
   --aui-slot-size:48;
   --aui-slot-icon-scale:2.25;
-  margin-right:0;
-  margin-bottom:6px;
+  margin:0;
 }
 
-/* 主副手与四件护甲之间留明显空档，避免看成同一条"装备栏" */
-.equip-gap{
-  height:14px;
-  flex:0 0 auto;
+/* 护甲排的槽间距：只用 margin-right（引擎对"自身 margin-left 不计入绘制"
+   的怪癖会让带左 margin 的槽整体左偏，右 margin 无此问题） */
+.armor-row .slot.equip{
+  margin-right:8px;
 }
 
 /* 护甲空槽剪影：直接烘进槽位底图（原版背包的空装备位也是画在背景上的），
@@ -354,7 +379,10 @@ npc-bar{display:block;width:100%;height:22px;}
    取 Rect.of(item) 再按固定的 16px 居中），而 UA 样式表把 item 定死 16×16、
    定位在 slot 的 left/top:1px——不铺满，放大后的图标就会以"格子左上角"为中心
    撑出去。铺满之后图标中心 = 槽位中心，配合 --aui-slot-icon-scale 才是正着放大的
-   （§11 坑 31）。position:absolute 显式写，不依赖 UA 的 slot > item 标签选择器。 */
+   （§11 坑 31）。position:absolute 显式写，不依赖 UA 的 slot > item 标签选择器。
+   ⚠ 每种槽位尺寸都要有对应的 .slot-icon 覆盖：装备槽 48px 之前漏了这条，
+   图标盒还是 74×74（按背包格写的），塞进 48px 槽位溢出 26px ——
+   这就是"装备槽物品图标缩放和偏移"一直没好的根因（2026-11-12 补）。 */
 .slot-icon{
   position:absolute;
   left:0;
@@ -364,6 +392,11 @@ npc-bar{display:block;width:100%;height:22px;}
 }
 
 .pane-player .slot-icon{
+  width:48px;
+  height:48px;
+}
+
+.slot.equip .slot-icon{
   width:48px;
   height:48px;
 }
@@ -511,16 +544,19 @@ npc-bar{display:block;width:100%;height:22px;}
             <slot id="slot28" class="slot" slot-index="28" slot-size="74"><item class="slot-icon"></item></slot>
             <slot id="slot29" class="slot" slot-index="29" slot-size="74"><item class="slot-icon"></item></slot>
           </div>
-          <!-- 装备栏：竖排挂在左侧模型框内。0/1 是主副手，空 14px 后接四件护甲。
-               背包格与装备格索引见 NpcInventory -->
-          <div class="equip-col">
-            <slot id="slot0" class="slot equip" slot-index="0" slot-size="48"><item class="slot-icon"></item></slot>
-            <slot id="slot1" class="slot equip" slot-index="1" slot-size="48"><item class="slot-icon"></item></slot>
-            <div class="equip-gap"></div>
+          <!-- 装备槽（2026-11-12 重排）：
+               · 四件护甲（槽位 2-5）置顶：横排在左栏最顶、模型框上方；
+               · 主手（0）左、副手（1）右：绝对定位到模型框内底部两侧、血量条上方。
+               背包格与装备格索引见 NpcInventory。 -->
+          <div class="armor-row">
             <slot id="slot2" class="slot equip armor-head" slot-index="2" slot-size="48"><item class="slot-icon"></item></slot>
             <slot id="slot3" class="slot equip armor-chest" slot-index="3" slot-size="48"><item class="slot-icon"></item></slot>
             <slot id="slot4" class="slot equip armor-legs" slot-index="4" slot-size="48"><item class="slot-icon"></item></slot>
             <slot id="slot5" class="slot equip armor-feet" slot-index="5" slot-size="48"><item class="slot-icon"></item></slot>
+          </div>
+          <div class="hands-row">
+            <slot id="slot0" class="slot equip" slot-index="0" slot-size="48"><item class="slot-icon"></item></slot>
+            <slot id="slot1" class="slot equip" slot-index="1" slot-size="48"><item class="slot-icon"></item></slot>
           </div>
         </container>
       </section>

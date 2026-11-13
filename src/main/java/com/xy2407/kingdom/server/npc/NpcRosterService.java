@@ -28,9 +28,11 @@ public final class NpcRosterService {
             return;
         }
         String dimension = player.level().dimension().location().toString();
+        String lordId = player.getUUID().toString();
         List<NpcRosterPacket.Entry> entries = new ArrayList<>();
         for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
-            if (npc.isDead() || !dimension.equals(npc.getDimension())) {
+            if (npc.isDead() || !dimension.equals(npc.getDimension())
+                    || !lordId.equals(npc.getOwnerId())) {
                 continue;
             }
             int[] coord = coordsOf(npc);

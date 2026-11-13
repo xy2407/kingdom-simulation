@@ -51,6 +51,7 @@ public final class ServerLifecycle {
         com.xy2407.kingdom.common.building.BlueprintDeployer.deploy();
         NpcManager.INSTANCE.reset();
         BuildingRegistry.INSTANCE.reset();
+        com.xy2407.kingdom.server.building.WarehouseLinkStore.INSTANCE.reset();
         FarmPlotManager.INSTANCE.reset();
         RanchPenManager.INSTANCE.reset();
         RanchWorkService.reset();
@@ -110,6 +111,7 @@ public final class ServerLifecycle {
         PlayerProfileStore.INSTANCE.tick();
         TerritoryVitalsStore.INSTANCE.tick();
         BuildingStorageStore.INSTANCE.tick(event.getServer());
+        com.xy2407.kingdom.server.building.WarehouseLinkStore.INSTANCE.tick();
         GovernmentAffairStore.INSTANCE.tick(event.getServer());
         GovernmentAffairService.tick(event.getServer());
         RoadStore.INSTANCE.tick();

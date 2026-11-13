@@ -66,9 +66,14 @@ public final class MilitaryPanelService {
                     npc.getSkin(), soldierNote(npc)));
         }
         List<MilitaryPanelStatePacket.Member> candidates = new ArrayList<>();
-        String owner = building.id().toString();
+        String buildingOwner = building.id().toString();
+        String lordId = player.getUUID().toString();
         for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
-            if (npc.isDead() || npc.getRole() == NpcRole.TOURIST || owner.equals(npc.getWorkplaceId())) {
+            if (npc.isDead() || npc.getRole() == NpcRole.TOURIST
+                    || buildingOwner.equals(npc.getWorkplaceId())) {
+                continue;
+            }
+            if (!lordId.equals(npc.getOwnerId())) {
                 continue;
             }
             String note = EmploymentService.INSTANCE.conflictAt(npc, null);

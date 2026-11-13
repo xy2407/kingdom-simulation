@@ -61,10 +61,10 @@ public final class IndustryStaffService {
             PacketDistributor.sendToPlayer(player, IndustryStaffStatePacket.outside());
             return;
         }
-        PacketDistributor.sendToPlayer(player, snapshot(building));
+        PacketDistributor.sendToPlayer(player, snapshot(player, building));
     }
 
-    private static IndustryStaffStatePacket snapshot(BuildingRecord building) {
+    private static IndustryStaffStatePacket snapshot(ServerPlayer player, BuildingRecord building) {
         BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(building);
         boolean lumber = meta != null && meta.isWork(BuildingWork.LUMBER);
         List<MiningPlot> plots = lumber ? List.of() : MiningPlotManager.INSTANCE.allOf(building.id());
@@ -92,8 +92,12 @@ public final class IndustryStaffService {
                     assigned == null ? "" : assigned.name()));
         }
         List<IndustryStaffStatePacket.Worker> candidates = new ArrayList<>();
+        String lordId = player.getUUID().toString();
         for (NpcData npc : NpcManager.INSTANCE.allNpcs()) {
             if (npc.isDead() || isStaffOf(npc, building) || npc.getRole() == NpcRole.TOURIST) {
+                continue;
+            }
+            if (!lordId.equals(npc.getOwnerId())) {
                 continue;
             }
             candidates.add(new IndustryStaffStatePacket.Worker(npc.getId(), npc.getName(),

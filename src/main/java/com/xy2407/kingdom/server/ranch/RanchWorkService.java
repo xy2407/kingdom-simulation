@@ -14,8 +14,10 @@ import com.xy2407.kingdom.common.building.AnimalSpec;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.entity.NpcEntity;
 import com.xy2407.kingdom.common.npc.NpcData;
+import com.xy2407.kingdom.common.npc.NpcDetail;
 import com.xy2407.kingdom.common.npc.NpcInventory;
 import com.xy2407.kingdom.common.npc.NpcManager;
+import com.xy2407.kingdom.common.npc.ProduceStoring;
 import com.xy2407.kingdom.common.persistence.RanchSchema;
 import com.xy2407.kingdom.common.ranch.RanchAnimals;
 import com.xy2407.kingdom.common.ranch.RanchBounds;
@@ -84,6 +86,12 @@ public final class RanchWorkService {
 
     private static final int PHASE_FEEDING = 3;
 
+    private static final int PHASE_TO_STORE = 4;
+
+    private static final int PHASE_STORE_WAIT = 5;
+
+    private static final int STORE_RECHECK_TICKS = 40;
+
     public static final String STATUS_NO_BUILDING = "no_building";
 
     public static final String STATUS_NO_ANIMAL = "no_animal";
@@ -100,6 +108,9 @@ public final class RanchWorkService {
 
     private static final Map<UUID, PenRuntime> RUNTIMES = new ConcurrentHashMap<>();
 
+    /** 饲养员 citizenId → 畜栏 id，供明细查询 O(1) 定位。 */
+    private static final Map<UUID, UUID> KEEPER_PEN = new ConcurrentHashMap<>();
+
     private static final Set<UUID> CONTROLLED_KEEPERS = new HashSet<>();
 
     private RanchWorkService() {
@@ -107,6 +118,7 @@ public final class RanchWorkService {
 
     public static void reset() {
         RUNTIMES.clear();
+        KEEPER_PEN.clear();
         CONTROLLED_KEEPERS.clear();
     }
 
@@ -138,6 +150,7 @@ public final class RanchWorkService {
             tickPen(level, pen, runtime, keeper, gameTime);
         }
         RUNTIMES.keySet().retainAll(activePens);
+        KEEPER_PEN.entrySet().removeIf(entry -> !activePens.contains(entry.getValue()));
         releaseUnusedKeepers(server, activeKeepers);
     }
 
@@ -188,6 +201,7 @@ public final class RanchWorkService {
             runtime.building = building;
             runtime.spec = spec;
             runtime.keeper = keeper;
+            KEEPER_PEN.put(keeper.getId(), pen.id());
             runtime.type = entityType(spec.entity());
             runtime.range = rangeOf(pen, building);
             runtime.rangeKey = "range:" + pen.id();
@@ -206,6 +220,7 @@ public final class RanchWorkService {
             }
         }
         tickFeedRun(level, pen, runtime, keeperEntity, gameTime);
+        tickStoreRun(level, pen, runtime, keeperEntity);
         if (gameTime - runtime.lastFeed >= FEED_INTERVAL) {
             runtime.lastFeed = gameTime;
             markFeed(level, pen, runtime, gameTime);
@@ -431,6 +446,65 @@ public final class RanchWorkService {
             keeper.setHeldItem(ItemStack.EMPTY);
         }
         status(pen, STATUS_GROWING);
+        // 喂食跑完了：背包里压着产物就先送建筑仓库
+        if (keeper != null && keeper.level() instanceof ServerLevel level) {
+            beginStoreIfPending(level, pen, runtime, keeper);
+        }
+    }
+
+    /** 背包有产物且当前空闲 → 进入「正在存入产物」阶段。 */
+    private static void beginStoreIfPending(ServerLevel level, RanchPen pen, PenRuntime runtime,
+                                            NpcEntity keeper) {
+        if (runtime.phase != PHASE_IDLE || keeper == null
+                || !ProduceStoring.bagHasProduce(keeper.getNpcInventory())) {
+            return;
+        }
+        runtime.phase = PHASE_TO_STORE;
+        runtime.storeTicks = 0;
+        status(pen, STATUS_COLLECTING);
+    }
+
+    /** 「正在存入产物」：走到建筑范围内，把背包 24 格产物清进建筑仓库；满了催运输并原地等。 */
+    private static void tickStoreRun(ServerLevel level, RanchPen pen, PenRuntime runtime,
+                                     NpcEntity keeper) {
+        if (runtime.phase != PHASE_TO_STORE && runtime.phase != PHASE_STORE_WAIT) {
+            return;
+        }
+        if (keeper == null || runtime.building == null) {
+            runtime.phase = PHASE_IDLE;
+            return;
+        }
+        if (runtime.phase == PHASE_TO_STORE) {
+            BlockPos target = nearest(RanchBounds.standablePoints(level, runtime.building),
+                    keeper.position());
+            if (target == null) {
+                runtime.phase = PHASE_IDLE;
+                return;
+            }
+            keeper.setRanchTarget(target);
+            if (keeper.blockPosition().distSqr(target) > KEEPER_REACH * KEEPER_REACH) {
+                return;
+            }
+            boolean emptied = ProduceStoring.depositBag(level, keeper, runtime.building);
+            if (emptied) {
+                runtime.phase = PHASE_IDLE;
+                status(pen, STATUS_GROWING);
+                return;
+            }
+            // 能存多少存多少了，剩下的催运输来清仓
+            ProduceStoring.requestPickup(level, runtime.building);
+            runtime.phase = PHASE_STORE_WAIT;
+            runtime.storeTicks = 0;
+            return;
+        }
+        runtime.storeTicks++;
+        if (runtime.storeTicks < STORE_RECHECK_TICKS) {
+            return;
+        }
+        runtime.storeTicks = 0;
+        if (ProduceStoring.storeHasRoom(level, runtime.building)) {
+            runtime.phase = PHASE_TO_STORE;
+        }
     }
 
     private static void clearFeed(RanchPen pen, PenRuntime runtime, NpcEntity keeper) {
@@ -458,14 +532,25 @@ public final class RanchWorkService {
             return;
         }
         if (collecting) {
-            deposit(keeper, runtime.spec.output(), Math.max(1, adults / 2));
+            ItemStack leftover = deposit(keeper, runtime.spec.output(), Math.max(1, adults / 2));
+            if (!leftover.isEmpty() && keeper.level() instanceof ServerLevel ground) {
+                // 背包塞不下：掉在脚边，同时转入入库阶段把包里的产物送进建筑仓库
+                net.minecraft.world.level.block.Block.popResource(ground,
+                        keeper.blockPosition(), leftover);
+            }
+            beginStoreIfPending(level, pen, runtime, keeper);
             status(pen, STATUS_COLLECTING);
             return;
         }
         for (Mob mob : animals) {
             if (mob.isAlive() && !isBaby(mob)) {
                 mob.discard();
-                deposit(keeper, runtime.spec.output(), 1);
+                ItemStack leftover = deposit(keeper, runtime.spec.output(), 1);
+                if (!leftover.isEmpty() && keeper.level() instanceof ServerLevel ground) {
+                    net.minecraft.world.level.block.Block.popResource(ground,
+                            keeper.blockPosition(), leftover);
+                }
+                beginStoreIfPending(level, pen, runtime, keeper);
                 status(pen, STATUS_GROWING);
                 return;
             }
@@ -565,24 +650,38 @@ public final class RanchWorkService {
         return total;
     }
 
-    private static void deposit(NpcEntity keeper, String itemId, int amount) {
+    /** 产物只进背包 24 格；返回背包塞不下的部分。 */
+    private static ItemStack deposit(NpcEntity keeper, String itemId, int amount) {
         if (keeper == null || amount <= 0) {
-            return;
+            return ItemStack.EMPTY;
         }
         ResourceLocation id = ResourceLocation.tryParse(itemId);
         if (id == null) {
-            return;
+            return ItemStack.EMPTY;
         }
         Item item = BuiltInRegistries.ITEM.get(id);
         if (item == null || item == Items.AIR) {
-            return;
+            return ItemStack.EMPTY;
         }
         ItemStack stack = new ItemStack(item, 1);
         stack.setCount(Math.min(amount, stack.getMaxStackSize()));
         NpcInventory inventory = keeper.getNpcInventory();
-        for (int slot = 0; slot < inventory.getSlots() && !stack.isEmpty(); slot++) {
+        for (int slot = NpcInventory.BAG_START; slot < NpcInventory.SLOT_COUNT
+                && !stack.isEmpty(); slot++) {
             stack = inventory.insertItem(slot, stack, false);
         }
+        return stack;
+    }
+
+    /** 饲养员明细：入库阶段显示「正在存入产物」。 */
+    public static NpcDetail detailOf(UUID keeperId) {
+        UUID penId = keeperId == null ? null : KEEPER_PEN.get(keeperId);
+        PenRuntime runtime = penId == null ? null : RUNTIMES.get(penId);
+        if (runtime != null
+                && (runtime.phase == PHASE_TO_STORE || runtime.phase == PHASE_STORE_WAIT)) {
+            return NpcDetail.STORING_PRODUCE;
+        }
+        return null;
     }
 
     private static String penKey(RanchPen pen) {
@@ -665,6 +764,7 @@ public final class RanchWorkService {
         private final List<UUID> feedQueue = new ArrayList<>();
         private int feedIndex;
         private int feedCarried;
+        private int storeTicks;
         private long lastValidate;
         private long lastScan;
         private long lastFeed;
@@ -682,6 +782,7 @@ public final class RanchWorkService {
             feedQueue.clear();
             feedIndex = 0;
             feedCarried = 0;
+            storeTicks = 0;
         }
     }
 }

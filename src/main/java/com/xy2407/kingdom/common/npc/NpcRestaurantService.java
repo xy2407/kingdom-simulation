@@ -12,12 +12,14 @@ import com.xy2407.kingdom.common.building.BuildingWork;
 import com.xy2407.kingdom.common.building.BuildingMeta;
 import com.xy2407.kingdom.common.building.BuildingRecord;
 import com.xy2407.kingdom.common.building.BuildingType;
+import com.xy2407.kingdom.common.building.ItemCount;
 import com.xy2407.kingdom.common.building.ItemSpecs;
 import com.xy2407.kingdom.common.building.MenuSpec;
 import com.xy2407.kingdom.common.entity.NpcEntity;
 import com.xy2407.kingdom.common.restaurant.RestaurantOrder;
 import com.xy2407.kingdom.server.building.BuildingRegistry;
 import com.xy2407.kingdom.server.building.BuildingStorageStore;
+import com.xy2407.kingdom.server.freight.FreightService;
 import com.xy2407.kingdom.server.restaurant.RestaurantOrderStore;
 import com.xy2407.kingdom.server.restaurant.RestaurantSeatStore;
 
@@ -34,9 +36,15 @@ public final class NpcRestaurantService {
 
     private static final int ACTION_INTERVAL_TICKS = 20;
 
+    /** 缺料补单的最小间隔，避免同一餐厅反复下单。 */
+    private static final long SUPPLY_INTERVAL_TICKS = 200L;
+
     private static final int DISH_TICKS = 200;
 
     private static final Map<UUID, Roles> ROLES = new ConcurrentHashMap<>();
+
+    /** 餐厅 id → 下次允许补料的时刻。 */
+    private static final Map<UUID, Long> SUPPLY_AT = new ConcurrentHashMap<>();
 
     public record Roles(UUID chefId, int waiters) {
 
@@ -73,6 +81,7 @@ public final class NpcRestaurantService {
 
     public static void reset() {
         ROLES.clear();
+        SUPPLY_AT.clear();
     }
 
     private static Roles computeRoles(UUID buildingId) {
@@ -136,6 +145,8 @@ public final class NpcRestaurantService {
             return;
         }
         if (!ItemSpecs.hasAll(store, dish.inputs())) {
+            // 缺料：向仓库要料，别干等
+            requestSupply(server, building, store, dish.inputs());
             return;
         }
         if (!ItemSpecs.canInsertOne(store, dish.output())) {
@@ -153,8 +164,50 @@ public final class NpcRestaurantService {
         }
     }
 
-    private static MenuSpec dishOf(List<MenuSpec> menu, String dishId) {
-        if (dishId == null || dishId.isBlank()) {
+    /** 食材不够时向仓库下单补料；在途量会扣掉，避免重复下单。 */
+    private static void requestSupply(MinecraftServer server, BuildingRecord building,
+                                      IItemHandler store, List<ItemCount> inputs) {
+        long now = server.overworld().getGameTime();
+        Long next = SUPPLY_AT.get(building.id());
+        if (next != null && now < next) {
+            return;
+        }
+        SUPPLY_AT.put(building.id(), now + SUPPLY_INTERVAL_TICKS);
+        List<ItemCount> missing = new ArrayList<>();
+        for (ItemCount need : inputs) {
+            // 标签形式的食材没法作为具体物品下单，跳过
+            if (need.item() == null || need.item().startsWith("#")
+                    || FreightService.itemOf(need.item()) == null) {
+                continue;
+            }
+            int left = need.count() - ItemSpecs.count(store, need.item());
+            if (left > 0) {
+                missing.add(new ItemCount(need.item(), left));
+            }
+        }
+        if (missing.isEmpty()) {
+            return;
+        }
+        List<ItemCount> pending = FreightService.INSTANCE.pendingOf(building.id());
+        List<ItemCount> still = new ArrayList<>();
+        for (ItemCount need : missing) {
+            int onWay = 0;
+            for (ItemCount order : pending) {
+                if (order.item().equals(need.item())) {
+                    onWay += order.count();
+                }
+            }
+            int left = need.count() - onWay;
+            if (left > 0) {
+                still.add(new ItemCount(need.item(), left));
+            }
+        }
+        if (!still.isEmpty()) {
+            FreightService.INSTANCE.submit(server, building.id(), building.dimension(), still);
+        }
+    }
+
+    private static MenuSpec dishOf(List<MenuSpec> menu, String dishId) {        if (dishId == null || dishId.isBlank()) {
             return null;
         }
         for (MenuSpec dish : menu) {

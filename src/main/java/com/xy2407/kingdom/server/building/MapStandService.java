@@ -19,7 +19,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-/** 仓库地图架：汇总领地范围与建筑清单并下发，处理管辖加入/移除。 */
+/**
+ * 仓库地图界面：地图架方块只是打开界面的入口，
+ * 管辖关系（建筑 → 仓库）全部走 warehouse_link 表，方块本身不存数据。
+ */
 public final class MapStandService {
 
     private MapStandService() {
@@ -46,7 +49,8 @@ public final class MapStandService {
 
     public static void toggle(ServerPlayer player, BlockPos pos, List<UUID> buildingIds, boolean govern) {
         ServerLevel level = player.serverLevel();
-        if (!(level.getBlockEntity(pos) instanceof MapStandBlockEntity stand)) {
+        // 必须站在真实的地图架方块前操作，防止伪造数据包
+        if (!(level.getBlockEntity(pos) instanceof MapStandBlockEntity)) {
             return;
         }
         BuildingRecord warehouse = warehouseAt(level, pos);
@@ -58,7 +62,11 @@ public final class MapStandService {
             if (target == null || isWarehouse(target)) {
                 continue;
             }
-            stand.setGoverned(id, govern);
+            if (govern) {
+                WarehouseLinkStore.INSTANCE.link(warehouse.id(), id);
+            } else {
+                WarehouseLinkStore.INSTANCE.unlinkFrom(warehouse.id(), id);
+            }
         }
         PacketDistributor.sendToPlayer(player, buildData(level, pos, warehouse));
     }
@@ -95,8 +103,6 @@ public final class MapStandService {
             maxX = (maxChunkX + 1) * 16 - 1;
             maxZ = (maxChunkZ + 1) * 16 - 1;
         }
-        MapStandBlockEntity stand = level.getBlockEntity(pos) instanceof MapStandBlockEntity found
-                ? found : null;
         boolean hasTerritory = territory != null && !territory.chunks().isEmpty();
         for (BuildingRecord record : all) {
             if (!record.dimension().equals(warehouse.dimension())) {
@@ -110,7 +116,7 @@ public final class MapStandService {
             BuildingMeta meta = BuildingRegistry.INSTANCE.metaOf(record);
             String type = meta == null || meta.work() == null ? "" : meta.work().label();
             boolean isWarehouse = meta != null && meta.isWork(BuildingWork.WAREHOUSE);
-            boolean governed = stand != null && stand.isGoverned(record.id());
+            boolean governed = warehouse.id().equals(WarehouseLinkStore.INSTANCE.warehouseOf(record.id()));
             buildings.add(new MapStandDataPacket.Building(record.id(), record.name(), type,
                     record.min().getX(), record.min().getZ(), record.max().getX(), record.max().getZ(),
                     coreX, coreZ, isWarehouse, governed));

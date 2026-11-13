@@ -58,6 +58,20 @@ public final class NpcIndustryService {
         if (store == null) {
             return;
         }
+        // 三级产物链：背包里还压着上一炉的产出，先存进建筑仓库
+        boolean storeRoom = ProduceStoring.storeHasRoom(level, building);
+        if (ProduceStoring.bagHasProduce(npc.getNpcInventory())) {
+            if (storeRoom) {
+                ProduceStoring.depositBag(level, npc, building);
+                storeRoom = ProduceStoring.storeHasRoom(level, building);
+            } else {
+                ProduceStoring.requestPickup(level, building);
+            }
+        }
+        // 仓库满 + 背包满：等运输清出空间再开工，避免硬生产吞掉产出
+        if (!ProduceStoring.bagHasRoom(npc.getNpcInventory()) && !storeRoom) {
+            return;
+        }
         RecipeSpec recipe = recipeOf(meta, data.getWorkRecipeId());
         if (recipe == null) {
             return;
@@ -71,7 +85,7 @@ public final class NpcIndustryService {
             return;
         }
         if (consume(store, recipe.inputs())) {
-            produce(store, recipe.outputs());
+            produce(level, npc, building, recipe.outputs());
             data.setWorkTicks(0);
         }
     }
@@ -238,17 +252,36 @@ public final class NpcIndustryService {
         return true;
     }
 
-    private static void produce(IItemHandler store, List<ItemCount> outputs) {
+    /** 三级产物链：产出先入 NPC 背包，随即存入建筑仓库；存不下的催运输、掉脚边，绝不吞掉。 */
+    private static void produce(ServerLevel level, NpcEntity npc, BuildingRecord building,
+                                List<ItemCount> outputs) {
+        NpcInventory inventory = npc.getNpcInventory();
         for (ItemCount out : outputs) {
             Item item = itemOf(out.item());
             if (item == null) {
                 continue;
             }
             int remaining = out.count();
-            for (int slot = 0; slot < store.getSlots() && remaining > 0; slot++) {
-                ItemStack left = store.insertItem(slot, new ItemStack(item, remaining), false);
-                remaining = left.getCount();
+            int maxStack = new ItemStack(item).getMaxStackSize();
+            while (remaining > 0) {
+                int batch = Math.min(remaining, maxStack);
+                ItemStack stack = new ItemStack(item, batch);
+                for (int slot = NpcInventory.BAG_START; slot < NpcInventory.SLOT_COUNT
+                        && !stack.isEmpty(); slot++) {
+                    stack = inventory.insertItem(slot, stack, false);
+                }
+                if (!stack.isEmpty()) {
+                    net.minecraft.world.level.block.Block.popResource(level,
+                            npc.blockPosition(), stack);
+                    remaining = 0;
+                } else {
+                    remaining -= batch;
+                }
             }
+        }
+        ProduceStoring.depositBag(level, npc, building);
+        if (!ProduceStoring.bagHasRoom(inventory)) {
+            ProduceStoring.requestPickup(level, building);
         }
     }
 
