@@ -142,7 +142,8 @@ public final class ChunkSnapshot {
                 || state.getBlock() instanceof VineBlock
                 || state.getBlock() instanceof CarpetBlock
                 || state.getBlock() instanceof SnowLayerBlock
-                || state.getBlock() instanceof BasePressurePlateBlock) {
+                || state.getBlock() instanceof BasePressurePlateBlock
+                || state.is(Blocks.SCAFFOLDING)) {
             return true;
         }
         return clearsSlice(state.getCollisionShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO), BODY_SLICE_MAX_Y);

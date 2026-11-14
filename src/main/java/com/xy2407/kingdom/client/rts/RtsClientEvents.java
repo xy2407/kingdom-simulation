@@ -10,6 +10,8 @@ import com.sighs.apricityui.layout.Position;
 import com.sighs.apricityui.render.Base;
 import com.xy2407.kingdom.ModMain;
 import com.xy2407.kingdom.client.building.BuildingPlacementManager;
+import com.xy2407.kingdom.client.wall.WallClientState;
+import com.xy2407.kingdom.client.wall.WallHudLayer;
 
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -191,6 +193,13 @@ public final class RtsClientEvents {
                     event.setCanceled(true);
                     return;
                 }
+                if (RtsModeManager.getSubMode() == RtsSubMode.WALL_BUILD) {
+                    if (press && !WallHudLayer.handleClick(mouse[0], mouse[1])) {
+                        WallClientState.selectAtCursor(mouse[0], mouse[1]);
+                    }
+                    event.setCanceled(true);
+                    return;
+                }
                 if (RtsModeManager.isRoadMode()) {
                     if (press) {
                         RoadHudLayer.handleClick(mouse[0], mouse[1]);
@@ -212,6 +221,11 @@ public final class RtsClientEvents {
                     return;
                 }
                 if (press) {
+                    // 普通 RTS 模式下选中件时底部有删除按钮，先给它消费点击的机会
+                    if (WallHudLayer.handleClick(mouse[0], mouse[1])) {
+                        event.setCanceled(true);
+                        return;
+                    }
                     if (BuildingPlacementManager.beginPendingDrag()) {
                         event.setCanceled(true);
                         return;
@@ -235,6 +249,14 @@ public final class RtsClientEvents {
                 if (com.xy2407.kingdom.client.area.AreaSelectionState.isActive()) {
                     com.xy2407.kingdom.client.area.AreaSelectionState.onRightButton(
                             press, mouse[0], mouse[1]);
+                    event.setCanceled(true);
+                    return;
+                }
+                if (RtsModeManager.getSubMode() == RtsSubMode.WALL_BUILD) {
+                    if (press) {
+                        BuildingPlacementManager.confirmPlace();
+                        WallClientState.rearm();
+                    }
                     event.setCanceled(true);
                     return;
                 }
@@ -287,6 +309,12 @@ public final class RtsClientEvents {
             event.setCanceled(true);
             return;
         }
+        if (RtsModeManager.getSubMode() == RtsSubMode.WALL_BUILD
+                && BuildingPlacementManager.isActive()) {
+            BuildingPlacementManager.adjustTargetHeight(event.getScrollDeltaY() > 0 ? 1 : -1);
+            event.setCanceled(true);
+            return;
+        }
         if (ClientBuildingController.isMoving()) {
             ClientBuildingController.adjustHeight(event.getScrollDeltaY() > 0 ? 1 : -1);
             event.setCanceled(true);
@@ -316,6 +344,10 @@ public final class RtsClientEvents {
         }
         if (com.xy2407.kingdom.client.area.AreaSelectionState.isActive()) {
             com.xy2407.kingdom.client.area.AreaSelectionState.onKeyPress(key);
+            return;
+        }
+        if (RtsModeManager.getSubMode() == RtsSubMode.WALL_BUILD) {
+            WallClientState.onKeyPress(key);
             return;
         }
         if (RtsModeManager.getSubMode() == RtsSubMode.ROAD_TERRITORY) {

@@ -49,7 +49,6 @@ import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.item.ItemStack;
@@ -113,9 +112,9 @@ public class NpcEntity extends PathfinderMob {
     private static final int SEGMENT_STALE_LIMIT = 300;
     private static final int LOCAL_RECONNECT_COOLDOWN_TICKS = 60;
     private static final int LOCAL_RECONNECT_FAIL_TICKS = 100;
-    private static final int BUILDER_REPATH_INTERVAL = 5;
+    private static final int BUILDER_REPATH_INTERVAL = 20;
     private static final long WORK_PATH_TIMEOUT_NANOS = 10_000_000_000L;
-    private static final int BUILDER_STUCK_TELEPORT_TICKS = 40;
+    private static final int BUILDER_STUCK_TELEPORT_TICKS = 160;
     private static final double[] SLIDE_OFFSETS = {0.25D, 0.5D, 0.75D, 1.0D};
     private static final double CORNER_ARRIVE = 0.35D;
     private static final double PASSED_MAX_SQR = 4.0D;
@@ -176,6 +175,15 @@ public class NpcEntity extends PathfinderMob {
     private int pathPaddingStage;
     private int builderStuckTicks;
     private double builderStuckBestDist = Double.MAX_VALUE;
+    private BlockPos builderStuckTarget;
+    private double builderAnchorX;
+    private double builderAnchorY;
+    private double builderAnchorZ;
+    /** 建筑工异步寻路（与普通 NPC 同一套线程池） */
+    private Future<NpcPathfinder.PathResult> builderPathFuture;
+    /** 本 tick 是否模拟玩家按跳跃（原版攀爬），以及方向 */
+    private boolean climbInput;
+    private boolean climbUp;
 
 
     public void setRtsTarget(BlockPos target, boolean clearOnArrive) {
@@ -249,32 +257,65 @@ public class NpcEntity extends PathfinderMob {
         double adx = getX() - (target.getX() + 0.5D);
         double adz = getZ() - (target.getZ() + 0.5D);
         boolean closeEnough = adx * adx + adz * adz <= 4.0D
-                && Math.abs(Math.floor(getY() + 0.5D) - target.getY()) <= 2.0D;
+                && Math.abs(Math.floor(getY() + 0.5D) - target.getY()) <= 1.0D;
         if (closeEnough) {
             builderStuckTicks = 0;
             builderStuckBestDist = Double.MAX_VALUE;
+            builderStuckTarget = null;
             followPath = List.of();
             followIndex = 0;
+            cancelBuilderPath();
             return true;
-        }
-        if (followIndex >= followPath.size() && --builderRepathCooldown <= 0) {
-            builderRepathCooldown = BUILDER_REPATH_INTERVAL;
-            if (level() instanceof ServerLevel serverLevel) {
-                int chebyshev = Math.max(Math.abs(target.getX() - getBlockX()),
-                        Math.abs(target.getZ() - getBlockZ())) + Math.abs(target.getY() - getBlockY());
-                int depth = Math.max(4, Math.min(16, chebyshev + 3));
-                List<NpcPathfinder.Waypoint> direct =
-                        NpcLocalRepath.findPath(serverLevel, blockPosition(), target, depth);
-                if (direct != null) {
-                    applyPath(direct);
-                }
-            }
         }
         if (followIndex < followPath.size()) {
             followWaypoints();
+            checkBuilderStuck(target);
+            return false;
+        }
+        if (builderPathFuture != null) {
+            if (!builderPathFuture.isDone()) {
+                checkBuilderStuck(target);
+                return false;
+            }
+            Future<NpcPathfinder.PathResult> future = builderPathFuture;
+            builderPathFuture = null;
+            NpcPathfinder.PathResult result = takeResult(future);
+            if (result != null && result.waypoints().size() > 1) {
+                applyPath(result.waypoints());
+                builderRepathCooldown = 0;
+            } else {
+                builderRepathCooldown = 2;
+            }
+            checkBuilderStuck(target);
+            return false;
+        }
+        if (--builderRepathCooldown > 0) {
+            checkBuilderStuck(target);
+            return false;
+        }
+        builderRepathCooldown = BUILDER_REPATH_INTERVAL;
+        if (level() instanceof ServerLevel serverLevel) {
+            // 建筑工与普通 NPC 共用同一套快照 A*（提交到仓库线程池，不在主线程跑）
+            SnapshotRepository repository = SnapshotRepository.get(serverLevel.getServer());
+            if (repository != null) {
+                NpcPathfinder.Session session =
+                        new NpcPathfinder.Session(blockPosition(), target);
+                builderPathFuture = repository.submitSessionSearch(serverLevel, session,
+                        blockPosition(), target, NpcPathfinder.paddingOf(pathPaddingStage), false);
+                if (builderPathFuture == null) {
+                    builderRepathCooldown = 2;
+                }
+            }
         }
         checkBuilderStuck(target);
         return false;
+    }
+
+    private void cancelBuilderPath() {
+        if (builderPathFuture != null) {
+            builderPathFuture.cancel(false);
+            builderPathFuture = null;
+        }
     }
 
     boolean tickPathTo(BlockPos target) {
@@ -445,23 +486,40 @@ public class NpcEntity extends PathfinderMob {
     }
 
     private void checkBuilderStuck(BlockPos target) {
-        double dx = getX() - (target.getX() + 0.5D);
-        double dz = getZ() - (target.getZ() + 0.5D);
-        double dy = Math.abs(Math.floor(getY() + 0.5D) - target.getY());
-        double dist = dx * dx + dz * dz + dy * dy;
-        if (dist < builderStuckBestDist - 0.01D) {
-            builderStuckBestDist = dist;
+        if (builderStuckTarget == null || !builderStuckTarget.equals(target)) {
+            resetBuilderStuck(target);
+            return;
+        }
+        double moved = (getX() - builderAnchorX) * (getX() - builderAnchorX)
+                + (getY() - builderAnchorY) * (getY() - builderAnchorY)
+                + (getZ() - builderAnchorZ) * (getZ() - builderAnchorZ);
+        if (moved > 0.04D) {
+            builderAnchorX = getX();
+            builderAnchorY = getY();
+            builderAnchorZ = getZ();
             builderStuckTicks = 0;
+            double dx = getX() - (target.getX() + 0.5D);
+            double dz = getZ() - (target.getZ() + 0.5D);
+            double dy = Math.floor(getY() + 0.5D) - target.getY();
+            builderStuckBestDist = Math.min(builderStuckBestDist, dx * dx + dz * dz + dy * dy);
             return;
         }
         if (++builderStuckTicks < BUILDER_STUCK_TELEPORT_TICKS) {
             return;
         }
-        builderStuckTicks = 0;
-        builderStuckBestDist = Double.MAX_VALUE;
+        resetBuilderStuck(target);
         stopConstructionPath();
         setDeltaMovement(Vec3.ZERO);
         teleportTo(target.getX() + 0.5D, target.getY(), target.getZ() + 0.5D);
+    }
+
+    private void resetBuilderStuck(BlockPos target) {
+        builderStuckTarget = target == null ? null : target.immutable();
+        builderStuckTicks = 0;
+        builderStuckBestDist = Double.MAX_VALUE;
+        builderAnchorX = getX();
+        builderAnchorY = getY();
+        builderAnchorZ = getZ();
     }
 
     public void stopConstructionPath() {
@@ -482,6 +540,8 @@ public class NpcEntity extends PathfinderMob {
         workFailures = 0;
         pathPaddingStage = 0;
         workSession = null;
+        cancelBuilderPath();
+        builderRepathCooldown = 0;
         builderStuckTicks = 0;
         builderStuckBestDist = Double.MAX_VALUE;
         slideTarget = null;
@@ -732,6 +792,8 @@ public class NpcEntity extends PathfinderMob {
             return;
         }
         resyncFollowIndex();
+        climbInput = false;
+        climbUp = false;
         while (followIndex < followPath.size()) {
             NpcPathfinder.Waypoint waypoint = followPath.get(followIndex);
             BlockPos pos = waypoint.pos();
@@ -739,8 +801,8 @@ public class NpcEntity extends PathfinderMob {
                 followIndex++;
                 continue;
             }
-            boolean ladderStart = isClimbCell(pos) && (followIndex == 0
-                    || !isClimbCell(followPath.get(followIndex - 1).pos()));
+            boolean ladderStart = isLadderCell(pos) && (followIndex == 0
+                    || !isLadderCell(followPath.get(followIndex - 1).pos()));
             if (ladderStart) {
                 teleportOnLadder(pos);
             }
@@ -759,21 +821,36 @@ public class NpcEntity extends PathfinderMob {
             };
             if (dx * dx + dz * dz <= arrive * arrive
                     && Math.abs(Math.floor(getY() + 0.5D) - pos.getY()) < 1.0D) {
-                boolean ladderEnd = isClimbCell(pos) && followIndex + 1 < followPath.size()
-                        && !isClimbCell(followPath.get(followIndex + 1).pos());
+                boolean ladderEnd = isLadderCell(pos) && followIndex + 1 < followPath.size()
+                        && !isLadderCell(followPath.get(followIndex + 1).pos());
                 if (ladderEnd) {
                     teleportOffLadder(pos, followPath.get(followIndex + 1).pos());
                 }
                 followIndex++;
                 continue;
             }
-            applyVertical(waypoint, climbDelta(followIndex));
+            boolean insideColumnNow =
+                    ChunkSnapshot.isClimbableFloor(level().getBlockState(blockPosition()));
+            double offsetX = Math.abs(getX() - (blockPosition().getX() + 0.5D));
+            double offsetZ = Math.abs(getZ() - (blockPosition().getZ() + 0.5D));
+            boolean climbingColumn = vertical.onClimbable() && insideColumnNow
+                    && offsetX < 0.45D && offsetZ < 0.45D
+                    && pos.getY() > getBlockY();
+            if (climbingColumn) {
+                climbInput = true;
+                climbUp = true;
+            } else {
+                applyVertical(waypoint, climbDelta(followIndex));
+            }
             tryOpenDoor(pos);
             autoOpenPassage(pos);
-            double wantedY = waypoint.move() == NpcPathfinder.Waypoint.Move.CLIMB
+            boolean verticalStep = Math.abs(pos.getY() - getBlockY()) >= 1;
+            double wantedY = (waypoint.move() == NpcPathfinder.Waypoint.Move.CLIMB || verticalStep)
                     ? getY()
                     : pos.getY();
-            getMoveControl().setWantedPosition(pos.getX() + 0.5D, wantedY, pos.getZ() + 0.5D,
+            double wantedX = climbingColumn ? blockPosition().getX() + 0.5D : pos.getX() + 0.5D;
+            double wantedZ = climbingColumn ? blockPosition().getZ() + 0.5D : pos.getZ() + 0.5D;
+            getMoveControl().setWantedPosition(wantedX, wantedY, wantedZ,
                     waypoint.move() == NpcPathfinder.Waypoint.Move.CLIMB ? WALK_SPEED * 0.9D : WALK_SPEED);
             return;
         }
@@ -931,7 +1008,7 @@ public class NpcEntity extends PathfinderMob {
         if (blockPosition().distSqr(ladderCell) > 4.0D) {
             return;
         }
-        if (!isClimbCell(ladderCell)) {
+        if (!isLadderCell(ladderCell)) {
             return;
         }
         teleportTo(ladderCell.getX() + 0.5D, ladderCell.getY(), ladderCell.getZ() + 0.5D);
@@ -941,7 +1018,7 @@ public class NpcEntity extends PathfinderMob {
     }
 
     private void teleportOffLadder(BlockPos current, BlockPos next) {
-        if (isClimbCell(next)) {
+        if (isLadderCell(next)) {
             return;
         }
         if (current.distSqr(next) > 9.0D) {
@@ -975,10 +1052,10 @@ public class NpcEntity extends PathfinderMob {
         return canOccupy(alongZ) ? alongZ : null;
     }
 
-    private boolean isClimbCell(BlockPos pos) {
-        BlockState at = level().getBlockState(pos);
-        BlockState below = level().getBlockState(pos.below());
-        return at.is(BlockTags.CLIMBABLE) || below.is(BlockTags.CLIMBABLE);
+    /** 只认梯子/藤蔓：脚手架不进硬传送流程 */
+    private boolean isLadderCell(BlockPos pos) {
+        return ChunkSnapshot.isLadderLike(level().getBlockState(pos))
+                || ChunkSnapshot.isLadderLike(level().getBlockState(pos.below()));
     }
 
     public BlockPos getNavTarget() {
@@ -1097,6 +1174,10 @@ public class NpcEntity extends PathfinderMob {
     }
 
     public void applyPath(List<NpcPathfinder.Waypoint> waypoints) {
+        builderStuckTicks = 0;
+        builderAnchorX = getX();
+        builderAnchorY = getY();
+        builderAnchorZ = getZ();
         followPath = waypoints == null ? List.of() : List.copyOf(waypoints);
         followIndex = 0;
         followCompleted = false;
@@ -1176,6 +1257,13 @@ public class NpcEntity extends PathfinderMob {
     public void travel(Vec3 travelVector) {
         if (level().isClientSide()) {
             super.travel(travelVector);
+            return;
+        }
+        if (climbInput) {
+            // 模拟玩家按住跳跃：原版 handleRelativeFrictionAndCalculateMovement 会给 0.2 上升
+            setJumping(climbUp);
+            super.travel(travelVector);
+            climbInput = false;
             return;
         }
         int stride = farTravelStride();

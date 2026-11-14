@@ -1,9 +1,11 @@
 package com.xy2407.kingdom.common.entity;
 
+import com.xy2407.kingdom.common.path.ChunkSnapshot;
 import com.xy2407.kingdom.common.path.NpcPathfinder;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.tags.BlockTags;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -27,8 +29,10 @@ final class NpcVerticalMovement {
         }
         climbStateTick = now;
         BlockPos pos = npc.blockPosition();
-        climbState = npc.level().getBlockState(pos).is(BlockTags.CLIMBABLE)
-                || npc.level().getBlockState(pos.below()).is(BlockTags.CLIMBABLE);
+        BlockState feet = npc.level().getBlockState(pos);
+        BlockState under = npc.level().getBlockState(pos.below());
+        climbState = feet.is(BlockTags.CLIMBABLE) || under.is(BlockTags.CLIMBABLE)
+                || ChunkSnapshot.isClimbableFloor(feet) || ChunkSnapshot.isClimbableFloor(under);
         return climbState;
     }
 

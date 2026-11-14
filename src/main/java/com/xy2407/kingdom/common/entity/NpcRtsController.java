@@ -201,7 +201,7 @@ final class NpcRtsController {
         } else if (++stuckTicks >= GIVE_UP_TICKS) {
             stuckAnchor = now;
             stuckTicks = 0;
-            relocate(waypoints.isEmpty() ? current : waypoints.peekFirst());
+            resetStuck();
             return;
         }
         advance();
@@ -209,21 +209,16 @@ final class NpcRtsController {
         npc.tickPathTo(segment, false);
     }
 
-    private void relocate(BlockPos node) {
+    /**
+     * RTS 移动指令卡住：只清运动状态让下一 tick 重新寻路，绝不传送（否则等于玩家直接瞬移军队）
+     */
+    private void resetStuck() {
         npc.getNavigation().stop();
         npc.setDeltaMovement(Vec3.ZERO);
         npc.fallDistance = 0.0F;
         npc.stopConstructionPath();
-        int y = node.getY();
-        for (int up = 0; up <= 2; up++) {
-            BlockPos candidate = node.above(up);
-            if (npc.level().getBlockState(candidate).isAir()
-                    && npc.level().getBlockState(candidate.above()).isAir()) {
-                y = candidate.getY();
-                break;
-            }
-        }
-        npc.teleportTo(node.getX() + 0.5D, y, node.getZ() + 0.5D);
+        stuckAnchor = null;
+        stuckTicks = 0;
     }
 
     private void apply(BlockPos destination, boolean clear, boolean soft, boolean urgent) {

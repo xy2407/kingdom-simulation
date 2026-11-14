@@ -105,21 +105,52 @@ public final class UnitSnapshotFactory {
                 builder.beginColumn(lx * 16 + lz);
                 BlockState above = air;
                 BlockState aboveTwo = air;
+                // 段顶两层要跨区取真实方块，否则会把「上方也是脚手架」误判成空气
+                if (!airOnly) {
+                    if (baseY + 16 < level.getMaxBuildHeight()) {
+                        above = level.getBlockState(
+                                new BlockPos(baseX + lx, baseY + 16, baseZ + lz));
+                    }
+                    if (baseY + 17 < level.getMaxBuildHeight()) {
+                        aboveTwo = level.getBlockState(
+                                new BlockPos(baseX + lx, baseY + 17, baseZ + lz));
+                    }
+                }
                 for (int ly = airOnly ? 0 : 15; ly >= 0; ly--) {
                     cursor.set(baseX + lx, baseY + ly, baseZ + lz);
                     BlockState current = airOnly ? air : section.getBlockState(lx, ly, lz);
                     boolean ladder = !airOnly && ChunkSnapshot.isLadderLike(current);
                     boolean scaffold = !airOnly && ChunkSnapshot.isClimbableFloor(current);
+                    boolean aboveScaffold = !airOnly && ChunkSnapshot.isClimbableFloor(above);
                     if (ladder) {
                         builder.addStand(ly, UnitSnapshot.KIND_CLIMB, UnitSnapshot.HAZARD_NONE,
                                 roads.contains(cursor.asLong()));
-                    } else if (!airOnly && ChunkSnapshot.isWalkableFloor(current)
-                            && (scaffold || (ChunkSnapshot.isPassable(above)
-                            && ChunkSnapshot.isPassable(aboveTwo)))
+                    }
+                    if (scaffold) {
+                        // 顶面可站就只给顶面点；上方被脚手架占（柱内/柱顶）才补柱内点供上下攀爬
+                        boolean belowScaffold = ly > 0
+                                ? ChunkSnapshot.isClimbableFloor(section.getBlockState(lx, ly - 1, lz))
+                                : ChunkSnapshot.isClimbableFloor(level.getBlockState(
+                                        new BlockPos(cursor.getX(), cursor.getY() - 1, cursor.getZ())));
+                        if (aboveScaffold || belowScaffold) {
+                            builder.addStand(ly, UnitSnapshot.KIND_CLIMB, UnitSnapshot.HAZARD_NONE,
+                                    roads.contains(cursor.asLong()));
+                        }
+                        if (!aboveScaffold && ly < 15
+                                && ChunkSnapshot.isPassable(above)
+                                && ChunkSnapshot.isPassable(aboveTwo)) {
+                            builder.addStand(ly + 1, UnitSnapshot.KIND_WALK,
+                                    ChunkSnapshot.hazardOf(above),
+                                    roads.contains(cursor.asLong()));
+                        }
+                    }
+                    if (!ladder && !scaffold && !airOnly
+                            && ChunkSnapshot.isWalkableFloor(current)
+                            && ChunkSnapshot.isPassable(above)
+                            && ChunkSnapshot.isPassable(aboveTwo)
                             && ly < 15) {
                         builder.addStand(ly + 1,
-                                scaffold ? UnitSnapshot.KIND_CLIMB
-                                        : ChunkSnapshot.isHalfFloor(current) ? UnitSnapshot.KIND_HALF
+                                ChunkSnapshot.isHalfFloor(current) ? UnitSnapshot.KIND_HALF
                                         : UnitSnapshot.KIND_WALK,
                                 ChunkSnapshot.hazardOf(above),
                                 roads.contains(cursor.asLong()));
@@ -132,16 +163,19 @@ public final class UnitSnapshotFactory {
                         BlockState below = level.getBlockState(probe);
                         boolean belowLadder = ChunkSnapshot.isLadderLike(below);
                         boolean belowScaffold = ChunkSnapshot.isClimbableFloor(below);
-                        if (belowLadder) {
+                        boolean currentScaffold = !airOnly && ChunkSnapshot.isClimbableFloor(current);
+                        if (belowLadder && !currentScaffold) {
                             builder.addStand(0, UnitSnapshot.KIND_CLIMB, UnitSnapshot.HAZARD_NONE,
                                     roads.contains(probe.asLong()));
-                        } else if (ChunkSnapshot.isWalkableFloor(below)
-                                && (belowScaffold || (ChunkSnapshot.isPassable(current)
-                                && ChunkSnapshot.isPassable(above)))) {
+                        } else if (!currentScaffold
+                                && ChunkSnapshot.isWalkableFloor(below)
+                                && ChunkSnapshot.isPassable(current)
+                                && ChunkSnapshot.isPassable(above)) {
                             builder.addStand(0,
-                                    belowScaffold ? UnitSnapshot.KIND_CLIMB
-                                            : ChunkSnapshot.isHalfFloor(below) ? UnitSnapshot.KIND_HALF
-                                            : UnitSnapshot.KIND_WALK,
+                                    belowScaffold ? UnitSnapshot.KIND_WALK
+                                            : ChunkSnapshot.isHalfFloor(below)
+                                                    ? UnitSnapshot.KIND_HALF
+                                                    : UnitSnapshot.KIND_WALK,
                                     ChunkSnapshot.hazardOf(current),
                                     roads.contains(probe.asLong()));
                         }

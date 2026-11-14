@@ -15,5 +15,7 @@ public enum RtsSubMode {
 
     ROAD_WORLD,
 
-    REGION_TASK
+    REGION_TASK,
+
+    WALL_BUILD
 }

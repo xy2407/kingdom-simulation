@@ -55,7 +55,51 @@ public final class BuilderBoardService {
         } catch (RuntimeException exception) {
             ModMain.LOGGER.error("建筑工面板：区域任务组装失败", exception);
         }
+        try {
+            tasks.addAll(wallEntries());
+        } catch (RuntimeException exception) {
+            ModMain.LOGGER.error("建筑工面板：城墙任务组装失败", exception);
+        }
         return new BuilderBoardDataPacket(employees, tasks);
+    }
+
+    private static List<BuilderBoardDataPacket.TaskEntry> wallEntries() {
+        List<BuilderBoardDataPacket.TaskEntry> list = new ArrayList<>();
+        for (com.xy2407.kingdom.common.wall.WallNode node
+                : com.xy2407.kingdom.server.wall.WallStore.INSTANCE.allNodes()) {
+            if (com.xy2407.kingdom.common.wall.WallNode.DONE.equals(node.status())) {
+                continue;
+            }
+            int x = node.pos().getX();
+            int y = node.pos().getY();
+            int z = node.pos().getZ();
+            list.add(new BuilderBoardDataPacket.TaskEntry(
+                    com.xy2407.kingdom.server.wall.WallService.taskIdOf(node.key()),
+                    BuilderBoardDataPacket.KIND_WALL,
+                    node.kind() == com.xy2407.kingdom.common.wall.WallKind.GATE ? "城门" : "城楼",
+                    node.dimension(), x, y, z, x + 4, y + 11, z + 4,
+                    node.status(), node.progress(), node.total(),
+                    List.of(), List.of()));
+        }
+        for (com.xy2407.kingdom.common.wall.WallSegment segment
+                : com.xy2407.kingdom.server.wall.WallStore.INSTANCE.allSegments()) {
+            if (com.xy2407.kingdom.common.wall.WallNode.DONE.equals(segment.status())) {
+                continue;
+            }
+            int minX = Math.min(segment.a().getX(), segment.b().getX()) - 1;
+            int maxX = Math.max(segment.a().getX(), segment.b().getX()) + 1;
+            int minZ = Math.min(segment.a().getZ(), segment.b().getZ()) - 1;
+            int maxZ = Math.max(segment.a().getZ(), segment.b().getZ()) + 1;
+            int minY = Math.min(segment.a().getY(), segment.b().getY());
+            int maxY = Math.max(segment.a().getY(), segment.b().getY()) + 10;
+            list.add(new BuilderBoardDataPacket.TaskEntry(
+                    com.xy2407.kingdom.server.wall.WallService.taskIdOf(segment.key()),
+                    BuilderBoardDataPacket.KIND_WALL, "城墙段", segment.dimension(),
+                    minX, minY, minZ, maxX, maxY, maxZ,
+                    segment.status(), segment.progress(), segment.total(),
+                    List.of(), List.of()));
+        }
+        return list;
     }
 
     private static List<BuilderBoardDataPacket.TaskEntry> buildingEntries() {
@@ -88,6 +132,10 @@ public final class BuilderBoardService {
     public static void applyAction(ServerPlayer player, BuilderTaskActionPacket packet) {
         UUID taskId = packet.taskId();
         if (taskId == null || taskId.equals(new UUID(0L, 0L))) {
+            return;
+        }
+        if (com.xy2407.kingdom.server.wall.WallService.applyBoardAction(player, taskId,
+                packet.action())) {
             return;
         }
         if (isRegionTask(taskId)) {

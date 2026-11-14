@@ -53,6 +53,8 @@ public final class RegionTaskService {
     public record Employee(UUID id, String name, String skin, int hiredDay) {
     }
 
+    public static java.util.function.Predicate<UUID> externalBusy = id -> false;
+
     private final Map<UUID, RegionTask> tasks = new LinkedHashMap<>();
     private final Map<UUID, Employee> employees = new LinkedHashMap<>();
     private final Map<UUID, Integer> swingTimers = new HashMap<>();
@@ -125,6 +127,9 @@ public final class RegionTaskService {
             if (task.status() == RegionTask.Status.RUNNING && task.contains(npcId)) {
                 return "工作中";
             }
+        }
+        if (externalBusy.test(npcId)) {
+            return "工作中";
         }
         return "待命";
     }
@@ -638,6 +643,9 @@ public final class RegionTaskService {
     }
 
     private boolean isBusy(UUID npcId) {
+        if (externalBusy.test(npcId)) {
+            return true;
+        }
         for (RegionTask task : tasks.values()) {
             if (task.status() == RegionTask.Status.RUNNING && task.contains(npcId)) {
                 return true;

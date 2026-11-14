@@ -41,6 +41,16 @@ public final class RtsClientSetup {
                 RoadHudLayer.INSTANCE);
 
         event.registerAboveAll(
+                ResourceLocation.fromNamespaceAndPath(ModMain.MOD_ID,
+                        com.xy2407.kingdom.client.wall.WallHudLayer.ID),
+                com.xy2407.kingdom.client.wall.WallHudLayer.INSTANCE);
+
+        com.xy2407.kingdom.common.network.wall.WallClientHooks.stateSink =
+                com.xy2407.kingdom.client.wall.WallClientState::apply;
+        com.xy2407.kingdom.common.network.wall.WallClientHooks.pickResultSink =
+                com.xy2407.kingdom.client.wall.WallClientState::applyPick;
+
+        event.registerAboveAll(
                 ResourceLocation.fromNamespaceAndPath(ModMain.MOD_ID, RegionHudLayer.ID),
                 RegionHudLayer.INSTANCE);
 

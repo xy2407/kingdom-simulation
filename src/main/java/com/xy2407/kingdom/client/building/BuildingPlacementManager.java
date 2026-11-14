@@ -54,11 +54,19 @@ public final class BuildingPlacementManager {
     }
 
     public static void beginRtsFollow(String name, BlockPos startOrigin) {
+        beginRtsFollow(name, startOrigin, null);
+    }
+
+    public static void beginRtsFollow(String name, BlockPos startOrigin,
+                                      StructureModel fallbackModel) {
         discardActive();
         if (name == null || name.isBlank() || startOrigin == null) {
             return;
         }
         StructureModel loaded = StructureLoader.loadFile(BuildingMetaLoader.blueprintFile(name));
+        if (loaded == null || loaded.blocks().isEmpty()) {
+            loaded = fallbackModel;
+        }
         if (loaded == null || loaded.blocks().isEmpty()) {
             return;
         }
@@ -221,6 +229,21 @@ public final class BuildingPlacementManager {
     public static void cancel() {
         discardActive();
         clearPending();
+    }
+
+    public static void discardPendings() {
+        clearPending();
+    }
+
+    public static void discardPendingsWithName(java.util.function.Predicate<String> filter) {
+        for (int index = PENDINGS.size() - 1; index >= 0; index--) {
+            Pending pending = PENDINGS.get(index);
+            if (filter.test(pending.name())) {
+                closeMesh(pending.mesh());
+                PENDINGS.remove(index);
+            }
+        }
+        dragIndex = -1;
     }
 
     public static boolean isActive() {

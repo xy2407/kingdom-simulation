@@ -103,9 +103,12 @@ public final class TourismService {
 
     private static final int CLEANUP_INTERVAL_TICKS = 600;
 
+    /** 游客剩余寿命写库的间隔（只在它自己的 tick 里递减，这里只是定期备份）。 */
+    private static final int SAVE_INTERVAL_TICKS = 100;
+
     private final Map<UUID, Tourist> runtime = new HashMap<>();
 
-    /** 数据库里挂着、实体还没接管的游客：citizenId → 寿命截止 gameTime。 */
+    /** 数据库里挂着、实体还没接管的游客：citizenId → 剩余 tick。 */
     private final Map<UUID, Long> persisted = new HashMap<>();
 
     private final Map<String, CachedRoads> roadCache = new HashMap<>();
@@ -136,8 +139,10 @@ public final class TourismService {
     }
 
     private static final class Tourist {
-        /** 寿命截止时刻（世界 gameTime）：一到，所有存在痕迹一并清除。 */
-        private long deadline;
+        /** 还能活多少 tick：只在这个游客自己的实体 tick 里递减，区块没加载就不走。 */
+        private long remaining;
+        /** 写库节流计数。 */
+        private int saveTicks;
         /** 所属市民数据 id（数据库行主键）。 */
         private UUID citizenId;
         private Mode mode = Mode.WANDER_MOVING;
@@ -194,7 +199,7 @@ public final class TourismService {
             }
         }
         if (++cleanupTimer % CLEANUP_INTERVAL_TICKS == 0) {
-            cleanupExpired(server, server.overworld().getGameTime());
+            cleanupExpired();
         }
         for (Territory territory : TerritoryRegistry.INSTANCE.all()) {
             if (territory == null || territory.owner() == null) {
@@ -236,7 +241,11 @@ public final class TourismService {
         }
         Tourist tourist = runtime.get(npc.getUUID());
         if (tourist == null) {
-            tourist = restoreOrCreate(level, data);
+            // 追踪丢失后重新拿到实体（UUID 变了也一样）：按市民 id 找回原来的行程
+            tourist = rekeyByCitizen(npc.getUUID(), data.getId());
+            if (tourist == null) {
+                tourist = restoreOrCreate(level, data);
+            }
             runtime.put(npc.getUUID(), tourist);
         }
         if (tourist.territoryId == null) {
@@ -254,35 +263,56 @@ public final class TourismService {
         }
     }
 
-    /** 重启后实体重新接管：优先沿用数据库里挂着的寿命，没有才新建。 */
+    /** 实体 UUID 变了（追踪丢失后重建）时，按市民 id 把原行程挂回新实体。 */
+    private Tourist rekeyByCitizen(UUID entityId, UUID citizenId) {
+        if (citizenId == null) {
+            return null;
+        }
+        for (Map.Entry<UUID, Tourist> entry : new ArrayList<>(runtime.entrySet())) {
+            if (entityId.equals(entry.getKey())) {
+                continue;
+            }
+            if (citizenId.equals(entry.getValue().citizenId)) {
+                runtime.remove(entry.getKey());
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
+    /** 重启后实体重新接管：优先沿用数据库里的剩余 tick，没有才新建。 */
     private Tourist restoreOrCreate(ServerLevel level, NpcData data) {
         Tourist tourist = newTourist(level);
         tourist.citizenId = data.getId();
-        Long deadline = persisted.remove(data.getId());
-        if (deadline != null) {
-            tourist.deadline = deadline;
+        Long remaining = persisted.remove(data.getId());
+        if (remaining != null) {
+            tourist.remaining = remaining;
             return tourist;
         }
-        // 还没读到库时不写行：避免把上一局的到期时刻覆盖成新寿命
         if (loaded) {
-            insertRow(data.getId(), tourist.deadline);
+            saveRow(data.getId(), tourist.remaining);
         }
         return tourist;
     }
 
     private static Tourist newTourist(ServerLevel level) {
         Tourist tourist = new Tourist();
-        tourist.deadline = level.getGameTime() + LIFETIME_MIN
-                + level.random.nextInt(LIFETIME_MAX - LIFETIME_MIN + 1);
+        tourist.remaining = LIFETIME_MIN + level.random.nextInt(LIFETIME_MAX - LIFETIME_MIN + 1);
         tourist.wanderCooldown = WANDER_COOLDOWN;
         return tourist;
     }
 
     private void tick(ServerLevel level, NpcEntity npc, NpcData data, Tourist tourist) {
-        // 每位游客按自己的内部 tick 倒数寿命，到期就清掉全部存在痕迹
-        if (level.getGameTime() >= tourist.deadline) {
-            despawn(npc, data, tourist);
-            return;
+        // 寿命只在「闲逛」时倒数：购物、就餐、觅食期间暂停；实体不在加载区块也不走
+        if (isWandering(tourist.mode)) {
+            if (--tourist.remaining <= 0L) {
+                despawn(npc, data, tourist);
+                return;
+            }
+            if (++tourist.saveTicks >= SAVE_INTERVAL_TICKS) {
+                tourist.saveTicks = 0;
+                saveRow(data.getId(), tourist.remaining);
+            }
         }
         switch (tourist.mode) {
             case WANDER_MOVING -> tickWanderMoving(level, npc, data, tourist);
@@ -301,6 +331,7 @@ public final class TourismService {
     private static boolean isWandering(Mode mode) {
         return mode == Mode.WANDER_MOVING || mode == Mode.WANDER_REST;
     }
+
     private void tickWanderMoving(ServerLevel level, NpcEntity npc, NpcData data, Tourist tourist) {
         if (tourist.target == null) {
             tourist.target = pickWanderTarget(level, npc, tourist.territoryId);
@@ -922,7 +953,7 @@ public final class TourismService {
         tourist.territoryId = territory.id();
         tourist.citizenId = data.getId();
         runtime.put(npc.getUUID(), tourist);
-        insertRow(data.getId(), tourist.deadline);
+        saveRow(data.getId(), tourist.remaining);
         return true;
     }
 
@@ -958,12 +989,12 @@ public final class TourismService {
                 Map<UUID, Long> result = new HashMap<>();
                 try (Statement st = connection.createStatement();
                      ResultSet rs = st.executeQuery("SELECT " + TouristSchema.COL_NPC_ID
-                             + ", " + TouristSchema.COL_EXPIRE_AT
+                             + ", " + TouristSchema.COL_REMAINING
                              + " FROM " + TouristSchema.TABLE_TOURIST)) {
                     while (rs.next()) {
                         try {
                             result.put(UUID.fromString(rs.getString(TouristSchema.COL_NPC_ID)),
-                                    rs.getLong(TouristSchema.COL_EXPIRE_AT));
+                                    rs.getLong(TouristSchema.COL_REMAINING));
                         } catch (RuntimeException ignored) {
                         }
                     }
@@ -988,11 +1019,10 @@ public final class TourismService {
     }
 
     /**
-     * 周期清理：市民数据丢了、或寿命已到但实体再也不会上线的游客，
-     * 直接把数据库与内存里的所有痕迹抹掉。
+     * 周期清理：只处理「市民数据丢了」和「剩余 tick 已耗尽但实体不在场」两种残留，
+     * 绝不按现实/世界时间判定寿命——寿命只认游客自己的 tick。
      */
-    private void cleanupExpired(MinecraftServer server, long now) {
-        // 数据库挂着、实体还没接管的
+    private void cleanupExpired() {
         for (UUID id : new ArrayList<>(persisted.keySet())) {
             NpcData data = NpcManager.INSTANCE.getNpc(id);
             if (data == null) {
@@ -1000,14 +1030,13 @@ public final class TourismService {
                 deleteRow(id);
                 continue;
             }
-            Long deadline = persisted.get(id);
-            if (deadline != null && now >= deadline
+            Long remaining = persisted.get(id);
+            if (remaining != null && remaining <= 0L
                     && NpcManager.INSTANCE.liveEntity(data) == null) {
                 clearTraces(id);
                 persisted.remove(id);
             }
         }
-        // 实体已接管的：市民数据丢失的清行；寿命已到但实体不在场的清全部痕迹
         for (Map.Entry<UUID, Tourist> entry : new ArrayList<>(runtime.entrySet())) {
             Tourist tourist = entry.getValue();
             UUID citizenId = tourist.citizenId;
@@ -1019,7 +1048,7 @@ public final class TourismService {
                 }
                 continue;
             }
-            if (now >= tourist.deadline && NpcManager.INSTANCE.liveEntity(data) == null) {
+            if (tourist.remaining <= 0L && NpcManager.INSTANCE.liveEntity(data) == null) {
                 clearTraces(citizenId);
                 runtime.remove(entry.getKey());
             }
@@ -1039,13 +1068,14 @@ public final class TourismService {
         deleteRow(citizenId);
     }
 
-    private static void insertRow(UUID citizenId, long deadline) {
+    /** 只备份剩余 tick；寿命判断永远以内存里这个游客自己的倒数为准。 */
+    private static void saveRow(UUID citizenId, long remaining) {
         if (citizenId == null) {
             return;
         }
         Map<String, Object> values = new HashMap<>();
         values.put(TouristSchema.COL_NPC_ID, citizenId.toString());
-        values.put(TouristSchema.COL_EXPIRE_AT, deadline);
+        values.put(TouristSchema.COL_REMAINING, Math.max(0L, remaining));
         values.put(TouristSchema.COL_UPDATED_AT, System.currentTimeMillis());
         KingdomPersistence.submit(TouristSchema.TABLE_TOURIST, TouristSchema.COL_NPC_ID,
                 citizenId.toString(), values);

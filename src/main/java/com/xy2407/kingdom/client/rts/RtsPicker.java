@@ -49,6 +49,8 @@ public final class RtsPicker {
         }
         Entity hit = pickEntityAtScreen(mouseX, mouseY);
         if (hit != null && isSelectable(hit)) {
+            // 选中单位时清掉城墙选中，两类选中互斥
+            com.xy2407.kingdom.client.wall.WallClientState.clearSelection();
             Set<UUID> ids = RtsModeManager.isCtrlHeld()
                     ? new HashSet<>(RtsModeManager.getSelectedEntities())
                     : new HashSet<>();
@@ -56,7 +58,15 @@ public final class RtsPicker {
             RtsModeManager.setSelectedEntities(ids);
             return;
         }
+        // 没点到单位：尝试按方块选中城墙/城楼/城门（服务端按 wall_blocks 逐方块反查）
+        BlockHit blockHit = pickBlockHit(mouseX, mouseY);
+        if (blockHit != null) {
+            RtsModeManager.clearSelection();
+            com.xy2407.kingdom.client.wall.WallClientState.selectAt(blockHit.blockPos());
+            return;
+        }
         RtsModeManager.clearSelection();
+        com.xy2407.kingdom.client.wall.WallClientState.clearSelection();
     }
 
     public static void boxSelect(double x1, double y1, double x2, double y2) {

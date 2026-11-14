@@ -75,6 +75,10 @@ public final class ServerLifecycle {
         GovernmentAffairStore.INSTANCE.reset();
         GovernmentAffairService.reset();
         RoadStore.INSTANCE.reset();
+        com.xy2407.kingdom.server.wall.WallStore.INSTANCE.reset();
+        com.xy2407.kingdom.server.wall.WallBuildService.reset();
+        com.xy2407.kingdom.server.task.RegionTaskService.externalBusy =
+                com.xy2407.kingdom.server.wall.WallBuildService::isWorking;
         RoadPavingQueue.reset();
         RoadGraphService.reset();
         BuildingRoadAccess.reset();
@@ -116,13 +120,17 @@ public final class ServerLifecycle {
         GovernmentAffairService.tick(event.getServer());
         RoadStore.INSTANCE.tick();
         RoadPavingQueue.tick(event.getServer());
+        com.xy2407.kingdom.server.wall.WallStore.INSTANCE.tick();
+        com.xy2407.kingdom.server.wall.WallBuildService.tick(event.getServer());
         FactionService.tick(event.getServer());
         BuildingConstructionService.INSTANCE.load(event.getServer());
+        com.xy2407.kingdom.server.mapoverlay.MapOverlayCollector.tick(event.getServer());
     }
 
     @SubscribeEvent
     public static void onServerStopping(ServerStoppingEvent event) {
         RoadPavingQueue.releaseAll(event.getServer());
+        com.xy2407.kingdom.server.wall.WallBuildService.reset();
         NpcManager.INSTANCE.flushSync();
         BuildingStorageStore.INSTANCE.flushAll(event.getServer());
         UnitSnapshotStore.INSTANCE.shutdown();

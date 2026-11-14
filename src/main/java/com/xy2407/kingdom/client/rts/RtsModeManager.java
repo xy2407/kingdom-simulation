@@ -95,6 +95,10 @@ public final class RtsModeManager {
         return subMode == RtsSubMode.ROAD_TERRITORY || subMode == RtsSubMode.ROAD_WORLD;
     }
 
+    public static boolean isWallMode() {
+        return subMode == RtsSubMode.WALL_BUILD;
+    }
+
     public static void enterSubMode(RtsSubMode mode) {
         RtsSubMode next = mode == null ? RtsSubMode.NONE : mode;
         if (subMode == next) {
@@ -112,15 +116,27 @@ public final class RtsModeManager {
                         minecraft.player.getBlockX(), minecraft.player.getBlockZ(), 0));
             }
         }
+        if (next == RtsSubMode.WALL_BUILD) {
+            Minecraft minecraft = Minecraft.getInstance();
+            if (minecraft.player != null) {
+                PacketDistributor.sendToServer(
+                        new com.xy2407.kingdom.common.network.wall.WallStateRequestPacket());
+            }
+        }
     }
 
     public static void exitSubMode() {
         if (subMode == RtsSubMode.NONE) {
             return;
         }
+        boolean wall = subMode == RtsSubMode.WALL_BUILD;
         subMode = RtsSubMode.NONE;
         RtsRoadState.reset();
         RegionSelectionState.reset();
+        if (wall) {
+            com.xy2407.kingdom.client.building.BuildingPlacementManager.cancel();
+        }
+        com.xy2407.kingdom.client.wall.WallClientState.reset();
     }
 
     public static boolean isActive() {

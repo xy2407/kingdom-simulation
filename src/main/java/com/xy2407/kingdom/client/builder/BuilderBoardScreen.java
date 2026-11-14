@@ -303,6 +303,9 @@ public final class BuilderBoardScreen extends ApricityScreen {
         } else if (task.kind() == BuilderBoardDataPacket.KIND_DEMOLISH) {
             kindLabel = "拆除";
             kindClass = "bb-kind bb-kind-demolish";
+        } else if (task.kind() == BuilderBoardDataPacket.KIND_WALL) {
+            kindLabel = "城墙";
+            kindClass = "bb-kind bb-kind-fill";
         } else {
             kindLabel = "填充";
             kindClass = "bb-kind bb-kind-fill";
@@ -339,6 +342,9 @@ public final class BuilderBoardScreen extends ApricityScreen {
             case "RUNNING" -> "进行中";
             case "PAUSED" -> "已暂停";
             case "READY" -> "待开始";
+            case "PLANNED" -> "待开工";
+            case "BUILDING" -> "施工中";
+            case "DONE" -> "已完工";
             default -> status == null ? "" : status;
         };
     }
@@ -373,6 +379,10 @@ public final class BuilderBoardScreen extends ApricityScreen {
 
     private static String crewHtml(BuilderBoardDataPacket.TaskEntry task, int taskIndex) {
         StringBuilder html = new StringBuilder("<div class=\"bb-crew\">");
+        if (task.kind() == BuilderBoardDataPacket.KIND_WALL) {
+            html.append("<span class=\"bb-crew-empty\">建筑工自动分配并到场施工</span></div>");
+            return html.toString();
+        }
         if (task.npcs() == null || task.npcs().isEmpty()) {
             html.append("<span class=\"bb-crew-empty\">把左侧员工头像拖到这里指派</span></div>");
             return html.toString();

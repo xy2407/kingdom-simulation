@@ -96,7 +96,7 @@ public final class StructureDebugKeybind {
 
     private static final String[] SECTION_KEYS = {"POPULATION", "BUILDING", "TROOP", "ROAD", "TASK"};
 
-    private static final String[] SECTION_TITLES = {"人口", "建筑", "队伍", "道路", "填充/拆除"};
+    private static final String[] SECTION_TITLES = {"人口", "建筑", "队伍", "领地基础建设", "填充/拆除"};
 
     public static final KeyMapping OPEN_VIEWER = new KeyMapping(
             "key.xy2407_kingdom.structure_viewer",
@@ -585,7 +585,10 @@ public final class StructureDebugKeybind {
                 + "<span class=\"side-sub\">徒手刷</span></div>"
                 + "<div class=\"side-item\" id=\"road-world\">"
                 + "<span class=\"side-name\">世界道路</span>"
-                + "<span class=\"side-sub\">地图画线</span></div>");
+                + "<span class=\"side-sub\">地图画线</span></div>"
+                + "<div class=\"side-item\" id=\"wall-build\">"
+                + "<span class=\"side-name\">城墙建设</span>"
+                + "<span class=\"side-sub\">城楼/城门节点</span></div>");
         Element territory = document.getElementById("road-territory");
         if (territory != null) {
             territory.addEventListener("click", event -> enterRoadTerritory(document));
@@ -594,9 +597,13 @@ public final class StructureDebugKeybind {
         if (world != null) {
             world.addEventListener("click", event -> enterRoadWorld());
         }
+        Element wall = document.getElementById("wall-build");
+        if (wall != null) {
+            wall.addEventListener("click", event -> enterWallBuild());
+        }
         Element title = document.getElementById(SIDE_TITLE_ID);
         if (title != null) {
-            title.setInnerHTML("道路");
+            title.setInnerHTML("领地基础建设");
         }
     }
 
@@ -613,6 +620,16 @@ public final class StructureDebugKeybind {
     private static void enterRoadWorld() {
         closeViewer();
         WorldRoadScreen.open();
+    }
+
+    private static void enterWallBuild() {
+        if (!RtsModeManager.isActive()) {
+            StructureDebugChat.chat("先按 F6 进 RTS 模式，才能建造城墙");
+            return;
+        }
+        closeViewer();
+        RtsModeManager.enterSubMode(RtsSubMode.WALL_BUILD);
+        StructureDebugChat.chat("城墙：底部选城楼/城门，右键落投影，Enter 提交，C 撤销");
     }
 
     private static void exitSection(Document document) {

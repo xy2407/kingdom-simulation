@@ -1,10 +1,13 @@
 package com.xy2407.kingdom.client.map;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
+import com.xy2407.kingdom.common.faction.Territory;
 import com.xy2407.kingdom.common.network.mapoverlay.MapOverlayDataPacket;
 import com.xy2407.kingdom.common.network.mapoverlay.MapOverlayRequestPacket;
 
@@ -77,6 +80,16 @@ public final class MapOverlayStore {
     private static final List<BuildingView> BUILDINGS = new ArrayList<>();
     private static final List<RoadView> ROADS = new ArrayList<>();
 
+    /** 区块键 → 该区块所属领地：绘制时按视口逐区块 O(1) 查表，不再遍历每块领地的全部区块。 */
+    private static final Map<Long, TerritoryView> CHUNK_OWNER = new HashMap<>();
+
+    /** 全部领地的区块包围盒（区块坐标），绘制时用来把扫描范围收缩到真实有数据的区域。 */
+    private static boolean territoryBounds;
+    private static int boundsMinCX;
+    private static int boundsMinCZ;
+    private static int boundsMaxCX;
+    private static int boundsMaxCZ;
+
     private static Runnable changeListener = () -> {
     };
 
@@ -97,6 +110,8 @@ public final class MapOverlayStore {
         TERRITORIES.clear();
         BUILDINGS.clear();
         ROADS.clear();
+        CHUNK_OWNER.clear();
+        territoryBounds = false;
         List<MapOverlayDataPacket.TerritoryEntry> territories = packet.territories();
         for (int index = 0; index < territories.size(); index++) {
             MapOverlayDataPacket.TerritoryEntry entry = territories.get(index);
@@ -104,10 +119,15 @@ public final class MapOverlayStore {
             for (long key : entry.chunks()) {
                 chunkSet.add(key);
             }
-            TERRITORIES.add(new TerritoryView(entry.id(), entry.name(), entry.ownerName(),
+            TerritoryView view = new TerritoryView(entry.id(), entry.name(), entry.ownerName(),
                     entry.nationLabel(), entry.tier(), entry.population(),
                     entry.centerX(), entry.centerZ(),
-                    chunkSet, entry.self(), entry.ally()));
+                    chunkSet, entry.self(), entry.ally());
+            TERRITORIES.add(view);
+            for (long key : entry.chunks()) {
+                CHUNK_OWNER.put(key, view);
+                indexChunkBounds(key);
+            }
         }
         List<MapOverlayDataPacket.BuildingEntry> buildings = packet.buildings();
         for (int index = 0; index < buildings.size(); index++) {
@@ -136,11 +156,67 @@ public final class MapOverlayStore {
         TERRITORIES.clear();
         BUILDINGS.clear();
         ROADS.clear();
+        CHUNK_OWNER.clear();
+        territoryBounds = false;
         revision++;
         clearSelection();
         lastCenterX = Integer.MIN_VALUE;
         lastCenterZ = Integer.MIN_VALUE;
         lastRadius = -1;
+    }
+
+    private static void indexChunkBounds(long key) {
+        int chunkX = Territory.chunkKeyX(key);
+        int chunkZ = Territory.chunkKeyZ(key);
+        if (!territoryBounds) {
+            territoryBounds = true;
+            boundsMinCX = chunkX;
+            boundsMaxCX = chunkX;
+            boundsMinCZ = chunkZ;
+            boundsMaxCZ = chunkZ;
+            return;
+        }
+        if (chunkX < boundsMinCX) {
+            boundsMinCX = chunkX;
+        }
+        if (chunkX > boundsMaxCX) {
+            boundsMaxCX = chunkX;
+        }
+        if (chunkZ < boundsMinCZ) {
+            boundsMinCZ = chunkZ;
+        }
+        if (chunkZ > boundsMaxCZ) {
+            boundsMaxCZ = chunkZ;
+        }
+    }
+
+    /** 与领地区块键同一套编码：高 32 位区块 X，低 32 位区块 Z。 */
+    public static long chunkKey(int chunkX, int chunkZ) {
+        return Territory.chunkKey(chunkX, chunkZ);
+    }
+
+    public static TerritoryView chunkOwner(long key) {
+        return CHUNK_OWNER.get(key);
+    }
+
+    public static boolean hasTerritories() {
+        return territoryBounds;
+    }
+
+    public static int territoryMinChunkX() {
+        return boundsMinCX;
+    }
+
+    public static int territoryMaxChunkX() {
+        return boundsMaxCX;
+    }
+
+    public static int territoryMinChunkZ() {
+        return boundsMinCZ;
+    }
+
+    public static int territoryMaxChunkZ() {
+        return boundsMaxCZ;
     }
 
     public static void requestUpdate(int centerX, int centerZ, int radius) {

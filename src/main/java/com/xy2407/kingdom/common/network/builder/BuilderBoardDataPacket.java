@@ -21,6 +21,7 @@ public record BuilderBoardDataPacket(List<EmployeeEntry> employees,
     public static final int KIND_BUILDING = 0;
     public static final int KIND_DEMOLISH = 1;
     public static final int KIND_FILL = 2;
+    public static final int KIND_WALL = 3;
 
     public static final CustomPacketPayload.Type<BuilderBoardDataPacket> TYPE =
             new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath(ModMain.MOD_ID, "builder_board_data"));
@@ -29,7 +30,7 @@ public record BuilderBoardDataPacket(List<EmployeeEntry> employees,
             StreamCodec.of(BuilderBoardDataPacket::encode, BuilderBoardDataPacket::decode);
 
     private static final int MAX_EMPLOYEES = 32;
-    private static final int MAX_TASKS = 64;
+    private static final int MAX_TASKS = 128;
     private static final int MAX_NPCS = 16;
     private static final int MAX_MATS = 16;
 

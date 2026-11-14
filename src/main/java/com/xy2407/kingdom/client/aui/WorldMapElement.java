@@ -48,10 +48,12 @@ import java.awt.image.DataBufferInt;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 import javax.imageio.ImageIO;
@@ -230,6 +232,14 @@ public class WorldMapElement extends Canvas {
     private double hoverX;
     private double hoverY;
 
+    /** 拖动补边带后待补画叠层的区域（光栅坐标）。 */
+    private boolean stripVPending;
+    private int stripVTop;
+    private int stripVBottom;
+    private boolean stripHPending;
+    private int stripHLeft;
+    private int stripHRight;
+
     private String hoveredBuildingId = "";
 
     private static final Tooltip.Options TIP_OPTIONS = new Tooltip.Options("aui-tooltip",
@@ -326,6 +336,17 @@ public class WorldMapElement extends Canvas {
         boolean forceRebuild = dragRebuild;
         dragRebuild = false;
         if (dragging && !resized && !forceRebuild) {
+            // 拖动时只补刚搬出来的边带叠层，不整屏重绘
+            int bitmapWidth = getBitmapWidth();
+            int bitmapHeight = getBitmapHeight();
+            if (stripVPending) {
+                stripVPending = false;
+                drawStripOverlay(0, stripVTop, bitmapWidth, stripVBottom);
+            }
+            if (stripHPending) {
+                stripHPending = false;
+                drawStripOverlay(stripHLeft, 0, stripHRight, bitmapHeight);
+            }
             return;
         }
 
@@ -411,6 +432,8 @@ public class WorldMapElement extends Canvas {
         if (pixels == null) {
             return;
         }
+        stripVPending = false;
+        stripHPending = false;
         int needed = surfaceWidth * surfaceHeight;
         if (pixels.length < needed) {
             if (!loggedShortBuffer) {
@@ -728,47 +751,109 @@ public class WorldMapElement extends Canvas {
 
     private void drawTerritoryLayer(Graphics2D graphics, int surfaceWidth, int surfaceHeight,
                                     int clipX0, int clipY0, int clipX1, int clipY1) {
-        List<MapOverlayStore.TerritoryView> territories = MapOverlayStore.territories();
-        if (territories.isEmpty() || paintedPixelsPerBlock <= 0.0) {
+        if (!MapOverlayStore.hasTerritories() || paintedPixelsPerBlock <= 0.0) {
             return;
         }
-        String selected = MapOverlayStore.selectedId();
-        for (int index = 0; index < territories.size(); index++) {
-            MapOverlayStore.TerritoryView territory = territories.get(index);
-            boolean active = territory.id().equals(selected);
-            int fill = territoryFill(territory, active);
-            int edge = (fill & 0xFFFFFF) | 0xFF000000;
-            graphics.setColor(new Color(fill, true));
-            for (long key : territory.chunks()) {
-                int chunkX = Territory.chunkKeyX(key);
-                int chunkZ = Territory.chunkKeyZ(key);
-                if (!ClientMapStore.explored(chunkX, chunkZ)) {
+        if (clipX1 <= clipX0 || clipY1 <= clipY0) {
+            return;
+        }
+        // 只扫「视口 ∩ 所有领地的包围盒」这块区块：不再遍历每块领地的全部区块
+        int minChunkX = Math.max(MapOverlayStore.territoryMinChunkX(),
+                Math.floorDiv(worldXAt(clipX0), CHUNK_SIZE));
+        int maxChunkX = Math.min(MapOverlayStore.territoryMaxChunkX(),
+                Math.floorDiv(worldXAt(clipX1 - 1), CHUNK_SIZE));
+        int minChunkZ = Math.max(MapOverlayStore.territoryMinChunkZ(),
+                Math.floorDiv(worldZAt(clipY0), CHUNK_SIZE));
+        int maxChunkZ = Math.min(MapOverlayStore.territoryMaxChunkZ(),
+                Math.floorDiv(worldZAt(clipY1 - 1), CHUNK_SIZE));
+        if (minChunkX > maxChunkX || minChunkZ > maxChunkZ) {
+            return;
+        }
+        for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
+            // 先按行把同一领地的连续区块合并成一条 fillRect，再逐块补边界
+            MapOverlayStore.TerritoryView runOwner = null;
+            int runStartX = minChunkX;
+            for (int chunkX = minChunkX; chunkX <= maxChunkX + 1; chunkX++) {
+                MapOverlayStore.TerritoryView owner =
+                        chunkX <= maxChunkX ? ownedChunkAt(chunkX, chunkZ) : null;
+                if (owner == runOwner) {
                     continue;
                 }
-                int px0 = Math.max(pixelX(chunkX * CHUNK_SIZE), clipX0);
-                int py0 = Math.max(pixelZ(chunkZ * CHUNK_SIZE), clipY0);
-                int px1 = Math.min(pixelX((chunkX + 1) * CHUNK_SIZE), clipX1);
-                int py1 = Math.min(pixelZ((chunkZ + 1) * CHUNK_SIZE), clipY1);
-                if (px1 <= px0 || py1 <= py0) {
-                    continue;
+                if (runOwner != null) {
+                    fillTerritoryRun(graphics, runOwner, runStartX, chunkX - 1, chunkZ,
+                            surfaceWidth, surfaceHeight);
                 }
-                graphics.fillRect(px0, py0, px1 - px0, py1 - py0);
-                graphics.setColor(new Color(edge, true));
-                if (!territory.containsChunk(chunkX - 1, chunkZ)) {
-                    graphics.fillRect(px0, py0, EDGE_WIDTH, py1 - py0);
+                runOwner = owner;
+                runStartX = chunkX;
+            }
+            for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+                MapOverlayStore.TerritoryView owner = ownedChunkAt(chunkX, chunkZ);
+                if (owner != null) {
+                    drawTerritoryEdges(graphics, owner, chunkX, chunkZ, surfaceWidth, surfaceHeight);
                 }
-                if (!territory.containsChunk(chunkX + 1, chunkZ)) {
-                    graphics.fillRect(px1 - EDGE_WIDTH, py0, EDGE_WIDTH, py1 - py0);
-                }
-                if (!territory.containsChunk(chunkX, chunkZ - 1)) {
-                    graphics.fillRect(px0, py0, px1 - px0, EDGE_WIDTH);
-                }
-                if (!territory.containsChunk(chunkX, chunkZ + 1)) {
-                    graphics.fillRect(px0, py1 - EDGE_WIDTH, px1 - px0, EDGE_WIDTH);
-                }
-                graphics.setColor(new Color(fill, true));
             }
         }
+    }
+
+    private static MapOverlayStore.TerritoryView ownedChunkAt(int chunkX, int chunkZ) {
+        MapOverlayStore.TerritoryView owner =
+                MapOverlayStore.chunkOwner(MapOverlayStore.chunkKey(chunkX, chunkZ));
+        if (owner == null || !ClientMapStore.explored(chunkX, chunkZ)) {
+            return null;
+        }
+        return owner;
+    }
+
+    private static boolean ownedBy(MapOverlayStore.TerritoryView owner, int chunkX, int chunkZ) {
+        return MapOverlayStore.chunkOwner(MapOverlayStore.chunkKey(chunkX, chunkZ)) == owner;
+    }
+
+    private void fillTerritoryRun(Graphics2D graphics, MapOverlayStore.TerritoryView owner,
+                                  int fromChunkX, int toChunkX, int chunkZ,
+                                  int surfaceWidth, int surfaceHeight) {
+        int px0 = Math.max(0, pixelX(fromChunkX * CHUNK_SIZE));
+        int px1 = Math.min(surfaceWidth, pixelX((toChunkX + 1) * CHUNK_SIZE));
+        int py0 = Math.max(0, pixelZ(chunkZ * CHUNK_SIZE));
+        int py1 = Math.min(surfaceHeight, pixelZ((chunkZ + 1) * CHUNK_SIZE));
+        if (px1 <= px0 || py1 <= py0) {
+            return;
+        }
+        int fill = territoryFill(owner, owner.id().equals(MapOverlayStore.selectedId()));
+        graphics.setColor(new Color(fill, true));
+        graphics.fillRect(px0, py0, px1 - px0, py1 - py0);
+    }
+
+    private void drawTerritoryEdges(Graphics2D graphics, MapOverlayStore.TerritoryView owner,
+                                   int chunkX, int chunkZ, int surfaceWidth, int surfaceHeight) {
+        int px0 = Math.max(0, pixelX(chunkX * CHUNK_SIZE));
+        int py0 = Math.max(0, pixelZ(chunkZ * CHUNK_SIZE));
+        int px1 = Math.min(surfaceWidth, pixelX((chunkX + 1) * CHUNK_SIZE));
+        int py1 = Math.min(surfaceHeight, pixelZ((chunkZ + 1) * CHUNK_SIZE));
+        if (px1 <= px0 || py1 <= py0) {
+            return;
+        }
+        int fill = territoryFill(owner, owner.id().equals(MapOverlayStore.selectedId()));
+        graphics.setColor(new Color((fill & 0xFFFFFF) | 0xFF000000, true));
+        if (!ownedBy(owner, chunkX - 1, chunkZ)) {
+            graphics.fillRect(px0, py0, EDGE_WIDTH, py1 - py0);
+        }
+        if (!ownedBy(owner, chunkX + 1, chunkZ)) {
+            graphics.fillRect(px1 - EDGE_WIDTH, py0, EDGE_WIDTH, py1 - py0);
+        }
+        if (!ownedBy(owner, chunkX, chunkZ - 1)) {
+            graphics.fillRect(px0, py0, px1 - px0, EDGE_WIDTH);
+        }
+        if (!ownedBy(owner, chunkX, chunkZ + 1)) {
+            graphics.fillRect(px0, py1 - EDGE_WIDTH, px1 - px0, EDGE_WIDTH);
+        }
+    }
+
+    private int worldXAt(int pixel) {
+        return (int) Math.floor(paintedOriginX + pixel / paintedPixelsPerBlock);
+    }
+
+    private int worldZAt(int pixel) {
+        return (int) Math.floor(paintedOriginZ + pixel / paintedPixelsPerBlock);
     }
 
     private void drawBuildingLayer(Graphics2D graphics, int surfaceWidth, int surfaceHeight,
@@ -825,7 +910,7 @@ public class WorldMapElement extends Canvas {
         }
         String selected = MapOverlayStore.selectedId();
         int half = BUILDING_ICON_SIZE / 2;
-        List<int[]> placed = new ArrayList<>();
+        Map<Long, List<int[]>> placed = new HashMap<>();
         for (int index = 0; index < buildings.size(); index++) {
             MapOverlayStore.BuildingView building = buildings.get(index);
             int centerX = pixelX(building.centerBlockX());
@@ -839,7 +924,8 @@ public class WorldMapElement extends Canvas {
             if (tooDense(placed, centerX, centerY)) {
                 continue;
             }
-            placed.add(new int[] {centerX, centerY});
+            placed.computeIfAbsent(iconCellKey(iconCell(centerX), iconCell(centerY)), key -> new ArrayList<>())
+                    .add(new int[] {centerX, centerY});
             graphics.setColor(new Color(buildingIconColor(building.type()), true));
             graphics.fillRect(left, top, BUILDING_ICON_SIZE, BUILDING_ICON_SIZE);
             drawBorder(graphics, left, top, BUILDING_ICON_SIZE, BUILDING_ICON_SIZE,
@@ -847,15 +933,34 @@ public class WorldMapElement extends Canvas {
         }
     }
 
-    private static boolean tooDense(List<int[]> placed, int centerX, int centerY) {
-        for (int index = 0; index < placed.size(); index++) {
-            int[] point = placed.get(index);
-            if (Math.abs(point[0] - centerX) < ICON_GAP_PIXELS
-                    && Math.abs(point[1] - centerY) < ICON_GAP_PIXELS) {
-                return true;
+    /** 网格避让：只跟同格与相邻 8 格里的图标比，结果与两两全比完全等价，但不再是 O(n²)。 */
+    private static boolean tooDense(Map<Long, List<int[]>> placed, int centerX, int centerY) {
+        int cellX = iconCell(centerX);
+        int cellY = iconCell(centerY);
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                List<int[]> bucket = placed.get(iconCellKey(cellX + dx, cellY + dy));
+                if (bucket == null) {
+                    continue;
+                }
+                for (int index = 0; index < bucket.size(); index++) {
+                    int[] point = bucket.get(index);
+                    if (Math.abs(point[0] - centerX) < ICON_GAP_PIXELS
+                            && Math.abs(point[1] - centerY) < ICON_GAP_PIXELS) {
+                        return true;
+                    }
+                }
             }
         }
         return false;
+    }
+
+    private static int iconCell(int pixel) {
+        return Math.floorDiv(pixel, ICON_GAP_PIXELS);
+    }
+
+    private static long iconCellKey(int cellX, int cellY) {
+        return ((long) cellX << 32) | (cellY & 0xFFFFFFFFL);
     }
 
     private static void drawBorder(Graphics2D graphics, int x, int y, int width, int height, int color) {
@@ -1329,7 +1434,8 @@ public class WorldMapElement extends Canvas {
         if (document != null) {
             document.markDirty(this, Drawer.REPAINT);
         }
-        if (dragOutOfMargin()) {
+        if (dragOutOfMargin() && !slideSurface(dragPixelX, dragPixelY, e.offsetX, e.offsetY)) {
+            // 兜底：一次拖动跨度超过整张表面时退回整屏重建
             commitPan();
             dragAnchorX = e.offsetX;
             dragAnchorY = e.offsetY;
@@ -1338,6 +1444,161 @@ public class WorldMapElement extends Canvas {
             dragRebuild = true;
         }
         clearStaleDrag();
+    }
+
+    /**
+     * 拖动越过表面留白时把已有画面整块平移，只重画新露出的那条边带。
+     * 原来这里是「提交平移 + 整屏重绘」，快拖时每 256 像素就整屏重画并整张上传一次，必然顿。
+     */
+    private boolean slideSurface(double pixelX, double pixelY, double offsetX, double offsetY) {
+        if (paintedPixelsPerBlock <= 0.0 || paintedLevel < 0) {
+            return false;
+        }
+        // 按方块取整，保证 paintedOrigin 仍是整数世界坐标
+        int blocksX = (int) Math.round(pixelX / paintedPixelsPerBlock);
+        int blocksZ = (int) Math.round(pixelY / paintedPixelsPerBlock);
+        double scale = deviceScale();
+        int shiftX = (int) Math.round(blocksX * paintedPixelsPerBlock * scale);
+        int shiftZ = (int) Math.round(blocksZ * paintedPixelsPerBlock * scale);
+        if (shiftX == 0 && shiftZ == 0) {
+            return true;
+        }
+        int width = getBitmapWidth();
+        int height = getBitmapHeight();
+        if (width <= 0 || height <= 0 || Math.abs(shiftX) >= width || Math.abs(shiftZ) >= height) {
+            return false;
+        }
+        int[] pixels = surfacePixels();
+        if (pixels == null || pixels.length < width * height) {
+            return false;
+        }
+        shiftPixels(pixels, width, height, shiftX, shiftZ);
+        // 内容朝拖动方向平移，表面左/上缘对应的世界坐标随之反向变化
+        paintedOriginX -= blocksX;
+        paintedOriginZ -= blocksZ;
+        int left = 0;
+        int right = 0;
+        if (shiftX > 0) {
+            right = shiftX;
+        } else if (shiftX < 0) {
+            left = width + shiftX;
+            right = width;
+        }
+        int top = 0;
+        int bottom = 0;
+        if (shiftZ > 0) {
+            bottom = shiftZ;
+        } else if (shiftZ < 0) {
+            top = height + shiftZ;
+            bottom = height;
+        }
+        double ppb = paintedPixelsPerBlock * scale;
+        // 地形条带是纯数组运算，事件线程里直接补
+        if (bottom > top) {
+            fillRaster(pixels, width, height, paintedOriginX, paintedOriginZ, ppb, paintedLevel,
+                    0, top, width, bottom);
+        }
+        if (right > left) {
+            fillRaster(pixels, width, height, paintedOriginX, paintedOriginZ, ppb, paintedLevel,
+                    left, 0, right, height);
+        }
+        // 叠层条带留到绘制阶段再画（那里才有安全的 Graphics2D 上下文）
+        if (bottom > top) {
+            queueStripVertical(top, bottom);
+        }
+        if (right > left) {
+            queueStripHorizontal(left, right);
+        }
+        markSurfaceDirty();
+        double residualX = pixelX - blocksX * paintedPixelsPerBlock;
+        double residualZ = pixelY - blocksZ * paintedPixelsPerBlock;
+        dragPixelX = residualX;
+        dragPixelY = residualZ;
+        dragAnchorX = offsetX - residualX;
+        dragAnchorY = offsetY - residualZ;
+        return true;
+    }
+
+    /** 记下这次补出来的横向条带（整宽、[top,bottom) 行），等绘制阶段补叠层。 */
+    private void queueStripVertical(int top, int bottom) {
+        if (!stripVPending) {
+            stripVPending = true;
+            stripVTop = top;
+            stripVBottom = bottom;
+            return;
+        }
+        stripVTop = Math.min(stripVTop, top);
+        stripVBottom = Math.max(stripVBottom, bottom);
+    }
+
+    /** 记下这次补出来的纵向条带（整高、[left,right) 列）。 */
+    private void queueStripHorizontal(int left, int right) {
+        if (!stripHPending) {
+            stripHPending = true;
+            stripHLeft = left;
+            stripHRight = right;
+            return;
+        }
+        stripHLeft = Math.min(stripHLeft, left);
+        stripHRight = Math.max(stripHRight, right);
+    }
+
+    /** 就地搬移像素：arraycopy 自带重叠安全，先整行竖直搬，再逐行水平搬。 */
+    private static void shiftPixels(int[] pixels, int width, int height, int shiftX, int shiftZ) {
+        if (shiftZ > 0) {
+            for (int y = height - 1; y >= shiftZ; y--) {
+                System.arraycopy(pixels, (y - shiftZ) * width, pixels, y * width, width);
+            }
+        } else if (shiftZ < 0) {
+            for (int y = 0; y < height + shiftZ; y++) {
+                System.arraycopy(pixels, (y - shiftZ) * width, pixels, y * width, width);
+            }
+        }
+        if (shiftX > 0) {
+            for (int y = 0; y < height; y++) {
+                int row = y * width;
+                System.arraycopy(pixels, row, pixels, row + shiftX, width - shiftX);
+            }
+        } else if (shiftX < 0) {
+            for (int y = 0; y < height; y++) {
+                int row = y * width;
+                System.arraycopy(pixels, row - shiftX, pixels, row, width + shiftX);
+            }
+        }
+    }
+
+    /** 给拖动补出来的条带补画叠层（地形已经在搬运时补好）。 */
+    private void drawStripOverlay(int x0, int y0, int x1, int y1) {
+        int width = getBitmapWidth();
+        int height = getBitmapHeight();
+        int left = Math.max(0, Math.min(x0, width));
+        int right = Math.max(0, Math.min(x1, width));
+        int top = Math.max(0, Math.min(y0, height));
+        int bottom = Math.max(0, Math.min(y1, height));
+        if (left >= right || top >= bottom) {
+            return;
+        }
+        double scale = deviceScale();
+        double invScale = 1.0 / scale;
+        int dx0 = (int) Math.floor(left * invScale);
+        int dy0 = (int) Math.floor(top * invScale);
+        int dx1 = (int) Math.ceil(right * invScale);
+        int dy1 = (int) Math.ceil(bottom * invScale);
+        Rectangle2D bounds = new Rectangle2D.Double(left, top, right - left, bottom - top);
+        int designWidth = getWidth();
+        int designHeight = getHeight();
+        renderOperation(graphics -> {
+            graphics.scale(scale, scale);
+            graphics.setClip(dx0, dy0, dx1 - dx0, dy1 - dy0);
+            drawOverlay(graphics, designWidth, designHeight, dx0, dy0, dx1, dy1);
+            drawChunkGrid(graphics, designWidth, designHeight,
+                    paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
+            drawSelection(graphics, dx0, dy0, dx1, dy1);
+            drawMarker(graphics, designWidth, designHeight,
+                    paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
+            drawPlayerMarker(graphics, designWidth, designHeight,
+                    paintedOriginX, paintedOriginZ, paintedPixelsPerBlock);
+        }, bounds);
     }
 
     private boolean dragOutOfMargin() {
